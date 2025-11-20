@@ -14,7 +14,143 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      automations: {
+        Row: {
+          ativo: boolean | null
+          configuracao: Json
+          created_at: string | null
+          descricao: string | null
+          dispositivos_ids: string[] | null
+          id: string
+          nome: string
+          updated_at: string | null
+          usuario_id: string
+        }
+        Insert: {
+          ativo?: boolean | null
+          configuracao: Json
+          created_at?: string | null
+          descricao?: string | null
+          dispositivos_ids?: string[] | null
+          id?: string
+          nome: string
+          updated_at?: string | null
+          usuario_id: string
+        }
+        Update: {
+          ativo?: boolean | null
+          configuracao?: Json
+          created_at?: string | null
+          descricao?: string | null
+          dispositivos_ids?: string[] | null
+          id?: string
+          nome?: string
+          updated_at?: string | null
+          usuario_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "automations_usuario_id_fkey"
+            columns: ["usuario_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      devices: {
+        Row: {
+          configuracao: Json | null
+          created_at: string | null
+          id: string
+          instalador_id: string | null
+          localizacao: string | null
+          modelo: string | null
+          nome: string
+          numero_serie: string | null
+          status: Database["public"]["Enums"]["device_status"] | null
+          tipo: string
+          ultima_conexao: string | null
+          updated_at: string | null
+          usuario_id: string | null
+        }
+        Insert: {
+          configuracao?: Json | null
+          created_at?: string | null
+          id?: string
+          instalador_id?: string | null
+          localizacao?: string | null
+          modelo?: string | null
+          nome: string
+          numero_serie?: string | null
+          status?: Database["public"]["Enums"]["device_status"] | null
+          tipo: string
+          ultima_conexao?: string | null
+          updated_at?: string | null
+          usuario_id?: string | null
+        }
+        Update: {
+          configuracao?: Json | null
+          created_at?: string | null
+          id?: string
+          instalador_id?: string | null
+          localizacao?: string | null
+          modelo?: string | null
+          nome?: string
+          numero_serie?: string | null
+          status?: Database["public"]["Enums"]["device_status"] | null
+          tipo?: string
+          ultima_conexao?: string | null
+          updated_at?: string | null
+          usuario_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "devices_instalador_id_fkey"
+            columns: ["instalador_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "devices_usuario_id_fkey"
+            columns: ["usuario_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string | null
+          id: string
+          nome_completo: string
+          telefone: string | null
+          tipo_usuario: Database["public"]["Enums"]["user_type"]
+          updated_at: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string | null
+          id: string
+          nome_completo: string
+          telefone?: string | null
+          tipo_usuario?: Database["public"]["Enums"]["user_type"]
+          updated_at?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string | null
+          id?: string
+          nome_completo?: string
+          telefone?: string | null
+          tipo_usuario?: Database["public"]["Enums"]["user_type"]
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
@@ -23,7 +159,8 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      device_status: "online" | "offline" | "manutencao"
+      user_type: "instalador" | "usuario_final"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +287,9 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      device_status: ["online", "offline", "manutencao"],
+      user_type: ["instalador", "usuario_final"],
+    },
   },
 } as const
