@@ -2,6 +2,7 @@ import { Link } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Cpu, Wifi, WifiOff, Share2, MapPin } from "lucide-react";
+import { isDeviceOnline } from "@/hooks/useSystemConfig";
 
 interface Device {
   id: string;
@@ -10,15 +11,19 @@ interface Device {
   tipo: string;
   localizacao: string | null;
   status: string;
+  ultima_conexao: string | null;
   isShared?: boolean;
   sharedBy?: string;
 }
 
 interface Props {
   device: Device;
+  statusTimeoutMinutes: number;
 }
 
-export default function DeviceCard({ device }: Props) {
+export default function DeviceCard({ device, statusTimeoutMinutes }: Props) {
+  const isOnline = isDeviceOnline(device.ultima_conexao, statusTimeoutMinutes);
+  
   return (
     <Link to={`/devices/${device.id}`}>
       <Card className="hover:shadow-lg transition-all hover:border-primary/50 cursor-pointer group">
@@ -33,13 +38,13 @@ export default function DeviceCard({ device }: Props) {
                   <Share2 className="h-3 w-3" />
                 </Badge>
               )}
-              <Badge variant={device.status === "online" ? "default" : "secondary"} className="gap-1">
-                {device.status === "online" ? (
+              <Badge variant={isOnline ? "default" : "secondary"} className="gap-1">
+                {isOnline ? (
                   <Wifi className="h-3 w-3" />
                 ) : (
                   <WifiOff className="h-3 w-3" />
                 )}
-                {device.status === "online" ? "Online" : "Offline"}
+                {isOnline ? "Online" : "Offline"}
               </Badge>
             </div>
           </div>

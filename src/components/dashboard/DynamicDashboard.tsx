@@ -1,6 +1,7 @@
 import { useState, useEffect, forwardRef, useImperativeHandle, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { supabase } from "@/integrations/supabase/client";
 import { useMQTT, MQTTStatus } from "@/hooks/useMQTT";
 import { getValueByPath } from "@/lib/jsonPath";
 import GaugeComponent from "./components/GaugeComponent";
@@ -51,6 +52,18 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
+  // Função para atualizar ultima_conexao no banco
+  const updateLastConnection = useCallback(async () => {
+    const { error } = await supabase
+      .from("devices")
+      .update({ ultima_conexao: new Date().toISOString(), status: "online" })
+      .eq("id", device.id);
+    
+    if (error) {
+      console.error("Erro ao atualizar ultima_conexao:", error);
+    }
+  }, [device.id]);
+
   // Hook de conexão MQTT
   const { status: mqttStatus, publish, error: mqttError } = useMQTT({
     deviceId: device.device_id,
@@ -85,7 +98,10 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
       });
 
       setLastUpdate(new Date());
-    }, [device.device_id, dashboardConfigs])
+      
+      // Atualizar ultima_conexao no banco de dados
+      updateLastConnection();
+    }, [device.device_id, dashboardConfigs, updateLastConnection])
   });
 
   // Comando padrão para solicitar atualização em tempo real
