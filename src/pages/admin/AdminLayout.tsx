@@ -9,7 +9,8 @@ import {
   LayoutDashboard,
   ArrowLeft,
   Loader2,
-  Shield
+  Shield,
+  LayoutGrid
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ const menuItems = [
   { path: "/admin", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/admin/usuarios", icon: Users, label: "Usuários" },
   { path: "/admin/modelos", icon: Cpu, label: "Modelos de Dispositivos" },
+  { path: "/admin/dash-components", icon: LayoutGrid, label: "Componentes de Dash" },
   { path: "/admin/comunicacao", icon: Radio, label: "Comunicação" },
   { path: "/admin/mqtt", icon: Server, label: "Servidores MQTT" },
 ];

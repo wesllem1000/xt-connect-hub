@@ -12,6 +12,8 @@ import AdminUsuarios from "./pages/admin/AdminUsuarios";
 import AdminModelos from "./pages/admin/AdminModelos";
 import AdminComunicacao from "./pages/admin/AdminComunicacao";
 import AdminMqtt from "./pages/admin/AdminMqtt";
+import AdminDashComponents from "./pages/admin/AdminDashComponents";
+import AdminModeloDashboards from "./pages/admin/AdminModeloDashboards";
 
 const queryClient = new QueryClient();
 
@@ -28,6 +30,8 @@ const App = () => (
           <Route path="/admin" element={<AdminDashboard />} />
           <Route path="/admin/usuarios" element={<AdminUsuarios />} />
           <Route path="/admin/modelos" element={<AdminModelos />} />
+          <Route path="/admin/modelos/:modelId/dashboards" element={<AdminModeloDashboards />} />
+          <Route path="/admin/dash-components" element={<AdminDashComponents />} />
           <Route path="/admin/comunicacao" element={<AdminComunicacao />} />
           <Route path="/admin/mqtt" element={<AdminMqtt />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

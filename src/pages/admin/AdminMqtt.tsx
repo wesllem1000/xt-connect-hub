@@ -20,6 +20,7 @@ interface MqttServer {
   porta: number;
   usa_ssl: boolean;
   usuario: string | null;
+  senha: string | null;
   topico_padrao: string | null;
   descricao: string | null;
   ativo: boolean;
@@ -31,6 +32,7 @@ const emptyServer: Omit<MqttServer, "id"> = {
   porta: 1883,
   usa_ssl: false,
   usuario: "",
+  senha: "",
   topico_padrao: "",
   descricao: "",
   ativo: true,
@@ -87,6 +89,7 @@ export default function AdminMqtt() {
       porta: editingServer.porta || 1883,
       usa_ssl: editingServer.usa_ssl ?? false,
       usuario: editingServer.usuario || null,
+      senha: editingServer.senha || null,
       topico_padrao: editingServer.topico_padrao || null,
       descricao: editingServer.descricao || null,
       ativo: editingServer.ativo ?? true,
@@ -250,13 +253,24 @@ export default function AdminMqtt() {
                   />
                 </div>
               </div>
-              <div className="space-y-2">
-                <Label>Usuário</Label>
-                <Input
-                  value={editingServer?.usuario || ""}
-                  onChange={(e) => setEditingServer(prev => ({ ...prev, usuario: e.target.value }))}
-                  placeholder="Usuário de autenticação"
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Usuário</Label>
+                  <Input
+                    value={editingServer?.usuario || ""}
+                    onChange={(e) => setEditingServer(prev => ({ ...prev, usuario: e.target.value }))}
+                    placeholder="Usuário de autenticação"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Senha</Label>
+                  <Input
+                    type="password"
+                    value={editingServer?.senha || ""}
+                    onChange={(e) => setEditingServer(prev => ({ ...prev, senha: e.target.value }))}
+                    placeholder="Senha de autenticação"
+                  />
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Tópico Padrão</Label>
