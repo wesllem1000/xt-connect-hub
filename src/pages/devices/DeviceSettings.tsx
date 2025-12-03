@@ -127,41 +127,18 @@ export default function DeviceSettings() {
     setSaving(false);
   };
 
-  const handleShare = async () => {
-    if (!shareEmail.trim()) {
-      toast.error("Digite o email do usuário");
+  const handleShareByEmail = async () => {
+    const email = shareEmail.trim().toLowerCase();
+    
+    if (!email) {
+      toast.error("Digite o e-mail do usuário");
       return;
     }
 
-    setSharingLoading(true);
-
-    try {
-      // Buscar usuário pelo email
-      const { data: profiles, error: profileError } = await supabase
-        .from("profiles")
-        .select("id, nome_completo")
-        .ilike("id", `%${shareEmail}%`);
-
-      // Como não temos email na tabela profiles, vamos buscar por auth
-      // Na prática, precisaríamos ter o email na tabela profiles
-      // Por agora, vamos simular buscando diretamente
-      
-      // Buscar na auth.users através de uma edge function ou RPC
-      // Como alternativa, podemos perguntar pelo ID do usuário diretamente
-      
-      toast.error("Funcionalidade de busca por email em desenvolvimento. Por favor, use o ID do usuário.");
-      
-    } catch (err) {
-      console.error(err);
-      toast.error("Erro ao compartilhar dispositivo");
-    } finally {
-      setSharingLoading(false);
-    }
-  };
-
-  const handleShareById = async (userId: string) => {
-    if (!userId.trim()) {
-      toast.error("Digite o ID do usuário");
+    // Validação básica de email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      toast.error("Digite um e-mail válido");
       return;
     }
 
@@ -170,22 +147,23 @@ export default function DeviceSettings() {
     try {
       const { data: session } = await supabase.auth.getSession();
       const currentUserId = session?.session?.user?.id;
+      const currentUserEmail = session?.session?.user?.email?.toLowerCase();
 
-      if (userId === currentUserId) {
+      if (email === currentUserEmail) {
         toast.error("Você não pode compartilhar consigo mesmo");
         setSharingLoading(false);
         return;
       }
 
-      // Verificar se o usuário existe
+      // Buscar usuário pelo email na tabela profiles
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
-        .select("id, nome_completo")
-        .eq("id", userId)
+        .select("id, nome_completo, email")
+        .ilike("email", email)
         .maybeSingle();
 
       if (profileError || !profile) {
-        toast.error("Usuário não encontrado");
+        toast.error("Usuário não encontrado com este e-mail");
         setSharingLoading(false);
         return;
       }
@@ -195,7 +173,7 @@ export default function DeviceSettings() {
         .from("device_shares")
         .select("id")
         .eq("device_id", deviceId)
-        .eq("shared_with_user_id", userId)
+        .eq("shared_with_user_id", profile.id)
         .maybeSingle();
 
       if (existingShare) {
@@ -210,7 +188,7 @@ export default function DeviceSettings() {
         .insert({
           device_id: deviceId,
           shared_by_user_id: currentUserId,
-          shared_with_user_id: userId
+          shared_with_user_id: profile.id
         });
 
       if (error) {
@@ -330,13 +308,13 @@ export default function DeviceSettings() {
           <CardContent className="space-y-4">
             <div className="flex gap-2">
               <Input
-                placeholder="ID do usuário (UUID)"
+                type="email"
+                placeholder="E-mail do usuário"
                 value={shareEmail}
                 onChange={(e) => setShareEmail(e.target.value)}
-                className="font-mono text-sm"
               />
               <Button 
-                onClick={() => handleShareById(shareEmail)} 
+                onClick={handleShareByEmail} 
                 disabled={sharingLoading}
               >
                 {sharingLoading ? (
