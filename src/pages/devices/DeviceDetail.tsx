@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowLeft, Settings, Share2, Wifi, WifiOff, RefreshCw } from "lucide-react";
-import DynamicDashboard from "@/components/dashboard/DynamicDashboard";
+import DynamicDashboard, { DynamicDashboardRef } from "@/components/dashboard/DynamicDashboard";
 
 interface Device {
   id: string;
@@ -53,10 +53,16 @@ export default function DeviceDetail() {
   const [isOwner, setIsOwner] = useState(false);
   const [isShared, setIsShared] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const dashboardRef = useRef<{ requestRealTimeUpdate: () => Promise<void> } | null>(null);
+  const dashboardRef = useRef<DynamicDashboardRef | null>(null);
 
   const handleRealTimeUpdate = async () => {
     if (!device) return;
+    
+    // Verificar se está conectado ao MQTT
+    if (dashboardRef.current?.mqttStatus !== "connected") {
+      toast.error("Não conectado ao MQTT. Aguarde a conexão...");
+      return;
+    }
     
     setIsRefreshing(true);
     toast.info("Solicitando atualização em tempo real...");
@@ -65,11 +71,10 @@ export default function DeviceDetail() {
       if (dashboardRef.current) {
         await dashboardRef.current.requestRealTimeUpdate();
       }
-      toast.success("Solicitação enviada! Aguardando resposta do dispositivo...");
+      toast.success("Comando enviado! Aguardando resposta do dispositivo...");
     } catch (error) {
       toast.error("Erro ao solicitar atualização");
     } finally {
-      // Timeout para simular espera da resposta
       setTimeout(() => {
         setIsRefreshing(false);
       }, 2000);
@@ -214,7 +219,7 @@ export default function DeviceDetail() {
               variant="outline" 
               size="sm" 
               onClick={handleRealTimeUpdate}
-              disabled={isRefreshing || device.status !== "online"}
+              disabled={isRefreshing}
               className="gap-2"
             >
               <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
