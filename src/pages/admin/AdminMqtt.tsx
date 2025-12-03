@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Search, Loader2, Server, Lock } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Loader2, Server, Lock, Wifi, WifiOff } from "lucide-react";
 import AdminLayout from "./AdminLayout";
 
 interface MqttServer {
@@ -45,6 +45,8 @@ export default function AdminMqtt() {
   const [editingServer, setEditingServer] = useState<Partial<MqttServer> | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [isNew, setIsNew] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   const fetchServers = async () => {
     setLoading(true);
@@ -68,13 +70,58 @@ export default function AdminMqtt() {
   const openNewDialog = () => {
     setEditingServer(emptyServer);
     setIsNew(true);
+    setConnectionStatus('idle');
     setDialogOpen(true);
   };
 
   const openEditDialog = (server: MqttServer) => {
     setEditingServer(server);
     setIsNew(false);
+    setConnectionStatus('idle');
     setDialogOpen(true);
+  };
+
+  const handleTestConnection = async () => {
+    if (!editingServer?.host || !editingServer?.porta) {
+      toast.error("Preencha host e porta para testar");
+      return;
+    }
+
+    setTestingConnection(true);
+    setConnectionStatus('idle');
+
+    try {
+      const { data, error } = await supabase.functions.invoke('test-mqtt-connection', {
+        body: {
+          host: editingServer.host,
+          port: editingServer.porta,
+          username: editingServer.usuario || undefined,
+          password: editingServer.senha || undefined,
+          useSsl: editingServer.usa_ssl ?? false,
+        },
+      });
+
+      if (error) {
+        console.error('Error testing connection:', error);
+        toast.error('Erro ao testar conexão');
+        setConnectionStatus('error');
+        return;
+      }
+
+      if (data?.success) {
+        toast.success(data.message || 'Conexão estabelecida com sucesso!');
+        setConnectionStatus('success');
+      } else {
+        toast.error(data?.message || 'Falha na conexão');
+        setConnectionStatus('error');
+      }
+    } catch (err) {
+      console.error('Error:', err);
+      toast.error('Erro ao testar conexão');
+      setConnectionStatus('error');
+    } finally {
+      setTestingConnection(false);
+    }
   };
 
   const handleSave = async () => {
@@ -305,6 +352,44 @@ export default function AdminMqtt() {
                   <Label>Servidor Ativo</Label>
                 </div>
               </div>
+
+              {/* Test Connection Button */}
+              <Button 
+                type="button"
+                variant="outline" 
+                onClick={handleTestConnection}
+                disabled={testingConnection || !editingServer?.host}
+                className={`w-full ${
+                  connectionStatus === 'success' 
+                    ? 'border-green-500 text-green-600 hover:bg-green-50' 
+                    : connectionStatus === 'error' 
+                    ? 'border-red-500 text-red-600 hover:bg-red-50' 
+                    : ''
+                }`}
+              >
+                {testingConnection ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Testando Conexão...
+                  </>
+                ) : connectionStatus === 'success' ? (
+                  <>
+                    <Wifi className="w-4 h-4 mr-2" />
+                    Conexão OK!
+                  </>
+                ) : connectionStatus === 'error' ? (
+                  <>
+                    <WifiOff className="w-4 h-4 mr-2" />
+                    Falha na Conexão - Tentar Novamente
+                  </>
+                ) : (
+                  <>
+                    <Wifi className="w-4 h-4 mr-2" />
+                    Testar Conexão
+                  </>
+                )}
+              </Button>
+
               <Button onClick={handleSave} className="w-full">
                 {isNew ? "Criar Servidor" : "Salvar Alterações"}
               </Button>
