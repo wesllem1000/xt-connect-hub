@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import GaugeComponent from "./components/GaugeComponent";
 import SliderComponent from "./components/SliderComponent";
 import SwitchComponent from "./components/SwitchComponent";
@@ -38,6 +39,10 @@ interface Props {
   dashboardConfigs: DashboardConfig[];
 }
 
+export interface DynamicDashboardRef {
+  requestRealTimeUpdate: () => Promise<void>;
+}
+
 // Dados simulados para demonstração
 const mockData: Record<string, number | string | boolean> = {
   tensao: 220.5,
@@ -48,7 +53,7 @@ const mockData: Record<string, number | string | boolean> = {
   nivel: 75
 };
 
-export default function DynamicDashboard({ device, dashboardConfigs }: Props) {
+const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashboardConfigs }, ref) => {
   const [values, setValues] = useState<Record<string, unknown>>({});
 
   useEffect(() => {
@@ -63,6 +68,27 @@ export default function DynamicDashboard({ device, dashboardConfigs }: Props) {
     });
     setValues(initialValues);
   }, [dashboardConfigs]);
+
+  // Comando padrão para solicitar atualização em tempo real
+  const requestRealTimeUpdate = async (): Promise<void> => {
+    const message = {
+      device_id: device.device_id,
+      command: "request_update",
+      timestamp: new Date().toISOString()
+    };
+    
+    console.log("📡 Enviando comando request_update:", message);
+    // Aqui seria a implementação real de envio MQTT
+    // mqtt.publish(`devices/${device.device_id}/commands`, JSON.stringify(message));
+    
+    // Simular delay de rede
+    await new Promise(resolve => setTimeout(resolve, 500));
+  };
+
+  // Expor função via ref
+  useImperativeHandle(ref, () => ({
+    requestRealTimeUpdate
+  }));
 
   const handleSendCommand = (config: DashboardConfig, value: unknown) => {
     // Formatar mensagem MQTT
@@ -201,9 +227,12 @@ export default function DynamicDashboard({ device, dashboardConfigs }: Props) {
     <div className="space-y-6">
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Padrão de Comunicação MQTT</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">Padrão de Comunicação MQTT</CardTitle>
+            <Badge variant="outline" className="text-xs">Documentação</Badge>
+          </div>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm">
+        <CardContent className="space-y-3 text-sm">
           <div className="p-3 bg-muted rounded-lg font-mono text-xs">
             <p className="text-muted-foreground mb-1">// Formato de mensagem recebida do dispositivo:</p>
             <p>{"{"} "device_id": "{device.device_id}", "data": {"{"} ... {"}"} {"}"}</p>
@@ -211,6 +240,11 @@ export default function DynamicDashboard({ device, dashboardConfigs }: Props) {
           <div className="p-3 bg-muted rounded-lg font-mono text-xs">
             <p className="text-muted-foreground mb-1">// Formato de comando enviado ao dispositivo:</p>
             <p>{"{"} "device_id": "{device.device_id}", "command": "...", "value": ... {"}"}</p>
+          </div>
+          <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg font-mono text-xs">
+            <p className="text-primary font-semibold mb-1">// Comando padrão: request_update (Atualização em Tempo Real)</p>
+            <p className="text-muted-foreground mb-1">// Solicita ao dispositivo que envie todos os dados atuais imediatamente</p>
+            <p>{"{"} "device_id": "{device.device_id}", "command": "request_update", "timestamp": "ISO_DATE" {"}"}</p>
           </div>
         </CardContent>
       </Card>
@@ -226,4 +260,8 @@ export default function DynamicDashboard({ device, dashboardConfigs }: Props) {
       </div>
     </div>
   );
-}
+});
+
+DynamicDashboard.displayName = "DynamicDashboard";
+
+export default DynamicDashboard;
