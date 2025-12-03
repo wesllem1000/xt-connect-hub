@@ -46,22 +46,23 @@ export function useMQTT({ deviceId, onMessage, autoConnect = true }: UseMQTTOpti
     onMessageRef.current = onMessage;
   }, [onMessage]);
 
-  // Buscar configuração do servidor MQTT
+  // Buscar configuração do servidor MQTT via edge function segura
   const fetchMQTTConfig = async (): Promise<MQTTServerConfig | null> => {
     try {
-      const { data, error } = await supabase
-        .from("mqtt_servers")
-        .select("host, porta, usuario, senha, usa_ssl")
-        .eq("ativo", true)
-        .limit(1)
-        .single();
+      const { data, error } = await supabase.functions.invoke('get-mqtt-config');
 
       if (error || !data) {
         console.error("Erro ao buscar configuração MQTT:", error);
         return null;
       }
 
-      return data;
+      // Check if the response contains an error message
+      if (data.error) {
+        console.error("Erro ao buscar configuração MQTT:", data.error);
+        return null;
+      }
+
+      return data as MQTTServerConfig;
     } catch (err) {
       console.error("Erro ao buscar configuração MQTT:", err);
       return null;

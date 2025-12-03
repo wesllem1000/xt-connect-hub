@@ -2,3 +2,6 @@ project_id = "omnzbpguabgqdkkjneys"
 
 [functions.test-mqtt-connection]
 verify_jwt = false
+
+[functions.get-mqtt-config]
+verify_jwt = false
