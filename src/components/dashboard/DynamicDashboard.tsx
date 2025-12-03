@@ -291,33 +291,6 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
         )}
       </Card>
 
-      {/* Card de Documentação */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Padrão de Comunicação MQTT</CardTitle>
-            <Badge variant="outline" className="text-xs">Documentação</Badge>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          <div className="p-3 bg-muted rounded-lg font-mono text-xs">
-            <p className="text-muted-foreground mb-1">// Tópico para enviar dados do dispositivo:</p>
-            <p className="text-primary">devices/{device.device_id}/data</p>
-          </div>
-          <div className="p-3 bg-muted rounded-lg font-mono text-xs">
-            <p className="text-muted-foreground mb-1">// Tópico para receber comandos:</p>
-            <p className="text-primary">devices/{device.device_id}/commands</p>
-          </div>
-          <div className="p-3 bg-muted rounded-lg font-mono text-xs">
-            <p className="text-muted-foreground mb-1">// Formato de mensagem de dados:</p>
-            <p>{"{"} "device_id": "{device.device_id}", "data": {"{"} "temperatura": 25.5 {"}"} {"}"}</p>
-          </div>
-          <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg font-mono text-xs">
-            <p className="text-primary font-semibold mb-1">// Comando padrão: request_update</p>
-            <p>{"{"} "device_id": "{device.device_id}", "command": "request_update" {"}"}</p>
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Grid de Componentes */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
