@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAdmin } from "@/hooks/useAdmin";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
-import { Zap, LogOut, Cpu, Gauge, Settings, Activity, Plus } from "lucide-react";
+import { Zap, LogOut, Cpu, Gauge, Settings, Activity, Plus, Shield } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 interface Profile {
@@ -14,6 +15,7 @@ interface Profile {
 
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { isAdmin } = useAdmin();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -93,6 +95,14 @@ export default function Dashboard() {
                 {profile?.tipo_usuario === "instalador" ? "Instalador" : "Usuário Final"}
               </Badge>
             </div>
+            {isAdmin && (
+              <Button variant="outline" asChild>
+                <Link to="/admin">
+                  <Shield className="h-4 w-4 mr-2" />
+                  Admin
+                </Link>
+              </Button>
+            )}
             <Button variant="outline" size="icon" onClick={handleLogout}>
               <LogOut className="h-4 w-4" />
             </Button>

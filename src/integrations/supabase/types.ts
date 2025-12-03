@@ -58,6 +58,78 @@ export type Database = {
           },
         ]
       }
+      communication_types: {
+        Row: {
+          ativo: boolean | null
+          configuracao_padrao: Json | null
+          created_at: string | null
+          descricao: string | null
+          id: string
+          nome: string
+          tipo: string
+          updated_at: string | null
+        }
+        Insert: {
+          ativo?: boolean | null
+          configuracao_padrao?: Json | null
+          created_at?: string | null
+          descricao?: string | null
+          id?: string
+          nome: string
+          tipo: string
+          updated_at?: string | null
+        }
+        Update: {
+          ativo?: boolean | null
+          configuracao_padrao?: Json | null
+          created_at?: string | null
+          descricao?: string | null
+          id?: string
+          nome?: string
+          tipo?: string
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      device_models: {
+        Row: {
+          ativo: boolean | null
+          created_at: string | null
+          descricao: string | null
+          especificacoes: Json | null
+          fabricante: string
+          id: string
+          imagem_url: string | null
+          nome: string
+          protocolos_suportados: string[] | null
+          updated_at: string | null
+        }
+        Insert: {
+          ativo?: boolean | null
+          created_at?: string | null
+          descricao?: string | null
+          especificacoes?: Json | null
+          fabricante: string
+          id?: string
+          imagem_url?: string | null
+          nome: string
+          protocolos_suportados?: string[] | null
+          updated_at?: string | null
+        }
+        Update: {
+          ativo?: boolean | null
+          created_at?: string | null
+          descricao?: string | null
+          especificacoes?: Json | null
+          fabricante?: string
+          id?: string
+          imagem_url?: string | null
+          nome?: string
+          protocolos_suportados?: string[] | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       devices: {
         Row: {
           configuracao: Json | null
@@ -121,6 +193,48 @@ export type Database = {
           },
         ]
       }
+      mqtt_servers: {
+        Row: {
+          ativo: boolean | null
+          created_at: string | null
+          descricao: string | null
+          host: string
+          id: string
+          nome: string
+          porta: number | null
+          topico_padrao: string | null
+          updated_at: string | null
+          usa_ssl: boolean | null
+          usuario: string | null
+        }
+        Insert: {
+          ativo?: boolean | null
+          created_at?: string | null
+          descricao?: string | null
+          host: string
+          id?: string
+          nome: string
+          porta?: number | null
+          topico_padrao?: string | null
+          updated_at?: string | null
+          usa_ssl?: boolean | null
+          usuario?: string | null
+        }
+        Update: {
+          ativo?: boolean | null
+          created_at?: string | null
+          descricao?: string | null
+          host?: string
+          id?: string
+          nome?: string
+          porta?: number | null
+          topico_padrao?: string | null
+          updated_at?: string | null
+          usa_ssl?: boolean | null
+          usuario?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -151,14 +265,46 @@ export type Database = {
         }
         Relationships: []
       }
+      user_roles: {
+        Row: {
+          created_at: string | null
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_user_type: {
+        Args: { _user_id: string }
+        Returns: Database["public"]["Enums"]["user_type"]
+      }
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
+      app_role: "admin" | "user"
       device_status: "online" | "offline" | "manutencao"
       user_type: "instalador" | "usuario_final"
     }
@@ -288,6 +434,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      app_role: ["admin", "user"],
       device_status: ["online", "offline", "manutencao"],
       user_type: ["instalador", "usuario_final"],
     },
