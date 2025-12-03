@@ -11,7 +11,8 @@ import {
   Loader2,
   Shield,
   LayoutGrid,
-  FileText
+  FileText,
+  Settings
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ const menuItems = [
   { path: "/admin/comunicacao", icon: Radio, label: "Comunicação" },
   { path: "/admin/mqtt", icon: Server, label: "Servidores MQTT" },
   { path: "/admin/documentacao", icon: FileText, label: "Documentação" },
+  { path: "/admin/configuracoes", icon: Settings, label: "Configurações Globais" },
 ];
 
 export default function AdminLayout({ children }: AdminLayoutProps) {
