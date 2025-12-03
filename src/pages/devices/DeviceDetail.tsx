@@ -188,56 +188,62 @@ export default function DeviceDetail() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
       <header className="border-b border-border/50 bg-card/50 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard")}>
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold">{device.nome}</h1>
-                {isShared && (
-                  <Badge variant="secondary" className="gap-1">
-                    <Share2 className="h-3 w-3" />
-                    Compartilhado
-                  </Badge>
-                )}
-              </div>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className="font-mono">{device.device_id}</span>
-                {model && (
-                  <>
-                    <span>•</span>
-                    <span>{model.nome}</span>
-                  </>
-                )}
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex flex-wrap items-center gap-3 md:gap-4">
+            {/* Back button + Device info */}
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <Button variant="ghost" size="icon" className="shrink-0" onClick={() => navigate("/dashboard")}>
+                <ArrowLeft className="h-5 w-5" />
+              </Button>
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-lg md:text-xl font-bold truncate">{device.nome}</h1>
+                  {isShared && (
+                    <Badge variant="secondary" className="gap-1 shrink-0">
+                      <Share2 className="h-3 w-3" />
+                      Compartilhado
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-1 md:gap-2 text-xs text-muted-foreground">
+                  <span className="font-mono truncate max-w-[120px] md:max-w-none">{device.device_id}</span>
+                  {model && (
+                    <>
+                      <span>•</span>
+                      <span className="truncate">{model.nome}</span>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handleRealTimeUpdate}
-              disabled={isRefreshing}
-              className="gap-2"
-            >
-              <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-              {isRefreshing ? "Atualizando..." : "Atualizar Agora"}
-            </Button>
-            <Badge variant={device.status === "online" ? "default" : "secondary"} className="gap-1">
-              {device.status === "online" ? (
-                <Wifi className="h-3 w-3" />
-              ) : (
-                <WifiOff className="h-3 w-3" />
-              )}
-              {device.status === "online" ? "Online" : "Offline"}
-            </Badge>
-            {isOwner && (
-              <Button variant="outline" size="icon" onClick={() => navigate(`/devices/${deviceId}/settings`)}>
-                <Settings className="h-4 w-4" />
+            
+            {/* Actions */}
+            <div className="flex items-center gap-2 shrink-0">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleRealTimeUpdate}
+                disabled={isRefreshing}
+                className="gap-1 md:gap-2"
+              >
+                <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                <span className="hidden sm:inline">{isRefreshing ? "Atualizando..." : "Atualizar Agora"}</span>
+                <span className="sm:hidden">{isRefreshing ? "..." : "Atualizar"}</span>
               </Button>
-            )}
+              <Badge variant={device.status === "online" ? "default" : "secondary"} className="gap-1">
+                {device.status === "online" ? (
+                  <Wifi className="h-3 w-3" />
+                ) : (
+                  <WifiOff className="h-3 w-3" />
+                )}
+                <span className="hidden sm:inline">{device.status === "online" ? "Online" : "Offline"}</span>
+              </Badge>
+              {isOwner && (
+                <Button variant="outline" size="icon" onClick={() => navigate(`/devices/${deviceId}/settings`)}>
+                  <Settings className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       </header>
