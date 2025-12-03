@@ -1,6 +1,8 @@
-import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
+import { useState, useEffect, forwardRef, useImperativeHandle, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { useMQTT, MQTTStatus } from "@/hooks/useMQTT";
+import { getValueByPath } from "@/lib/jsonPath";
 import GaugeComponent from "./components/GaugeComponent";
 import SliderComponent from "./components/SliderComponent";
 import SwitchComponent from "./components/SwitchComponent";
@@ -9,6 +11,7 @@ import LEDComponent from "./components/LEDComponent";
 import StatusComponent from "./components/StatusComponent";
 import InputComponent from "./components/InputComponent";
 import SensorComponent from "./components/SensorComponent";
+import { Wifi, WifiOff, Loader2, AlertCircle, Clock } from "lucide-react";
 
 interface Device {
   id: string;
@@ -41,33 +44,45 @@ interface Props {
 
 export interface DynamicDashboardRef {
   requestRealTimeUpdate: () => Promise<void>;
+  mqttStatus: MQTTStatus;
 }
-
-// Dados simulados para demonstração
-const mockData: Record<string, number | string | boolean> = {
-  tensao: 220.5,
-  temperatura: 25.3,
-  umidade: 65,
-  corrente: 2.5,
-  status: true,
-  nivel: 75
-};
 
 const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashboardConfigs }, ref) => {
   const [values, setValues] = useState<Record<string, unknown>>({});
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
-  useEffect(() => {
-    // Inicializar com dados mock
-    // Na implementação real, aqui entraria a conexão MQTT
-    const initialValues: Record<string, unknown> = {};
-    dashboardConfigs.forEach(config => {
-      if (config.json_path_receive) {
-        const pathKey = config.json_path_receive.replace(/\./g, "_");
-        initialValues[pathKey] = mockData[config.json_path_receive] ?? 0;
+  // Hook de conexão MQTT
+  const { status: mqttStatus, publish, error: mqttError } = useMQTT({
+    deviceId: device.device_id,
+    autoConnect: true,
+    onMessage: useCallback((message) => {
+      console.log("📨 Processando mensagem:", message);
+      
+      // Verificar se a mensagem é do dispositivo correto
+      if (message.payload.device_id && message.payload.device_id !== device.device_id) {
+        return;
       }
-    });
-    setValues(initialValues);
-  }, [dashboardConfigs]);
+
+      // Atualizar valores baseado nos json_path configurados
+      setValues(prev => {
+        const newValues = { ...prev };
+        
+        dashboardConfigs.forEach(config => {
+          if (config.json_path_receive && (config.direcao === "receive" || config.direcao === "both")) {
+            const value = getValueByPath(message.payload, config.json_path_receive);
+            if (value !== undefined) {
+              newValues[config.id] = value;
+              console.log(`📊 ${config.dashboard_component.nome}: ${value}`);
+            }
+          }
+        });
+
+        return newValues;
+      });
+
+      setLastUpdate(new Date());
+    }, [device.device_id, dashboardConfigs])
+  });
 
   // Comando padrão para solicitar atualização em tempo real
   const requestRealTimeUpdate = async (): Promise<void> => {
@@ -78,46 +93,66 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
     };
     
     console.log("📡 Enviando comando request_update:", message);
-    // Aqui seria a implementação real de envio MQTT
-    // mqtt.publish(`devices/${device.device_id}/commands`, JSON.stringify(message));
+    publish(`devices/${device.device_id}/commands`, message);
     
-    // Simular delay de rede
-    await new Promise(resolve => setTimeout(resolve, 500));
+    // Aguardar um pouco para dar tempo da mensagem ser enviada
+    await new Promise(resolve => setTimeout(resolve, 100));
   };
 
-  // Expor função via ref
+  // Expor funções via ref
   useImperativeHandle(ref, () => ({
-    requestRealTimeUpdate
+    requestRealTimeUpdate,
+    mqttStatus
   }));
 
   const handleSendCommand = (config: DashboardConfig, value: unknown) => {
-    // Formatar mensagem MQTT
+    const topic = config.mqtt_topic_override || `devices/${device.device_id}/commands`;
     const message = {
       device_id: device.device_id,
       command: config.json_path_send,
-      value: value
+      value: value,
+      timestamp: new Date().toISOString()
     };
     
-    console.log("Enviando comando MQTT:", message);
-    // Aqui seria a implementação real de envio MQTT
+    console.log("📤 Enviando comando MQTT:", topic, message);
+    publish(topic, message);
     
-    // Atualizar valor local para feedback
-    if (config.json_path_send) {
-      const pathKey = config.json_path_send.replace(/\./g, "_");
-      setValues(prev => ({ ...prev, [pathKey]: value }));
-    }
+    // Atualizar valor local para feedback imediato
+    setValues(prev => ({ ...prev, [config.id]: value }));
   };
 
   const getValue = (config: DashboardConfig): unknown => {
-    if (config.json_path_receive) {
-      const pathKey = config.json_path_receive.replace(/\./g, "_");
-      return values[pathKey];
-    }
-    if (config.json_path_send) {
-      const pathKey = config.json_path_send.replace(/\./g, "_");
-      return values[pathKey];
-    }
-    return undefined;
+    return values[config.id];
+  };
+
+  const renderMQTTStatus = () => {
+    const statusConfig: Record<MQTTStatus, { icon: typeof Wifi; label: string; variant: "secondary" | "outline" | "default" | "destructive"; animate?: boolean }> = {
+      disconnected: { icon: WifiOff, label: "Desconectado", variant: "secondary" },
+      connecting: { icon: Loader2, label: "Conectando...", variant: "outline", animate: true },
+      connected: { icon: Wifi, label: "Conectado", variant: "default" },
+      error: { icon: AlertCircle, label: "Erro", variant: "destructive" },
+    };
+
+    const config = statusConfig[mqttStatus];
+    const Icon = config.icon;
+
+    return (
+      <Badge variant={config.variant} className="gap-1">
+        <Icon className={`h-3 w-3 ${config.animate ? "animate-spin" : ""}`} />
+        {config.label}
+      </Badge>
+    );
+  };
+
+  const formatLastUpdate = () => {
+    if (!lastUpdate) return null;
+    
+    const now = new Date();
+    const diff = Math.floor((now.getTime() - lastUpdate.getTime()) / 1000);
+    
+    if (diff < 60) return `há ${diff}s`;
+    if (diff < 3600) return `há ${Math.floor(diff / 60)}min`;
+    return `há ${Math.floor(diff / 3600)}h`;
   };
 
   const renderComponent = (config: DashboardConfig) => {
@@ -144,7 +179,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
           />
         );
 
-      case "gauge":
+      case "indicador_gauge":
         return (
           <GaugeComponent
             label={config.dashboard_component.nome}
@@ -153,7 +188,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
           />
         );
 
-      case "slider":
+      case "controle_slider":
         return (
           <SliderComponent
             label={config.dashboard_component.nome}
@@ -164,7 +199,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
           />
         );
 
-      case "switch":
+      case "controle_switch":
         return (
           <SwitchComponent
             label={config.dashboard_component.nome}
@@ -175,7 +210,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
           />
         );
 
-      case "botao":
+      case "controle_botao":
         return (
           <ButtonComponent
             label={config.dashboard_component.nome}
@@ -185,7 +220,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
           />
         );
 
-      case "led":
+      case "indicador_led":
         return (
           <LEDComponent
             label={config.dashboard_component.nome}
@@ -194,7 +229,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
           />
         );
 
-      case "status":
+      case "indicador_status":
         return (
           <StatusComponent
             label={config.dashboard_component.nome}
@@ -203,7 +238,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
           />
         );
 
-      case "input":
+      case "controle_input":
         return (
           <InputComponent
             label={config.dashboard_component.nome}
@@ -225,6 +260,32 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
 
   return (
     <div className="space-y-6">
+      {/* Status da Conexão MQTT */}
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">Conexão MQTT</CardTitle>
+            <div className="flex items-center gap-2">
+              {lastUpdate && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  Última atualização: {formatLastUpdate()}
+                </span>
+              )}
+              {renderMQTTStatus()}
+            </div>
+          </div>
+        </CardHeader>
+        {mqttError && (
+          <CardContent className="pt-0">
+            <div className="text-sm text-destructive bg-destructive/10 p-2 rounded">
+              {mqttError}
+            </div>
+          </CardContent>
+        )}
+      </Card>
+
+      {/* Card de Documentação */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
@@ -234,21 +295,25 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <div className="p-3 bg-muted rounded-lg font-mono text-xs">
-            <p className="text-muted-foreground mb-1">// Formato de mensagem recebida do dispositivo:</p>
-            <p>{"{"} "device_id": "{device.device_id}", "data": {"{"} ... {"}"} {"}"}</p>
+            <p className="text-muted-foreground mb-1">// Tópico para enviar dados do dispositivo:</p>
+            <p className="text-primary">devices/{device.device_id}/data</p>
           </div>
           <div className="p-3 bg-muted rounded-lg font-mono text-xs">
-            <p className="text-muted-foreground mb-1">// Formato de comando enviado ao dispositivo:</p>
-            <p>{"{"} "device_id": "{device.device_id}", "command": "...", "value": ... {"}"}</p>
+            <p className="text-muted-foreground mb-1">// Tópico para receber comandos:</p>
+            <p className="text-primary">devices/{device.device_id}/commands</p>
+          </div>
+          <div className="p-3 bg-muted rounded-lg font-mono text-xs">
+            <p className="text-muted-foreground mb-1">// Formato de mensagem de dados:</p>
+            <p>{"{"} "device_id": "{device.device_id}", "data": {"{"} "temperatura": 25.5 {"}"} {"}"}</p>
           </div>
           <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg font-mono text-xs">
-            <p className="text-primary font-semibold mb-1">// Comando padrão: request_update (Atualização em Tempo Real)</p>
-            <p className="text-muted-foreground mb-1">// Solicita ao dispositivo que envie todos os dados atuais imediatamente</p>
-            <p>{"{"} "device_id": "{device.device_id}", "command": "request_update", "timestamp": "ISO_DATE" {"}"}</p>
+            <p className="text-primary font-semibold mb-1">// Comando padrão: request_update</p>
+            <p>{"{"} "device_id": "{device.device_id}", "command": "request_update" {"}"}</p>
           </div>
         </CardContent>
       </Card>
 
+      {/* Grid de Componentes */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {dashboardConfigs.map((config) => (
           <Card key={config.id} className="overflow-hidden">
