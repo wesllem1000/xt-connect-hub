@@ -226,16 +226,51 @@ export type Database = {
         }
         Relationships: []
       }
+      device_shares: {
+        Row: {
+          created_at: string | null
+          device_id: string
+          id: string
+          shared_by_user_id: string
+          shared_with_user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          device_id: string
+          id?: string
+          shared_by_user_id: string
+          shared_with_user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          device_id?: string
+          id?: string
+          shared_by_user_id?: string
+          shared_with_user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_shares_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       devices: {
         Row: {
           configuracao: Json | null
           created_at: string | null
+          device_id: string | null
+          device_model_id: string | null
           id: string
           instalador_id: string | null
           localizacao: string | null
           modelo: string | null
           nome: string
           numero_serie: string | null
+          owner_id: string | null
           status: Database["public"]["Enums"]["device_status"] | null
           tipo: string
           ultima_conexao: string | null
@@ -245,12 +280,15 @@ export type Database = {
         Insert: {
           configuracao?: Json | null
           created_at?: string | null
+          device_id?: string | null
+          device_model_id?: string | null
           id?: string
           instalador_id?: string | null
           localizacao?: string | null
           modelo?: string | null
           nome: string
           numero_serie?: string | null
+          owner_id?: string | null
           status?: Database["public"]["Enums"]["device_status"] | null
           tipo: string
           ultima_conexao?: string | null
@@ -260,12 +298,15 @@ export type Database = {
         Update: {
           configuracao?: Json | null
           created_at?: string | null
+          device_id?: string | null
+          device_model_id?: string | null
           id?: string
           instalador_id?: string | null
           localizacao?: string | null
           modelo?: string | null
           nome?: string
           numero_serie?: string | null
+          owner_id?: string | null
           status?: Database["public"]["Enums"]["device_status"] | null
           tipo?: string
           ultima_conexao?: string | null
@@ -273,6 +314,13 @@ export type Database = {
           usuario_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "devices_device_model_id_fkey"
+            columns: ["device_model_id"]
+            isOneToOne: false
+            referencedRelation: "device_models"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "devices_instalador_id_fkey"
             columns: ["instalador_id"]
