@@ -10,7 +10,8 @@ import {
   ArrowLeft,
   Loader2,
   Shield,
-  LayoutGrid
+  LayoutGrid,
+  FileText
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,7 @@ const menuItems = [
   { path: "/admin/dash-components", icon: LayoutGrid, label: "Componentes de Dash" },
   { path: "/admin/comunicacao", icon: Radio, label: "Comunicação" },
   { path: "/admin/mqtt", icon: Server, label: "Servidores MQTT" },
+  { path: "/admin/documentacao", icon: FileText, label: "Documentação" },
 ];
 
 export default function AdminLayout({ children }: AdminLayoutProps) {
