@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Search, Loader2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Search, Loader2, LayoutGrid } from "lucide-react";
 import AdminLayout from "./AdminLayout";
 
 interface DeviceModel {
@@ -188,6 +189,7 @@ export default function AdminModelos() {
                     <TableHead>Nome</TableHead>
                     <TableHead>Fabricante</TableHead>
                     <TableHead>Protocolos</TableHead>
+                    <TableHead>Dashboards</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead className="text-right">Ações</TableHead>
                   </TableRow>
@@ -210,6 +212,14 @@ export default function AdminModelos() {
                             </Badge>
                           )}
                         </div>
+                      </TableCell>
+                      <TableCell>
+                        <Button variant="outline" size="sm" asChild>
+                          <Link to={`/admin/modelos/${model.id}/dashboards`}>
+                            <LayoutGrid className="w-4 h-4 mr-1" />
+                            Configurar
+                          </Link>
+                        </Button>
                       </TableCell>
                       <TableCell>
                         <Badge variant={model.ativo ? "default" : "secondary"}>

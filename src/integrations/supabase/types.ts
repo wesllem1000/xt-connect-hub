@@ -91,6 +91,102 @@ export type Database = {
         }
         Relationships: []
       }
+      dashboard_components: {
+        Row: {
+          ativo: boolean | null
+          configuracao_padrao: Json | null
+          created_at: string | null
+          descricao: string | null
+          icone: string | null
+          id: string
+          nome: string
+          tipo: Database["public"]["Enums"]["dashboard_component_type"]
+          updated_at: string | null
+        }
+        Insert: {
+          ativo?: boolean | null
+          configuracao_padrao?: Json | null
+          created_at?: string | null
+          descricao?: string | null
+          icone?: string | null
+          id?: string
+          nome: string
+          tipo: Database["public"]["Enums"]["dashboard_component_type"]
+          updated_at?: string | null
+        }
+        Update: {
+          ativo?: boolean | null
+          configuracao_padrao?: Json | null
+          created_at?: string | null
+          descricao?: string | null
+          icone?: string | null
+          id?: string
+          nome?: string
+          tipo?: Database["public"]["Enums"]["dashboard_component_type"]
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      device_model_dashboards: {
+        Row: {
+          ativo: boolean | null
+          configuracao: Json | null
+          created_at: string | null
+          dashboard_component_id: string
+          device_model_id: string
+          direcao: Database["public"]["Enums"]["data_direction"]
+          id: string
+          json_path_receive: string | null
+          json_path_send: string | null
+          mqtt_topic_override: string | null
+          ordem: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          ativo?: boolean | null
+          configuracao?: Json | null
+          created_at?: string | null
+          dashboard_component_id: string
+          device_model_id: string
+          direcao?: Database["public"]["Enums"]["data_direction"]
+          id?: string
+          json_path_receive?: string | null
+          json_path_send?: string | null
+          mqtt_topic_override?: string | null
+          ordem?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          ativo?: boolean | null
+          configuracao?: Json | null
+          created_at?: string | null
+          dashboard_component_id?: string
+          device_model_id?: string
+          direcao?: Database["public"]["Enums"]["data_direction"]
+          id?: string
+          json_path_receive?: string | null
+          json_path_send?: string | null
+          mqtt_topic_override?: string | null
+          ordem?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_model_dashboards_dashboard_component_id_fkey"
+            columns: ["dashboard_component_id"]
+            isOneToOne: false
+            referencedRelation: "dashboard_components"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "device_model_dashboards_device_model_id_fkey"
+            columns: ["device_model_id"]
+            isOneToOne: false
+            referencedRelation: "device_models"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       device_models: {
         Row: {
           ativo: boolean | null
@@ -202,6 +298,7 @@ export type Database = {
           id: string
           nome: string
           porta: number | null
+          senha: string | null
           topico_padrao: string | null
           updated_at: string | null
           usa_ssl: boolean | null
@@ -215,6 +312,7 @@ export type Database = {
           id?: string
           nome: string
           porta?: number | null
+          senha?: string | null
           topico_padrao?: string | null
           updated_at?: string | null
           usa_ssl?: boolean | null
@@ -228,6 +326,7 @@ export type Database = {
           id?: string
           nome?: string
           porta?: number | null
+          senha?: string | null
           topico_padrao?: string | null
           updated_at?: string | null
           usa_ssl?: boolean | null
@@ -305,6 +404,20 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "user"
+      dashboard_component_type:
+        | "sensor_tensao"
+        | "sensor_temperatura"
+        | "sensor_umidade"
+        | "sensor_corrente"
+        | "sensor_generico"
+        | "controle_botao"
+        | "controle_slider"
+        | "controle_switch"
+        | "controle_input"
+        | "indicador_led"
+        | "indicador_status"
+        | "indicador_gauge"
+      data_direction: "receive" | "send" | "both"
       device_status: "online" | "offline" | "manutencao"
       user_type: "instalador" | "usuario_final"
     }
@@ -435,6 +548,21 @@ export const Constants = {
   public: {
     Enums: {
       app_role: ["admin", "user"],
+      dashboard_component_type: [
+        "sensor_tensao",
+        "sensor_temperatura",
+        "sensor_umidade",
+        "sensor_corrente",
+        "sensor_generico",
+        "controle_botao",
+        "controle_slider",
+        "controle_switch",
+        "controle_input",
+        "indicador_led",
+        "indicador_status",
+        "indicador_gauge",
+      ],
+      data_direction: ["receive", "send", "both"],
       device_status: ["online", "offline", "manutencao"],
       user_type: ["instalador", "usuario_final"],
     },
