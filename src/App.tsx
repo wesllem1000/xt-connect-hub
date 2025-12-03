@@ -14,6 +14,7 @@ import AdminComunicacao from "./pages/admin/AdminComunicacao";
 import AdminMqtt from "./pages/admin/AdminMqtt";
 import AdminDashComponents from "./pages/admin/AdminDashComponents";
 import AdminModeloDashboards from "./pages/admin/AdminModeloDashboards";
+import AdminDocumentacao from "./pages/admin/AdminDocumentacao";
 import DeviceNew from "./pages/devices/DeviceNew";
 import DeviceDetail from "./pages/devices/DeviceDetail";
 import DeviceSettings from "./pages/devices/DeviceSettings";
@@ -37,6 +38,7 @@ const App = () => (
           <Route path="/admin/dash-components" element={<AdminDashComponents />} />
           <Route path="/admin/comunicacao" element={<AdminComunicacao />} />
           <Route path="/admin/mqtt" element={<AdminMqtt />} />
+          <Route path="/admin/documentacao" element={<AdminDocumentacao />} />
           <Route path="/devices/new" element={<DeviceNew />} />
           <Route path="/devices/:deviceId" element={<DeviceDetail />} />
           <Route path="/devices/:deviceId/settings" element={<DeviceSettings />} />
