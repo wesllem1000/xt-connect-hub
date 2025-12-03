@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdmin } from "@/hooks/useAdmin";
+import { useSystemConfig, isDeviceOnline } from "@/hooks/useSystemConfig";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -21,6 +22,7 @@ interface Device {
   tipo: string;
   localizacao: string | null;
   status: string;
+  ultima_conexao: string | null;
   owner_id: string | null;
   isShared?: boolean;
   sharedBy?: string;
@@ -29,6 +31,7 @@ interface Device {
 export default function Dashboard() {
   const navigate = useNavigate();
   const { isAdmin } = useAdmin();
+  const { config } = useSystemConfig();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,7 +62,7 @@ export default function Dashboard() {
       // Buscar dispositivos próprios
       const { data: ownDevices, error: devicesError } = await supabase
         .from("devices")
-        .select("id, device_id, nome, tipo, localizacao, status, owner_id")
+        .select("id, device_id, nome, tipo, localizacao, status, ultima_conexao, owner_id")
         .or(`owner_id.eq.${session.user.id},usuario_id.eq.${session.user.id}`);
 
       if (devicesError) {
@@ -73,7 +76,7 @@ export default function Dashboard() {
           device_id,
           shared_by_user_id,
           devices (
-            id, device_id, nome, tipo, localizacao, status, owner_id
+            id, device_id, nome, tipo, localizacao, status, ultima_conexao, owner_id
           )
         `)
         .eq("shared_with_user_id", session.user.id);
@@ -97,7 +100,7 @@ export default function Dashboard() {
 
       // Combinar dispositivos
       const allDevices: Device[] = [
-        ...(ownDevices || []).map(d => ({ ...d, isShared: false })),
+        ...(ownDevices || []).map(d => ({ ...d, isShared: false, ultima_conexao: d.ultima_conexao || null })),
         ...(sharedDevicesData || [])
           .filter(s => s.devices)
           .map(s => ({
@@ -142,9 +145,9 @@ export default function Dashboard() {
     }
   };
 
-  const onlineDevices = devices.filter(d => d.status === "online").length;
-  const ownDevices = devices.filter(d => !d.isShared).length;
-  const sharedDevices = devices.filter(d => d.isShared).length;
+  const onlineDevices = devices.filter(d => isDeviceOnline(d.ultima_conexao, config.status_timeout_minutes)).length;
+  const ownDevicesCount = devices.filter(d => !d.isShared).length;
+  const sharedDevicesCount = devices.filter(d => d.isShared).length;
 
   if (loading) {
     return (
@@ -215,9 +218,9 @@ export default function Dashboard() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{ownDevices}</div>
+              <div className="text-2xl font-bold">{ownDevicesCount}</div>
               <p className="text-xs text-muted-foreground mt-1">
-                {sharedDevices > 0 && `+ ${sharedDevices} compartilhados`}
+                {sharedDevicesCount > 0 && `+ ${sharedDevicesCount} compartilhados`}
               </p>
             </CardContent>
           </Card>
@@ -339,7 +342,7 @@ export default function Dashboard() {
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {devices.slice(0, 4).map((device) => (
-                    <DeviceCard key={device.id} device={device} />
+                    <DeviceCard key={device.id} device={device} statusTimeoutMinutes={config.status_timeout_minutes} />
                   ))}
                 </div>
               )}
