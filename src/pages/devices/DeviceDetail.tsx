@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { ArrowLeft, Settings, Share2, Wifi, WifiOff } from "lucide-react";
+import { ArrowLeft, Settings, Share2, Wifi, WifiOff, RefreshCw } from "lucide-react";
 import DynamicDashboard from "@/components/dashboard/DynamicDashboard";
 
 interface Device {
@@ -52,6 +52,29 @@ export default function DeviceDetail() {
   const [loading, setLoading] = useState(true);
   const [isOwner, setIsOwner] = useState(false);
   const [isShared, setIsShared] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const dashboardRef = useRef<{ requestRealTimeUpdate: () => Promise<void> } | null>(null);
+
+  const handleRealTimeUpdate = async () => {
+    if (!device) return;
+    
+    setIsRefreshing(true);
+    toast.info("Solicitando atualização em tempo real...");
+    
+    try {
+      if (dashboardRef.current) {
+        await dashboardRef.current.requestRealTimeUpdate();
+      }
+      toast.success("Solicitação enviada! Aguardando resposta do dispositivo...");
+    } catch (error) {
+      toast.error("Erro ao solicitar atualização");
+    } finally {
+      // Timeout para simular espera da resposta
+      setTimeout(() => {
+        setIsRefreshing(false);
+      }, 2000);
+    }
+  };
 
   useEffect(() => {
     if (deviceId) {
@@ -187,6 +210,16 @@ export default function DeviceDetail() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleRealTimeUpdate}
+              disabled={isRefreshing || device.status !== "online"}
+              className="gap-2"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+              {isRefreshing ? "Atualizando..." : "Atualizar Agora"}
+            </Button>
             <Badge variant={device.status === "online" ? "default" : "secondary"} className="gap-1">
               {device.status === "online" ? (
                 <Wifi className="h-3 w-3" />
@@ -207,6 +240,7 @@ export default function DeviceDetail() {
       <main className="container mx-auto px-4 py-8">
         {dashboardConfigs.length > 0 ? (
           <DynamicDashboard
+            ref={dashboardRef}
             device={device}
             dashboardConfigs={dashboardConfigs}
           />
