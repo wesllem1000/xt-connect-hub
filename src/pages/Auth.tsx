@@ -9,6 +9,24 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { Zap, Loader2, ArrowLeft, Eye, EyeOff } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { z } from "zod";
+
+// Schema de validação para login
+const loginSchema = z.object({
+  email: z.string().email('Email inválido'),
+  password: z.string().min(1, 'Senha é obrigatória'),
+});
+
+// Schema de validação para signup com requisitos de senha mais fortes
+const signupSchema = z.object({
+  email: z.string().email('Email inválido'),
+  password: z.string()
+    .min(8, 'A senha deve ter no mínimo 8 caracteres')
+    .regex(/[A-Z]/, 'A senha deve conter pelo menos uma letra maiúscula')
+    .regex(/[a-z]/, 'A senha deve conter pelo menos uma letra minúscula')
+    .regex(/[0-9]/, 'A senha deve conter pelo menos um número'),
+  nomeCompleto: z.string().min(2, 'Nome deve ter no mínimo 2 caracteres').max(100, 'Nome muito longo'),
+});
 
 export default function Auth() {
   const navigate = useNavigate();
@@ -39,15 +57,19 @@ export default function Auth() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
-      toast.error("Por favor, preencha todos os campos");
+    
+    // Validar com zod
+    const validation = loginSchema.safeParse({ email, password });
+    if (!validation.success) {
+      const firstError = validation.error.errors[0];
+      toast.error(firstError.message);
       return;
     }
 
     setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
+      email: validation.data.email.trim(),
+      password: validation.data.password,
     });
 
     if (error) {
@@ -62,24 +84,23 @@ export default function Auth() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password || !nomeCompleto) {
-      toast.error("Por favor, preencha todos os campos");
-      return;
-    }
-
-    if (password.length < 6) {
-      toast.error("A senha deve ter no mínimo 6 caracteres");
+    
+    // Validar com zod
+    const validation = signupSchema.safeParse({ email, password, nomeCompleto });
+    if (!validation.success) {
+      const firstError = validation.error.errors[0];
+      toast.error(firstError.message);
       return;
     }
 
     setLoading(true);
     const { error } = await supabase.auth.signUp({
-      email,
-      password,
+      email: validation.data.email.trim(),
+      password: validation.data.password,
       options: {
         emailRedirectTo: `${window.location.origin}/`,
         data: {
-          nome_completo: nomeCompleto,
+          nome_completo: validation.data.nomeCompleto.trim(),
           tipo_usuario: tipoUsuario,
         },
       },
@@ -228,7 +249,7 @@ export default function Auth() {
                       <Input
                         id="signup-password"
                         type={showPassword ? "text" : "password"}
-                        placeholder="Mínimo 6 caracteres"
+                        placeholder="Mín. 8 caracteres, maiúscula e número"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         disabled={loading}
@@ -243,6 +264,9 @@ export default function Auth() {
                         {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                       </button>
                     </div>
+                    <p className="text-xs text-muted-foreground">
+                      Mínimo 8 caracteres, incluindo maiúscula, minúscula e número
+                    </p>
                   </div>
                   <Button
                     type="submit"
