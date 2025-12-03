@@ -58,8 +58,12 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
     onMessage: useCallback((message) => {
       console.log("📨 Processando mensagem:", message);
       
-      // Verificar se a mensagem é do dispositivo correto
-      if (message.payload.device_id && message.payload.device_id !== device.device_id) {
+      // Verificar se a mensagem é do dispositivo correto (comparação case-insensitive)
+      const payloadDeviceId = String(message.payload.device_id || "").toLowerCase();
+      const expectedDeviceId = (device.device_id || "").toLowerCase();
+      
+      if (message.payload.device_id && payloadDeviceId !== expectedDeviceId) {
+        console.log(`⚠️ Device ID não corresponde: recebido "${payloadDeviceId}", esperado "${expectedDeviceId}"`);
         return;
       }
 
@@ -86,14 +90,15 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
 
   // Comando padrão para solicitar atualização em tempo real
   const requestRealTimeUpdate = async (): Promise<void> => {
+    const normalizedDeviceId = device.device_id.toLowerCase();
     const message = {
-      device_id: device.device_id,
+      device_id: normalizedDeviceId,
       command: "request_update",
       timestamp: new Date().toISOString()
     };
     
     console.log("📡 Enviando comando request_update:", message);
-    publish(`devices/${device.device_id}/commands`, message);
+    publish(`devices/${normalizedDeviceId}/commands`, message);
     
     // Aguardar um pouco para dar tempo da mensagem ser enviada
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -106,9 +111,10 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
   }));
 
   const handleSendCommand = (config: DashboardConfig, value: unknown) => {
-    const topic = config.mqtt_topic_override || `devices/${device.device_id}/commands`;
+    const normalizedDeviceId = device.device_id.toLowerCase();
+    const topic = config.mqtt_topic_override || `devices/${normalizedDeviceId}/commands`;
     const message = {
-      device_id: device.device_id,
+      device_id: normalizedDeviceId,
       command: config.json_path_send,
       value: value,
       timestamp: new Date().toISOString()
