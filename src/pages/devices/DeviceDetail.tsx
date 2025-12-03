@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowLeft, Settings, Share2, Wifi, WifiOff, RefreshCw } from "lucide-react";
 import DynamicDashboard, { DynamicDashboardRef } from "@/components/dashboard/DynamicDashboard";
+import { useSystemConfig, isDeviceOnline } from "@/hooks/useSystemConfig";
 
 interface Device {
   id: string;
@@ -18,6 +19,7 @@ interface Device {
   status: string;
   owner_id: string | null;
   device_model_id: string | null;
+  ultima_conexao: string | null;
 }
 
 interface DeviceModel {
@@ -46,6 +48,7 @@ interface DashboardConfig {
 export default function DeviceDetail() {
   const { deviceId } = useParams<{ deviceId: string }>();
   const navigate = useNavigate();
+  const { config } = useSystemConfig();
   const [device, setDevice] = useState<Device | null>(null);
   const [model, setModel] = useState<DeviceModel | null>(null);
   const [dashboardConfigs, setDashboardConfigs] = useState<DashboardConfig[]>([]);
@@ -95,7 +98,7 @@ export default function DeviceDetail() {
       // Buscar dispositivo
       const { data: deviceData, error: deviceError } = await supabase
         .from("devices")
-        .select("*")
+        .select("id, device_id, nome, tipo, modelo, localizacao, status, owner_id, usuario_id, device_model_id, ultima_conexao")
         .eq("id", deviceId)
         .maybeSingle();
 
@@ -230,13 +233,13 @@ export default function DeviceDetail() {
                 <span className="hidden sm:inline">{isRefreshing ? "Atualizando..." : "Atualizar Agora"}</span>
                 <span className="sm:hidden">{isRefreshing ? "..." : "Atualizar"}</span>
               </Button>
-              <Badge variant={device.status === "online" ? "default" : "secondary"} className="gap-1">
-                {device.status === "online" ? (
+              <Badge variant={isDeviceOnline(device.ultima_conexao, config.status_timeout_minutes) ? "default" : "secondary"} className="gap-1">
+                {isDeviceOnline(device.ultima_conexao, config.status_timeout_minutes) ? (
                   <Wifi className="h-3 w-3" />
                 ) : (
                   <WifiOff className="h-3 w-3" />
                 )}
-                <span className="hidden sm:inline">{device.status === "online" ? "Online" : "Offline"}</span>
+                <span className="hidden sm:inline">{isDeviceOnline(device.ultima_conexao, config.status_timeout_minutes) ? "Online" : "Offline"}</span>
               </Badge>
               {isOwner && (
                 <Button variant="outline" size="icon" onClick={() => navigate(`/devices/${deviceId}/settings`)}>
