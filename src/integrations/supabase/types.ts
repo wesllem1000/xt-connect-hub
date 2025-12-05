@@ -140,6 +140,8 @@ export type Database = {
           json_path_send: string | null
           mqtt_topic_override: string | null
           ordem: number | null
+          tipo_visualizacao: string | null
+          titulo_personalizado: string | null
           updated_at: string | null
         }
         Insert: {
@@ -154,6 +156,8 @@ export type Database = {
           json_path_send?: string | null
           mqtt_topic_override?: string | null
           ordem?: number | null
+          tipo_visualizacao?: string | null
+          titulo_personalizado?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -168,6 +172,8 @@ export type Database = {
           json_path_send?: string | null
           mqtt_topic_override?: string | null
           ordem?: number | null
+          tipo_visualizacao?: string | null
+          titulo_personalizado?: string | null
           updated_at?: string | null
         }
         Relationships: [
@@ -495,6 +501,7 @@ export type Database = {
         | "indicador_led"
         | "indicador_status"
         | "indicador_gauge"
+        | "indicador_texto"
       data_direction: "receive" | "send" | "both"
       device_status: "online" | "offline" | "manutencao"
       user_type: "instalador" | "usuario_final"
@@ -639,6 +646,7 @@ export const Constants = {
         "indicador_led",
         "indicador_status",
         "indicador_gauge",
+        "indicador_texto",
       ],
       data_direction: ["receive", "send", "both"],
       device_status: ["online", "offline", "manutencao"],
