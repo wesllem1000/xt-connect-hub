@@ -16,7 +16,7 @@ import {
   Plus, Pencil, Trash2, Loader2, ArrowLeft, GripVertical,
   Zap, Thermometer, Droplets, Activity, Gauge,
   Square, SlidersHorizontal, ToggleLeft, Hash,
-  Circle, Info, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight
+  Circle, Info, ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Type
 } from "lucide-react";
 import AdminLayout from "./AdminLayout";
 
@@ -46,13 +46,15 @@ interface ModelDashboard {
   mqtt_topic_override: string | null;
   configuracao: Record<string, unknown>;
   ativo: boolean;
+  titulo_personalizado: string | null;
+  tipo_visualizacao: string | null;
   dashboard_components?: DashboardComponent;
 }
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Zap, Thermometer, Droplets, Activity, Gauge,
   Square, SlidersHorizontal, ToggleLeft, Hash,
-  Circle, Info,
+  Circle, Info, Type,
 };
 
 const directionIcons: Record<DataDirection, React.ComponentType<{ className?: string }>> = {
@@ -138,6 +140,8 @@ export default function AdminModeloDashboards() {
       mqtt_topic_override: "",
       configuracao: {},
       ativo: true,
+      titulo_personalizado: "",
+      tipo_visualizacao: "padrao",
     });
     setConfigInput("{}");
     setIsNew(true);
@@ -175,6 +179,8 @@ export default function AdminModeloDashboards() {
       mqtt_topic_override: editingDash.mqtt_topic_override || null,
       configuracao: config,
       ativo: editingDash.ativo ?? true,
+      titulo_personalizado: editingDash.titulo_personalizado || null,
+      tipo_visualizacao: editingDash.tipo_visualizacao || "padrao",
     };
 
     if (isNew) {
@@ -313,7 +319,15 @@ export default function AdminModeloDashboards() {
                             <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
                               <Icon className="w-4 h-4 text-primary" />
                             </div>
-                            {comp?.nome || "Componente"}
+                            <div>
+                              <div>{dash.titulo_personalizado || comp?.nome || "Componente"}</div>
+                              {dash.titulo_personalizado && (
+                                <div className="text-xs text-muted-foreground">{comp?.nome}</div>
+                              )}
+                              {dash.tipo_visualizacao && dash.tipo_visualizacao !== "padrao" && (
+                                <Badge variant="outline" className="text-xs mt-1">{dash.tipo_visualizacao}</Badge>
+                              )}
+                            </div>
                           </div>
                         </TableCell>
                         <TableCell>
@@ -371,13 +385,11 @@ export default function AdminModeloDashboards() {
                   <SelectContent>
                     {availableComponents.map(comp => {
                       const Icon = getIcon(comp.icone);
-                      const isUsed = dashboards.some(d => d.dashboard_component_id === comp.id && d.id !== editingDash?.id);
                       return (
-                        <SelectItem key={comp.id} value={comp.id} disabled={isUsed}>
+                        <SelectItem key={comp.id} value={comp.id}>
                           <div className="flex items-center gap-2">
                             <Icon className="w-4 h-4" />
                             {comp.nome}
-                            {isUsed && <span className="text-xs text-muted-foreground">(já adicionado)</span>}
                           </div>
                         </SelectItem>
                       );
@@ -385,6 +397,37 @@ export default function AdminModeloDashboards() {
                   </SelectContent>
                 </Select>
               </div>
+
+              <div className="space-y-2">
+                <Label>Título Personalizado</Label>
+                <Input
+                  value={editingDash?.titulo_personalizado || ""}
+                  onChange={(e) => setEditingDash(prev => ({ ...prev, titulo_personalizado: e.target.value }))}
+                  placeholder="Ex: Temperatura do Motor, Tensão da Bateria..."
+                />
+                <p className="text-xs text-muted-foreground">
+                  Deixe vazio para usar o nome padrão do componente
+                </p>
+              </div>
+
+              {getSelectedComponent()?.tipo.startsWith("sensor_") || getSelectedComponent()?.tipo === "indicador_gauge" ? (
+                <div className="space-y-2">
+                  <Label>Tipo de Visualização</Label>
+                  <Select
+                    value={editingDash?.tipo_visualizacao || "padrao"}
+                    onValueChange={(value) => setEditingDash(prev => ({ ...prev, tipo_visualizacao: value }))}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="padrao">Padrão (Barra de Progresso)</SelectItem>
+                      <SelectItem value="gauge">Velocímetro (Gauge)</SelectItem>
+                      <SelectItem value="texto">Apenas Valor Numérico</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              ) : null}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -472,17 +515,72 @@ export default function AdminModeloDashboards() {
                 </p>
               </div>
 
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label>Valor Mínimo</Label>
+                  <Input
+                    type="number"
+                    value={(editingDash?.configuracao as Record<string, unknown>)?.min as number ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value === "" ? undefined : parseFloat(e.target.value);
+                      const newConfig = { ...(editingDash?.configuracao || {}), min: val };
+                      if (val === undefined) delete newConfig.min;
+                      setEditingDash(prev => ({ ...prev, configuracao: newConfig }));
+                      setConfigInput(JSON.stringify(newConfig, null, 2));
+                    }}
+                    placeholder="0"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Valor Máximo</Label>
+                  <Input
+                    type="number"
+                    value={(editingDash?.configuracao as Record<string, unknown>)?.max as number ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value === "" ? undefined : parseFloat(e.target.value);
+                      const newConfig = { ...(editingDash?.configuracao || {}), max: val };
+                      if (val === undefined) delete newConfig.max;
+                      setEditingDash(prev => ({ ...prev, configuracao: newConfig }));
+                      setConfigInput(JSON.stringify(newConfig, null, 2));
+                    }}
+                    placeholder="100"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Unidade</Label>
+                  <Input
+                    value={(editingDash?.configuracao as Record<string, unknown>)?.unidade as string ?? ""}
+                    onChange={(e) => {
+                      const val = e.target.value || undefined;
+                      const newConfig = { ...(editingDash?.configuracao || {}), unidade: val };
+                      if (!val) delete newConfig.unidade;
+                      setEditingDash(prev => ({ ...prev, configuracao: newConfig }));
+                      setConfigInput(JSON.stringify(newConfig, null, 2));
+                    }}
+                    placeholder="°C, V, A, %..."
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
-                <Label>Configuração Específica (JSON)</Label>
+                <Label>Configuração Avançada (JSON)</Label>
                 <Textarea
                   value={configInput}
-                  onChange={(e) => setConfigInput(e.target.value)}
-                  placeholder='{"min": 0, "max": 100, "unidade": "°C", "alerta_max": 80}'
-                  rows={4}
+                  onChange={(e) => {
+                    setConfigInput(e.target.value);
+                    try {
+                      const parsed = JSON.parse(e.target.value);
+                      setEditingDash(prev => ({ ...prev, configuracao: parsed }));
+                    } catch {
+                      // Ignora erro de parsing enquanto usuário digita
+                    }
+                  }}
+                  placeholder='{"alerta_max": 80, "cor": "red"}'
+                  rows={3}
                   className="font-mono text-sm"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Sobrescreve a configuração padrão do componente (min, max, unidade, alertas, etc.)
+                  Configurações adicionais (alertas, cores, etc.)
                 </p>
               </div>
 
