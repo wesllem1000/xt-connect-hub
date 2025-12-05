@@ -12,6 +12,7 @@ import LEDComponent from "./components/LEDComponent";
 import StatusComponent from "./components/StatusComponent";
 import InputComponent from "./components/InputComponent";
 import SensorComponent from "./components/SensorComponent";
+import TextValueComponent from "./components/TextValueComponent";
 import { Wifi, WifiOff, Loader2, AlertCircle, Clock } from "lucide-react";
 
 interface Device {
@@ -29,6 +30,8 @@ interface DashboardConfig {
   json_path_send: string | null;
   mqtt_topic_override: string | null;
   configuracao: Record<string, unknown>;
+  titulo_personalizado: string | null;
+  tipo_visualizacao: string | null;
   dashboard_component: {
     id: string;
     nome: string;
@@ -185,27 +188,56 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
     };
     const value = getValue(config);
     const canSend = config.direcao === "send" || config.direcao === "both";
+    const label = config.titulo_personalizado || config.dashboard_component.nome;
+    const tipoVisualizacao = config.tipo_visualizacao || "padrao";
+
+    // Para sensores, verificar qual visualização usar
+    if (tipo.startsWith("sensor_") || tipo === "indicador_gauge") {
+      switch (tipoVisualizacao) {
+        case "gauge":
+          return (
+            <GaugeComponent
+              label={label}
+              value={value as number}
+              config={componentConfig}
+            />
+          );
+        case "texto":
+          return (
+            <TextValueComponent
+              label={label}
+              value={value}
+              config={componentConfig}
+            />
+          );
+        case "padrao":
+        default:
+          if (tipo === "indicador_gauge") {
+            return (
+              <GaugeComponent
+                label={label}
+                value={value as number}
+                config={componentConfig}
+              />
+            );
+          }
+          return (
+            <SensorComponent
+              label={label}
+              value={value as number}
+              config={componentConfig}
+              tipo={tipo}
+            />
+          );
+      }
+    }
 
     switch (tipo) {
-      case "sensor_tensao":
-      case "sensor_temperatura":
-      case "sensor_umidade":
-      case "sensor_corrente":
-      case "sensor_generico":
+      case "indicador_texto":
         return (
-          <SensorComponent
-            label={config.dashboard_component.nome}
-            value={value as number}
-            config={componentConfig}
-            tipo={tipo}
-          />
-        );
-
-      case "indicador_gauge":
-        return (
-          <GaugeComponent
-            label={config.dashboard_component.nome}
-            value={value as number}
+          <TextValueComponent
+            label={label}
+            value={value}
             config={componentConfig}
           />
         );
@@ -213,7 +245,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
       case "controle_slider":
         return (
           <SliderComponent
-            label={config.dashboard_component.nome}
+            label={label}
             value={value as number}
             config={componentConfig}
             disabled={!canSend}
@@ -224,7 +256,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
       case "controle_switch":
         return (
           <SwitchComponent
-            label={config.dashboard_component.nome}
+            label={label}
             value={value as boolean}
             config={componentConfig}
             disabled={!canSend}
@@ -235,7 +267,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
       case "controle_botao":
         return (
           <ButtonComponent
-            label={config.dashboard_component.nome}
+            label={label}
             config={componentConfig}
             disabled={!canSend}
             onClick={() => handleSendCommand(config, true)}
@@ -245,7 +277,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
       case "indicador_led":
         return (
           <LEDComponent
-            label={config.dashboard_component.nome}
+            label={label}
             value={value as boolean}
             config={componentConfig}
           />
@@ -254,7 +286,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
       case "indicador_status":
         return (
           <StatusComponent
-            label={config.dashboard_component.nome}
+            label={label}
             value={value as string | boolean}
             config={componentConfig}
           />
@@ -263,7 +295,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
       case "controle_input":
         return (
           <InputComponent
-            label={config.dashboard_component.nome}
+            label={label}
             value={value as string}
             config={componentConfig}
             disabled={!canSend}

@@ -36,6 +36,8 @@ interface DashboardConfig {
   json_path_send: string | null;
   mqtt_topic_override: string | null;
   configuracao: Record<string, unknown>;
+  titulo_personalizado: string | null;
+  tipo_visualizacao: string | null;
   dashboard_component: {
     id: string;
     nome: string;
