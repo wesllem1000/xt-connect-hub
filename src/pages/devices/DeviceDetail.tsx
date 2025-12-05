@@ -145,6 +145,8 @@ export default function DeviceDetail() {
               json_path_send,
               mqtt_topic_override,
               configuracao,
+              titulo_personalizado,
+              tipo_visualizacao,
               dashboard_components (
                 id,
                 nome,
