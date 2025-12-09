@@ -159,36 +159,43 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
+    <div className="min-h-screen min-h-[100dvh] bg-gradient-to-br from-primary/5 via-background to-secondary/5">
       {/* Header */}
-      <header className="border-b border-border/50 bg-card/50 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow">
-              <Zap className="w-6 h-6 text-white" />
+      <header className="border-b border-border/50 bg-card/50 backdrop-blur-sm sticky top-0 z-50 safe-area-inset-top">
+        <div className="container mx-auto px-3 sm:px-4 py-3 sm:py-4 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-gradient-primary flex items-center justify-center shadow-glow shrink-0">
+              <Zap className="w-5 h-5 sm:w-6 sm:h-6 text-primary-foreground" />
             </div>
-            <div>
-              <h1 className="text-xl font-bold">XT CONECT</h1>
-              <p className="text-xs text-muted-foreground">by XT AUTOMATIZE</p>
+            <div className="min-w-0">
+              <h1 className="text-lg sm:text-xl font-bold truncate">XT CONECT</h1>
+              <p className="text-[10px] sm:text-xs text-muted-foreground hidden sm:block">by XT AUTOMATIZE</p>
             </div>
           </div>
-          <div className="flex items-center gap-4">
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-medium">{profile?.nome_completo}</p>
+          <div className="flex items-center gap-2 sm:gap-4 shrink-0">
+            <div className="text-right hidden md:block">
+              <p className="text-sm font-medium truncate max-w-[150px]">{profile?.nome_completo}</p>
               <Badge variant="outline" className="text-xs">
                 {profile?.tipo_usuario === "instalador" ? "Instalador" : "Usuário Final"}
               </Badge>
             </div>
             <ThemeToggle />
             {isAdmin && (
-              <Button variant="outline" asChild>
+              <Button variant="outline" size="sm" asChild className="hidden sm:flex">
                 <Link to="/admin">
-                  <Shield className="h-4 w-4 mr-2" />
-                  Admin
+                  <Shield className="h-4 w-4 sm:mr-2" />
+                  <span className="hidden sm:inline">Admin</span>
                 </Link>
               </Button>
             )}
-            <Button variant="outline" size="icon" onClick={handleLogout}>
+            {isAdmin && (
+              <Button variant="outline" size="icon" asChild className="sm:hidden min-touch-none h-9 w-9">
+                <Link to="/admin">
+                  <Shield className="h-4 w-4" />
+                </Link>
+              </Button>
+            )}
+            <Button variant="outline" size="icon" onClick={handleLogout} className="min-touch-none h-9 w-9">
               <LogOut className="h-4 w-4" />
             </Button>
           </div>
@@ -196,153 +203,156 @@ export default function Dashboard() {
       </header>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        <div className="mb-8 animate-slide-up">
-          <h2 className="text-3xl font-bold mb-2">
-            Bem-vindo, {profile?.nome_completo?.split(" ")[0]}! 👋
+      <main className="container mx-auto px-3 sm:px-4 py-4 sm:py-8 pb-safe">
+        <div className="mb-6 sm:mb-8 animate-slide-up">
+          <h2 className="text-xl sm:text-3xl font-bold mb-1 sm:mb-2">
+            Olá, {profile?.nome_completo?.split(" ")[0]}! 👋
           </h2>
-          <p className="text-muted-foreground">
+          <p className="text-sm sm:text-base text-muted-foreground">
             {profile?.tipo_usuario === "instalador" 
-              ? "Gerencie dispositivos e instalações de seus clientes"
-              : "Controle seus dispositivos e automações inteligentes"}
+              ? "Gerencie dispositivos e instalações"
+              : "Controle seus dispositivos"}
           </p>
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6 mb-6 sm:mb-8">
           <Card className="hover:shadow-lg transition-shadow">
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-2 sm:pb-3 p-3 sm:p-6">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">
                   Dispositivos
                 </CardTitle>
                 <Cpu className="h-4 w-4 text-primary" />
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{ownDevicesCount}</div>
-              <p className="text-xs text-muted-foreground mt-1">
+            <CardContent className="p-3 sm:p-6 pt-0">
+              <div className="text-xl sm:text-2xl font-bold">{ownDevicesCount}</div>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-1 truncate">
                 {sharedDevicesCount > 0 && `+ ${sharedDevicesCount} compartilhados`}
               </p>
             </CardContent>
           </Card>
 
           <Card className="hover:shadow-lg transition-shadow">
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-2 sm:pb-3 p-3 sm:p-6">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">
                   Online
                 </CardTitle>
-                <Activity className="h-4 w-4 text-green-500" />
+                <Activity className="h-4 w-4 text-success" />
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{onlineDevices}</div>
-              <p className="text-xs text-muted-foreground mt-1">Dispositivos ativos</p>
+            <CardContent className="p-3 sm:p-6 pt-0">
+              <div className="text-xl sm:text-2xl font-bold">{onlineDevices}</div>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Ativos</p>
             </CardContent>
           </Card>
 
           <Card className="hover:shadow-lg transition-shadow">
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-2 sm:pb-3 p-3 sm:p-6">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">
                   Automações
                 </CardTitle>
                 <Gauge className="h-4 w-4 text-secondary" />
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">0</div>
-              <p className="text-xs text-muted-foreground mt-1">Automações ativas</p>
+            <CardContent className="p-3 sm:p-6 pt-0">
+              <div className="text-xl sm:text-2xl font-bold">0</div>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Ativas</p>
             </CardContent>
           </Card>
 
           <Card className="hover:shadow-lg transition-shadow">
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-2 sm:pb-3 p-3 sm:p-6">
               <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-medium text-muted-foreground">
-                  Configurações
+                <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">
+                  Config
                 </CardTitle>
-                <Settings className="h-4 w-4 text-blue-500" />
+                <Settings className="h-4 w-4 text-info" />
               </div>
             </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">-</div>
-              <p className="text-xs text-muted-foreground mt-1">Ver configurações</p>
+            <CardContent className="p-3 sm:p-6 pt-0">
+              <div className="text-xl sm:text-2xl font-bold">-</div>
+              <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">Ver</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
+        {/* Quick Actions & Devices */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6 mb-8">
           <Card className="lg:col-span-1">
-            <CardHeader>
-              <CardTitle>Ações Rápidas</CardTitle>
-              <CardDescription>
-                Gerencie seus dispositivos e automações
+            <CardHeader className="p-4 sm:p-6">
+              <CardTitle className="text-base sm:text-lg">Ações Rápidas</CardTitle>
+              <CardDescription className="text-xs sm:text-sm">
+                Gerencie seus dispositivos
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="p-4 sm:p-6 pt-0 space-y-2 sm:space-y-3">
               <Button 
-                className="w-full justify-start gradient-primary" 
+                className="w-full justify-start gradient-primary text-sm sm:text-base" 
                 size="lg"
                 onClick={() => navigate("/devices/new")}
               >
-                <Plus className="mr-2 h-5 w-5" />
-                {profile?.tipo_usuario === "instalador" 
-                  ? "Adicionar Novo Dispositivo"
-                  : "Conectar Dispositivo"}
+                <Plus className="mr-2 h-4 w-4 sm:h-5 sm:w-5 shrink-0" />
+                <span className="truncate">
+                  {profile?.tipo_usuario === "instalador" 
+                    ? "Adicionar Dispositivo"
+                    : "Conectar Dispositivo"}
+                </span>
               </Button>
-              <Button variant="outline" className="w-full justify-start" size="lg">
-                <Gauge className="mr-2 h-5 w-5" />
-                Criar Nova Automação
+              <Button variant="outline" className="w-full justify-start text-sm sm:text-base" size="lg">
+                <Gauge className="mr-2 h-4 w-4 sm:h-5 sm:w-5 shrink-0" />
+                <span className="truncate">Nova Automação</span>
               </Button>
-              <Button variant="outline" className="w-full justify-start" size="lg">
-                <Activity className="mr-2 h-5 w-5" />
-                Ver Monitoramento
+              <Button variant="outline" className="w-full justify-start text-sm sm:text-base" size="lg">
+                <Activity className="mr-2 h-4 w-4 sm:h-5 sm:w-5 shrink-0" />
+                <span className="truncate">Ver Monitoramento</span>
               </Button>
             </CardContent>
           </Card>
 
           <Card className="lg:col-span-2">
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle>Meus Dispositivos</CardTitle>
-                  <CardDescription>
+            <CardHeader className="p-4 sm:p-6">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <CardTitle className="text-base sm:text-lg truncate">Meus Dispositivos</CardTitle>
+                  <CardDescription className="text-xs sm:text-sm">
                     {devices.length === 0 
-                      ? "Nenhum dispositivo cadastrado ainda"
-                      : `${devices.length} dispositivo(s) cadastrado(s)`
+                      ? "Nenhum dispositivo"
+                      : `${devices.length} dispositivo(s)`
                     }
                   </CardDescription>
                 </div>
                 {devices.length > 0 && (
-                  <Button variant="outline" size="sm" onClick={() => navigate("/devices/new")}>
-                    <Plus className="h-4 w-4 mr-1" />
-                    Novo
+                  <Button variant="outline" size="sm" onClick={() => navigate("/devices/new")} className="shrink-0">
+                    <Plus className="h-4 w-4 sm:mr-1" />
+                    <span className="hidden sm:inline">Novo</span>
                   </Button>
                 )}
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="p-4 sm:p-6 pt-0">
               {devices.length === 0 ? (
-                <div className="text-center py-12 text-muted-foreground">
-                  <Cpu className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                  <p className="text-sm">
+                <div className="text-center py-8 sm:py-12 text-muted-foreground">
+                  <Cpu className="h-10 w-10 sm:h-12 sm:w-12 mx-auto mb-4 opacity-50" />
+                  <p className="text-xs sm:text-sm">
                     {profile?.tipo_usuario === "instalador" 
-                      ? "Comece adicionando dispositivos para seus clientes"
-                      : "Conecte seu primeiro dispositivo para começar"}
+                      ? "Adicione dispositivos para seus clientes"
+                      : "Conecte seu primeiro dispositivo"}
                   </p>
                   <Button 
                     className="mt-4" 
+                    size="sm"
                     onClick={() => navigate("/devices/new")}
                   >
                     <Plus className="mr-2 h-4 w-4" />
-                    Cadastrar Dispositivo
+                    Cadastrar
                   </Button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                   {devices.slice(0, 4).map((device) => (
                     <DeviceCard key={device.id} device={device} statusTimeoutMinutes={config.status_timeout_minutes} />
                   ))}

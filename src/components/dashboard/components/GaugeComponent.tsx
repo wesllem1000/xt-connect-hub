@@ -59,16 +59,20 @@ export default function GaugeComponent({ label, value, config }: Props) {
   };
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 w-full">
       <div className="flex items-center gap-2">
-        <div className="p-2 rounded-lg bg-primary/10">
+        <div className="p-2 rounded-lg bg-primary/10 shrink-0">
           <Gauge className="h-4 w-4 text-primary" />
         </div>
-        <span className="font-medium text-sm">{label}</span>
+        <span className="font-medium text-sm truncate">{label}</span>
       </div>
 
-      <div className="relative flex justify-center">
-        <svg width="160" height="110" viewBox="0 0 160 120" className="drop-shadow-sm">
+      <div className="relative flex justify-center w-full">
+        <svg 
+          viewBox="0 0 160 120" 
+          className="w-full max-w-[200px] h-auto drop-shadow-sm"
+          preserveAspectRatio="xMidYMid meet"
+        >
           {/* Background gradient */}
           <defs>
             <linearGradient id={`gaugeGrad-${label}`} x1="0%" y1="0%" x2="100%" y2="0%">
@@ -125,7 +129,6 @@ export default function GaugeComponent({ label, value, config }: Props) {
           {[0, 25, 50, 75, 100].map((tick) => {
             const tickAngle = startAngle + (tick / 100) * angleRange;
             const innerRadius = radius - strokeWidth / 2 - 8;
-            const outerRadius = radius - strokeWidth / 2 - 3;
             const inner = polarToCartesian(tickAngle);
             const outer = {
               x: center + innerRadius * Math.cos((tickAngle * Math.PI) / 180),
@@ -174,13 +177,13 @@ export default function GaugeComponent({ label, value, config }: Props) {
       </div>
 
       <div className="text-center -mt-2">
-        <span className="text-3xl font-bold tracking-tight" style={{ color: getColor(percentage) }}>
+        <span className="text-2xl sm:text-3xl font-bold tracking-tight" style={{ color: getColor(percentage) }}>
           {displayValue}
         </span>
         <span className="text-sm text-muted-foreground ml-1">{unit}</span>
       </div>
 
-      <div className="flex justify-between text-xs text-muted-foreground px-4">
+      <div className="flex justify-between text-xs text-muted-foreground px-2 sm:px-4">
         <span>{min}{unit}</span>
         <span>{max}{unit}</span>
       </div>
