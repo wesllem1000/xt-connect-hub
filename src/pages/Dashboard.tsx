@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Zap, LogOut, Cpu, Gauge, Settings, Activity, Plus, Shield } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import DeviceCard from "@/components/devices/DeviceCard";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface Profile {
   nome_completo: string;
@@ -178,6 +179,7 @@ export default function Dashboard() {
                 {profile?.tipo_usuario === "instalador" ? "Instalador" : "Usuário Final"}
               </Badge>
             </div>
+            <ThemeToggle />
             {isAdmin && (
               <Button variant="outline" asChild>
                 <Link to="/admin">

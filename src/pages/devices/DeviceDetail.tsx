@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { ArrowLeft, Settings, Share2, Wifi, WifiOff, RefreshCw } from "lucide-react";
 import DynamicDashboard, { DynamicDashboardRef } from "@/components/dashboard/DynamicDashboard";
 import { useSystemConfig, isDeviceOnline } from "@/hooks/useSystemConfig";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface Device {
   id: string;
@@ -245,6 +246,7 @@ export default function DeviceDetail() {
                 )}
                 <span className="hidden sm:inline">{isDeviceOnline(device.ultima_conexao, config.status_timeout_minutes) ? "Online" : "Offline"}</span>
               </Badge>
+              <ThemeToggle />
               {isOwner && (
                 <Button variant="outline" size="icon" onClick={() => navigate(`/devices/${deviceId}/settings`)}>
                   <Settings className="h-4 w-4" />

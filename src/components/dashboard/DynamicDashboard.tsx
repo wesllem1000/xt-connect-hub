@@ -13,6 +13,7 @@ import StatusComponent from "./components/StatusComponent";
 import InputComponent from "./components/InputComponent";
 import SensorComponent from "./components/SensorComponent";
 import TextValueComponent from "./components/TextValueComponent";
+import TemperatureComponent from "./components/TemperatureComponent";
 import { Wifi, WifiOff, Loader2, AlertCircle, Clock } from "lucide-react";
 
 interface Device {
@@ -193,6 +194,17 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
 
     // Para sensores, verificar qual visualização usar
     if (tipo.startsWith("sensor_") || tipo === "indicador_gauge") {
+      // Para sensor de temperatura, usar componente especializado
+      if (tipo === "sensor_temperatura" && tipoVisualizacao === "padrao") {
+        return (
+          <TemperatureComponent
+            label={label}
+            value={value as number}
+            config={componentConfig}
+          />
+        );
+      }
+      
       switch (tipoVisualizacao) {
         case "gauge":
           return (
@@ -207,6 +219,14 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
             <TextValueComponent
               label={label}
               value={value}
+              config={componentConfig}
+            />
+          );
+        case "temperatura":
+          return (
+            <TemperatureComponent
+              label={label}
+              value={value as number}
               config={componentConfig}
             />
           );
