@@ -423,6 +423,7 @@ export default function AdminModeloDashboards() {
                     <SelectContent>
                       <SelectItem value="padrao">Padrão (Barra de Progresso)</SelectItem>
                       <SelectItem value="gauge">Velocímetro (Gauge)</SelectItem>
+                      <SelectItem value="temperatura">Termômetro Estilizado</SelectItem>
                       <SelectItem value="texto">Apenas Valor Numérico</SelectItem>
                     </SelectContent>
                   </Select>
