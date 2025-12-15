@@ -117,12 +117,10 @@ export function useMQTT({ deviceId, onMessage, autoConnect = true }: UseMQTTOpti
         setStatus("connected");
         setError(null);
 
-        // Normalizar device_id para lowercase para compatibilidade case-insensitive
-        const normalizedDeviceId = deviceId.toLowerCase();
-        
+        // Usar device_id original (UPPERCASE) - mantém consistência com o cadastro
         // Subscrever nos tópicos do dispositivo
-        const dataTopic = `devices/${normalizedDeviceId}/data`;
-        const statusTopic = `devices/${normalizedDeviceId}/status`;
+        const dataTopic = `devices/${deviceId}/data`;
+        const statusTopic = `devices/${deviceId}/status`;
         
         client.subscribe([dataTopic, statusTopic], (err) => {
           if (err) {
