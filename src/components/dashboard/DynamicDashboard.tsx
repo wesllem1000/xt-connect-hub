@@ -129,20 +129,101 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
     mqttStatus
   }));
 
+  const validateCommandValue = (value: unknown, config: DashboardConfig): { valid: boolean; sanitizedValue: unknown; error?: string } => {
+    const componentConfig = {
+      ...config.dashboard_component.configuracao_padrao,
+      ...config.configuracao
+    };
+    const tipo = config.dashboard_component.tipo;
+
+    // Validate based on component type
+    if (tipo === "controle_switch") {
+      if (typeof value !== "boolean") {
+        return { valid: false, sanitizedValue: null, error: "Valor inválido para switch" };
+      }
+      return { valid: true, sanitizedValue: value };
+    }
+
+    if (tipo === "controle_slider") {
+      if (typeof value !== "number" || isNaN(value)) {
+        return { valid: false, sanitizedValue: null, error: "Valor numérico inválido" };
+      }
+      const min = typeof componentConfig.min === "number" ? componentConfig.min : 0;
+      const max = typeof componentConfig.max === "number" ? componentConfig.max : 100;
+      const clampedValue = Math.max(min, Math.min(max, value));
+      return { valid: true, sanitizedValue: clampedValue };
+    }
+
+    if (tipo === "controle_botao") {
+      // Buttons always send true
+      return { valid: true, sanitizedValue: true };
+    }
+
+    if (tipo === "controle_input") {
+      if (typeof value !== "string") {
+        return { valid: false, sanitizedValue: null, error: "Valor deve ser texto" };
+      }
+      // Limit string length and sanitize
+      const sanitized = String(value).substring(0, 500).trim();
+      return { valid: true, sanitizedValue: sanitized };
+    }
+
+    // For other types, ensure basic type safety
+    if (value === null || value === undefined) {
+      return { valid: false, sanitizedValue: null, error: "Valor não pode ser vazio" };
+    }
+
+    return { valid: true, sanitizedValue: value };
+  };
+
+  const validateTopic = (topic: string): boolean => {
+    // Topic must follow device topic pattern
+    const validTopicPattern = /^devices\/[A-Z0-9-]+\/commands$/;
+    return validTopicPattern.test(topic);
+  };
+
   const handleSendCommand = (config: DashboardConfig, value: unknown) => {
+    // Validate the topic
     const topic = config.mqtt_topic_override || `devices/${device.device_id}/commands`;
+    
+    // Only allow default topic pattern for security - reject custom overrides
+    const expectedTopic = `devices/${device.device_id}/commands`;
+    if (config.mqtt_topic_override && config.mqtt_topic_override !== expectedTopic) {
+      console.warn("⚠️ Tópico customizado bloqueado por segurança:", config.mqtt_topic_override);
+      // Use default topic instead of custom override
+    }
+    const safeTopic = expectedTopic;
+
+    // Validate and sanitize the value
+    const validation = validateCommandValue(value, config);
+    if (!validation.valid) {
+      console.error("❌ Validação falhou:", validation.error);
+      return;
+    }
+
+    // Validate json_path_send (command name)
+    const commandName = config.json_path_send;
+    if (!commandName || typeof commandName !== "string" || commandName.length > 100) {
+      console.error("❌ Nome do comando inválido");
+      return;
+    }
+    // Sanitize command name - only allow alphanumeric, underscores, dots
+    const safeCommandName = commandName.replace(/[^a-zA-Z0-9_.\-]/g, "");
+
     const message = {
       device_id: device.device_id,
-      command: config.json_path_send,
-      value: value,
+      command: safeCommandName,
+      value: validation.sanitizedValue,
       timestamp: new Date().toISOString()
     };
     
-    console.log("📤 Enviando comando MQTT:", topic, message);
-    publish(topic, message);
+    if (import.meta.env.DEV) {
+      console.log("📤 Enviando comando MQTT:", safeTopic, message);
+    }
+    publish(safeTopic, message);
     
     // Atualizar valor local para feedback imediato
-    setValues(prev => ({ ...prev, [config.id]: value }));
+    setValues(prev => ({ ...prev, [config.id]: validation.sanitizedValue }));
   };
 
   const getValue = (config: DashboardConfig): unknown => {
