@@ -502,6 +502,7 @@ export type Database = {
         | "indicador_status"
         | "indicador_gauge"
         | "indicador_texto"
+        | "controle_switch_personalizado"
       data_direction: "receive" | "send" | "both"
       device_status: "online" | "offline" | "manutencao"
       user_type: "instalador" | "usuario_final"
@@ -647,6 +648,7 @@ export const Constants = {
         "indicador_status",
         "indicador_gauge",
         "indicador_texto",
+        "controle_switch_personalizado",
       ],
       data_direction: ["receive", "send", "both"],
       device_status: ["online", "offline", "manutencao"],
