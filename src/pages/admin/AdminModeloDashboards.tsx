@@ -430,6 +430,84 @@ export default function AdminModeloDashboards() {
                 </div>
               ) : null}
 
+              {/* Campos específicos para Switch Personalizado */}
+              {getSelectedComponent()?.tipo === "controle_switch_personalizado" && (
+                <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                  <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                    <ToggleLeft className="w-4 h-4" />
+                    Configuração do Switch Personalizado
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Label quando LIGADO *</Label>
+                      <Input
+                        value={(editingDash?.configuracao as Record<string, unknown>)?.labelOn as string ?? "Ligado"}
+                        onChange={(e) => {
+                          const newConfig = { ...(editingDash?.configuracao || {}), labelOn: e.target.value };
+                          setEditingDash(prev => ({ ...prev, configuracao: newConfig }));
+                          setConfigInput(JSON.stringify(newConfig, null, 2));
+                        }}
+                        placeholder="Ex: Automático, Ativado, ON..."
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Texto exibido quando o switch está ligado
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Label quando DESLIGADO *</Label>
+                      <Input
+                        value={(editingDash?.configuracao as Record<string, unknown>)?.labelOff as string ?? "Desligado"}
+                        onChange={(e) => {
+                          const newConfig = { ...(editingDash?.configuracao || {}), labelOff: e.target.value };
+                          setEditingDash(prev => ({ ...prev, configuracao: newConfig }));
+                          setConfigInput(JSON.stringify(newConfig, null, 2));
+                        }}
+                        placeholder="Ex: Manual, Desativado, OFF..."
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Texto exibido quando o switch está desligado
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Valor enviado quando LIGADO *</Label>
+                      <Input
+                        value={(editingDash?.configuracao as Record<string, unknown>)?.valueOn as string ?? "ON"}
+                        onChange={(e) => {
+                          const newConfig = { ...(editingDash?.configuracao || {}), valueOn: e.target.value };
+                          setEditingDash(prev => ({ ...prev, configuracao: newConfig }));
+                          setConfigInput(JSON.stringify(newConfig, null, 2));
+                        }}
+                        placeholder="Ex: AUTO, ON, 1, enable..."
+                        className="font-mono"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Comando enviado ao dispositivo (ex: AUTO)
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Valor enviado quando DESLIGADO *</Label>
+                      <Input
+                        value={(editingDash?.configuracao as Record<string, unknown>)?.valueOff as string ?? "OFF"}
+                        onChange={(e) => {
+                          const newConfig = { ...(editingDash?.configuracao || {}), valueOff: e.target.value };
+                          setEditingDash(prev => ({ ...prev, configuracao: newConfig }));
+                          setConfigInput(JSON.stringify(newConfig, null, 2));
+                        }}
+                        placeholder="Ex: MANUAL, OFF, 0, disable..."
+                        className="font-mono"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Comando enviado ao dispositivo (ex: MANUAL)
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Direção do Dado *</Label>

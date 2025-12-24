@@ -137,7 +137,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
     const tipo = config.dashboard_component.tipo;
 
     // Validate based on component type
-    if (tipo === "controle_switch") {
+    if (tipo === "controle_switch" || tipo === "controle_switch_personalizado") {
       // Switch com valores customizados (valueOn/valueOff)
       const hasCustomValues = componentConfig.valueOn !== undefined && componentConfig.valueOff !== undefined;
       
@@ -373,6 +373,17 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
         );
 
       case "controle_switch":
+        return (
+          <SwitchComponent
+            label={label}
+            value={value as boolean | string}
+            config={componentConfig}
+            disabled={!canSend}
+            onChange={(val) => handleSendCommand(config, val)}
+          />
+        );
+
+      case "controle_switch_personalizado":
         return (
           <SwitchComponent
             label={label}
