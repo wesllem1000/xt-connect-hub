@@ -138,6 +138,26 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
 
     // Validate based on component type
     if (tipo === "controle_switch") {
+      // Switch com valores customizados (valueOn/valueOff)
+      const hasCustomValues = componentConfig.valueOn !== undefined && componentConfig.valueOff !== undefined;
+      
+      if (hasCustomValues) {
+        // Com valores customizados, aceitar boolean e converter para string
+        if (typeof value === "boolean") {
+          const finalValue = value ? componentConfig.valueOn : componentConfig.valueOff;
+          return { valid: true, sanitizedValue: finalValue };
+        }
+        // Também aceitar string se for um dos valores configurados
+        if (typeof value === "string") {
+          if (value === componentConfig.valueOn || value === componentConfig.valueOff) {
+            return { valid: true, sanitizedValue: value };
+          }
+          return { valid: false, sanitizedValue: null, error: "Valor inválido para switch" };
+        }
+        return { valid: false, sanitizedValue: null, error: "Valor inválido para switch" };
+      }
+      
+      // Switch tradicional: apenas boolean
       if (typeof value !== "boolean") {
         return { valid: false, sanitizedValue: null, error: "Valor inválido para switch" };
       }
@@ -356,7 +376,7 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
         return (
           <SwitchComponent
             label={label}
-            value={value as boolean}
+            value={value as boolean | string}
             config={componentConfig}
             disabled={!canSend}
             onChange={(val) => handleSendCommand(config, val)}
