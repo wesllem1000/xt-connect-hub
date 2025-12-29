@@ -14,7 +14,9 @@ import InputComponent from "./components/InputComponent";
 import SensorComponent from "./components/SensorComponent";
 import TextValueComponent from "./components/TextValueComponent";
 import TemperatureComponent from "./components/TemperatureComponent";
-import { Wifi, WifiOff, Loader2, AlertCircle, Clock } from "lucide-react";
+import { Wifi, WifiOff, Loader2, AlertCircle, Clock, Database } from "lucide-react";
+import { format } from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 interface Device {
   id: string;
@@ -52,9 +54,67 @@ export interface DynamicDashboardRef {
   mqttStatus: MQTTStatus;
 }
 
+interface LastValueRecord {
+  config_id: string;
+  value: { value: unknown };
+  received_at: string;
+}
+
 const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashboardConfigs }, ref) => {
   const [values, setValues] = useState<Record<string, unknown>>({});
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [isHistoricalData, setIsHistoricalData] = useState(false);
+  const [loadingHistorical, setLoadingHistorical] = useState(true);
+
+  // Carregar dados históricos do banco ao montar
+  useEffect(() => {
+    const loadHistoricalData = async () => {
+      setLoadingHistorical(true);
+      try {
+        const { data, error } = await supabase
+          .from('device_last_values')
+          .select('config_id, value, received_at')
+          .eq('device_id', device.id);
+
+        if (error) {
+          console.error('Erro ao carregar dados históricos:', error);
+          return;
+        }
+
+        if (data && data.length > 0) {
+          const historicalValues: Record<string, unknown> = {};
+          let mostRecentDate: Date | null = null;
+
+          (data as LastValueRecord[]).forEach((record) => {
+            // Extrair o valor do objeto JSON
+            const extractedValue = record.value?.value;
+            if (extractedValue !== undefined) {
+              historicalValues[record.config_id] = extractedValue;
+            }
+
+            // Encontrar a data mais recente
+            const recordDate = new Date(record.received_at);
+            if (!mostRecentDate || recordDate > mostRecentDate) {
+              mostRecentDate = recordDate;
+            }
+          });
+
+          if (Object.keys(historicalValues).length > 0) {
+            setValues(historicalValues);
+            setLastUpdate(mostRecentDate);
+            setIsHistoricalData(true);
+            console.log('📂 Dados históricos carregados:', historicalValues);
+          }
+        }
+      } catch (err) {
+        console.error('Erro ao carregar dados históricos:', err);
+      } finally {
+        setLoadingHistorical(false);
+      }
+    };
+
+    loadHistoricalData();
+  }, [device.id]);
 
   // Função para atualizar ultima_conexao no banco
   const updateLastConnection = useCallback(async () => {
@@ -65,6 +125,54 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
     
     if (error) {
       console.error("Erro ao atualizar ultima_conexao:", error);
+    }
+  }, [device.id]);
+
+  // Função para salvar valores no banco (via edge function ou direto)
+  const saveValueToDatabase = useCallback(async (configId: string, value: unknown) => {
+    try {
+      // Check if record exists
+      const { data: existing } = await supabase
+        .from('device_last_values')
+        .select('id')
+        .eq('device_id', device.id)
+        .eq('config_id', configId)
+        .maybeSingle();
+
+      const jsonValue = JSON.parse(JSON.stringify({ value }));
+
+      if (existing) {
+        // Update existing record
+        const { error } = await supabase
+          .from('device_last_values')
+          .update({
+            value: jsonValue,
+            received_at: new Date().toISOString()
+          })
+          .eq('id', existing.id);
+
+        if (error) {
+          console.error('Erro ao atualizar valor no banco:', error);
+        }
+      } else {
+        // Insert new record using raw insert with proper typing
+        const insertData = {
+          device_id: device.id,
+          config_id: configId,
+          value: jsonValue,
+          received_at: new Date().toISOString()
+        };
+        
+        const { error } = await supabase
+          .from('device_last_values')
+          .insert(insertData as never);
+
+        if (error) {
+          console.error('Erro ao inserir valor no banco:', error);
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao salvar valor:', err);
     }
   }, [device.id]);
 
@@ -94,6 +202,9 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
             if (value !== undefined) {
               newValues[config.id] = value;
               console.log(`📊 ${config.dashboard_component.nome}: ${value}`);
+              
+              // Salvar no banco para persistência
+              saveValueToDatabase(config.id, value);
             }
           }
         });
@@ -102,10 +213,11 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
       });
 
       setLastUpdate(new Date());
+      setIsHistoricalData(false); // Agora é tempo real
       
       // Atualizar ultima_conexao no banco de dados
       updateLastConnection();
-    }, [device.device_id, dashboardConfigs, updateLastConnection])
+    }, [device.device_id, dashboardConfigs, updateLastConnection, saveValueToDatabase])
   });
 
   // Comando padrão para solicitar atualização em tempo real
@@ -272,12 +384,20 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
   const formatLastUpdate = () => {
     if (!lastUpdate) return null;
     
+    // Mostrar data e hora completa
+    return format(lastUpdate, "dd/MM/yyyy 'às' HH:mm:ss", { locale: ptBR });
+  };
+
+  const getUpdateStatusLabel = () => {
+    if (!lastUpdate) return null;
+    
     const now = new Date();
     const diff = Math.floor((now.getTime() - lastUpdate.getTime()) / 1000);
     
-    if (diff < 60) return `há ${diff}s`;
-    if (diff < 3600) return `há ${Math.floor(diff / 60)}min`;
-    return `há ${Math.floor(diff / 3600)}h`;
+    if (diff < 60) return `(há ${diff}s)`;
+    if (diff < 3600) return `(há ${Math.floor(diff / 60)}min)`;
+    if (diff < 86400) return `(há ${Math.floor(diff / 3600)}h)`;
+    return `(há ${Math.floor(diff / 86400)}d)`;
   };
 
   const renderComponent = (config: DashboardConfig) => {
@@ -444,22 +564,43 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
 
   return (
     <div className="space-y-6">
-      {/* Status da Conexão MQTT */}
+      {/* Status da Conexão MQTT e Última Atualização */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <CardTitle className="text-lg">Conexão MQTT</CardTitle>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {lastUpdate && (
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  Última atualização: {formatLastUpdate()}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {isHistoricalData ? (
+                    <Badge variant="outline" className="gap-1 text-xs">
+                      <Database className="h-3 w-3" />
+                      Dados salvos
+                    </Badge>
+                  ) : (
+                    <Badge variant="default" className="gap-1 text-xs bg-green-600">
+                      <Wifi className="h-3 w-3" />
+                      Tempo real
+                    </Badge>
+                  )}
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    {formatLastUpdate()} {getUpdateStatusLabel()}
+                  </span>
+                </div>
               )}
               {renderMQTTStatus()}
             </div>
           </div>
         </CardHeader>
+        {loadingHistorical && (
+          <CardContent className="pt-0">
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Carregando dados salvos...
+            </div>
+          </CardContent>
+        )}
         {mqttError && (
           <CardContent className="pt-0">
             <div className="text-sm text-destructive bg-destructive/10 p-2 rounded">

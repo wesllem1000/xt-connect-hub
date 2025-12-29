@@ -5,3 +5,6 @@ verify_jwt = true
 
 [functions.get-mqtt-config]
 verify_jwt = false
+
+[functions.mqtt-webhook]
+verify_jwt = false
