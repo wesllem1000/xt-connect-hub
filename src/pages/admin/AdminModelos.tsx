@@ -23,6 +23,7 @@ interface DeviceModel {
   protocolos_suportados: string[];
   imagem_url: string | null;
   ativo: boolean;
+  history_retention_hours: number;
 }
 
 const emptyModel: Omit<DeviceModel, "id"> = {
@@ -33,6 +34,7 @@ const emptyModel: Omit<DeviceModel, "id"> = {
   protocolos_suportados: [],
   imagem_url: "",
   ativo: true,
+  history_retention_hours: 24,
 };
 
 export default function AdminModelos() {
@@ -107,6 +109,7 @@ export default function AdminModelos() {
       protocolos_suportados: protocols,
       imagem_url: editingModel.imagem_url || null,
       ativo: editingModel.ativo ?? true,
+      history_retention_hours: editingModel.history_retention_hours ?? 24,
     };
 
     if (isNew) {
@@ -295,13 +298,32 @@ export default function AdminModelos() {
                   className="font-mono text-sm"
                 />
               </div>
-              <div className="space-y-2">
-                <Label>URL da Imagem</Label>
-                <Input
-                  value={editingModel?.imagem_url || ""}
-                  onChange={(e) => setEditingModel(prev => ({ ...prev, imagem_url: e.target.value }))}
-                  placeholder="https://..."
-                />
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>URL da Imagem</Label>
+                  <Input
+                    value={editingModel?.imagem_url || ""}
+                    onChange={(e) => setEditingModel(prev => ({ ...prev, imagem_url: e.target.value }))}
+                    placeholder="https://..."
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Retenção do Histórico (horas)</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={720}
+                    value={editingModel?.history_retention_hours ?? 24}
+                    onChange={(e) => setEditingModel(prev => ({ 
+                      ...prev, 
+                      history_retention_hours: Math.max(1, Math.min(720, parseInt(e.target.value) || 24))
+                    }))}
+                    placeholder="24"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Por quanto tempo o histórico de dados será armazenado (1-720h)
+                  </p>
+                </div>
               </div>
               <div className="flex items-center gap-3">
                 <Switch

@@ -245,6 +245,7 @@ export type Database = {
           descricao: string | null
           especificacoes: Json | null
           fabricante: string
+          history_retention_hours: number
           id: string
           imagem_url: string | null
           nome: string
@@ -257,6 +258,7 @@ export type Database = {
           descricao?: string | null
           especificacoes?: Json | null
           fabricante: string
+          history_retention_hours?: number
           id?: string
           imagem_url?: string | null
           nome: string
@@ -269,6 +271,7 @@ export type Database = {
           descricao?: string | null
           especificacoes?: Json | null
           fabricante?: string
+          history_retention_hours?: number
           id?: string
           imagem_url?: string | null
           nome?: string
@@ -308,6 +311,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      device_value_history: {
+        Row: {
+          config_id: string
+          device_id: string
+          id: string
+          received_at: string
+          value: Json
+        }
+        Insert: {
+          config_id: string
+          device_id: string
+          id?: string
+          received_at?: string
+          value: Json
+        }
+        Update: {
+          config_id?: string
+          device_id?: string
+          id?: string
+          received_at?: string
+          value?: Json
+        }
+        Relationships: []
       }
       devices: {
         Row: {

@@ -14,7 +14,8 @@ import InputComponent from "./components/InputComponent";
 import SensorComponent from "./components/SensorComponent";
 import TextValueComponent from "./components/TextValueComponent";
 import TemperatureComponent from "./components/TemperatureComponent";
-import { Wifi, WifiOff, Loader2, AlertCircle, Clock, Database } from "lucide-react";
+import { ComponentHistoryModal } from "./ComponentHistoryModal";
+import { Wifi, WifiOff, Loader2, AlertCircle, Clock, Database, BarChart3 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
@@ -65,6 +66,12 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [isHistoricalData, setIsHistoricalData] = useState(false);
   const [loadingHistorical, setLoadingHistorical] = useState(true);
+  const [historyModal, setHistoryModal] = useState<{
+    open: boolean;
+    configId: string;
+    componentName: string;
+    componentType: string;
+  }>({ open: false, configId: "", componentName: "", componentType: "" });
 
   // Carregar dados históricos do banco ao montar
   useEffect(() => {
@@ -614,13 +621,38 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
       {/* Grid de Componentes */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {dashboardConfigs.map((config) => (
-          <Card key={config.id} className="overflow-hidden">
+          <Card 
+            key={config.id} 
+            className="overflow-hidden cursor-pointer transition-all hover:shadow-lg hover:border-primary/50 group relative"
+            onClick={() => setHistoryModal({
+              open: true,
+              configId: config.id,
+              componentName: config.titulo_personalizado || config.dashboard_component.nome,
+              componentType: config.dashboard_component.tipo,
+            })}
+          >
+            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+              <Badge variant="secondary" className="gap-1 text-xs">
+                <BarChart3 className="h-3 w-3" />
+                Ver histórico
+              </Badge>
+            </div>
             <CardContent className="p-4">
               {renderComponent(config)}
             </CardContent>
           </Card>
         ))}
       </div>
+
+      {/* Modal de Histórico */}
+      <ComponentHistoryModal
+        open={historyModal.open}
+        onOpenChange={(open) => setHistoryModal(prev => ({ ...prev, open }))}
+        deviceId={device.id}
+        configId={historyModal.configId}
+        componentName={historyModal.componentName}
+        componentType={historyModal.componentType}
+      />
     </div>
   );
 });

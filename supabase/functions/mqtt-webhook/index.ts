@@ -127,14 +127,17 @@ serve(async (req) => {
             if (value !== undefined) {
               console.log(`📊 Config ${config.id}: ${config.json_path_receive} = ${JSON.stringify(value)}`);
               
-              // Upsert into device_last_values
+              const timestamp = payload.timestamp || new Date().toISOString();
+              const valueObj = { value };
+
+              // Upsert into device_last_values (keeps only latest value)
               const { error: upsertError } = await supabase
                 .from('device_last_values')
                 .upsert({
                   device_id: device.id,
                   config_id: config.id,
-                  value: { value }, // Store as JSON object
-                  received_at: payload.timestamp || new Date().toISOString()
+                  value: valueObj,
+                  received_at: timestamp
                 }, {
                   onConflict: 'device_id,config_id'
                 });
@@ -142,11 +145,25 @@ serve(async (req) => {
               if (upsertError) {
                 console.error(`Error upserting value for config ${config.id}:`, upsertError);
               }
+
+              // Also insert into device_value_history (keeps ALL values for charting)
+              const { error: historyError } = await supabase
+                .from('device_value_history')
+                .insert({
+                  device_id: device.id,
+                  config_id: config.id,
+                  value: valueObj,
+                  received_at: timestamp
+                });
+
+              if (historyError) {
+                console.error(`Error inserting history for config ${config.id}:`, historyError);
+              }
             }
           });
 
         await Promise.all(upsertPromises);
-        console.log('✅ Saved all values to device_last_values');
+        console.log('✅ Saved all values to device_last_values and device_value_history');
       }
     }
 
