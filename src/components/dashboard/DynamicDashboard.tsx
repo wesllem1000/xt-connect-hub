@@ -138,7 +138,10 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
   // Função para salvar valores no banco (via edge function ou direto)
   const saveValueToDatabase = useCallback(async (configId: string, value: unknown) => {
     try {
-      // Check if record exists
+      const jsonValue = JSON.parse(JSON.stringify({ value }));
+      const timestamp = new Date().toISOString();
+
+      // Check if record exists in device_last_values
       const { data: existing } = await supabase
         .from('device_last_values')
         .select('id')
@@ -146,15 +149,13 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
         .eq('config_id', configId)
         .maybeSingle();
 
-      const jsonValue = JSON.parse(JSON.stringify({ value }));
-
       if (existing) {
         // Update existing record
         const { error } = await supabase
           .from('device_last_values')
           .update({
             value: jsonValue,
-            received_at: new Date().toISOString()
+            received_at: timestamp
           })
           .eq('id', existing.id);
 
@@ -162,12 +163,12 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
           console.error('Erro ao atualizar valor no banco:', error);
         }
       } else {
-        // Insert new record using raw insert with proper typing
+        // Insert new record
         const insertData = {
           device_id: device.id,
           config_id: configId,
           value: jsonValue,
-          received_at: new Date().toISOString()
+          received_at: timestamp
         };
         
         const { error } = await supabase
@@ -177,6 +178,22 @@ const DynamicDashboard = forwardRef<DynamicDashboardRef, Props>(({ device, dashb
         if (error) {
           console.error('Erro ao inserir valor no banco:', error);
         }
+      }
+
+      // TAMBÉM salvar no histórico para gráficos
+      const historyData = {
+        device_id: device.id,
+        config_id: configId,
+        value: jsonValue,
+        received_at: timestamp
+      };
+      
+      const { error: historyError } = await supabase
+        .from('device_value_history')
+        .insert(historyData as never);
+
+      if (historyError) {
+        console.error('Erro ao salvar histórico:', historyError);
       }
     } catch (err) {
       console.error('Erro ao salvar valor:', err);
