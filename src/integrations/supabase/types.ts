@@ -127,6 +127,51 @@ export type Database = {
         }
         Relationships: []
       }
+      device_last_values: {
+        Row: {
+          config_id: string
+          created_at: string | null
+          device_id: string
+          id: string
+          received_at: string
+          updated_at: string | null
+          value: Json
+        }
+        Insert: {
+          config_id: string
+          created_at?: string | null
+          device_id: string
+          id?: string
+          received_at?: string
+          updated_at?: string | null
+          value: Json
+        }
+        Update: {
+          config_id?: string
+          created_at?: string | null
+          device_id?: string
+          id?: string
+          received_at?: string
+          updated_at?: string | null
+          value?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "device_last_values_config_id_fkey"
+            columns: ["config_id"]
+            isOneToOne: false
+            referencedRelation: "device_model_dashboards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "device_last_values_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       device_model_dashboards: {
         Row: {
           ativo: boolean | null
