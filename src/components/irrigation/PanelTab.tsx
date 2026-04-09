@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Droplets, Power, PowerOff, Wifi, WifiOff, Clock, AlertTriangle, Sprout, Radio, Loader2 } from "lucide-react";
 import { IrrigationSnapshot } from "@/hooks/useIrrigationMQTT";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 interface PanelTabProps {
@@ -19,6 +19,13 @@ export default function PanelTab({ snapshot, isCommandPending, onSetMode, onSetP
   const [pumpLoading, setPumpLoading] = useState(false);
   const [modeLoading, setModeLoading] = useState(false);
   const [sectorLoading, setSectorLoading] = useState<Record<number, boolean>>({});
+  const [currentMode, setCurrentMode] = useState<IrrigationSnapshot["mode"] | null>(snapshot?.mode ?? null);
+
+  useEffect(() => {
+    if (snapshot?.mode) {
+      setCurrentMode(snapshot.mode);
+    }
+  }, [snapshot?.mode]);
 
   if (!snapshot) {
     return (
@@ -31,7 +38,7 @@ export default function PanelTab({ snapshot, isCommandPending, onSetMode, onSetP
     );
   }
 
-  const isManual = snapshot.mode === "manual";
+  const isManual = currentMode === "manual";
   const sectors = [
     { index: 1, enabled: snapshot.sector_1_enabled, on: snapshot.sector_1_on },
     { index: 2, enabled: snapshot.sector_2_enabled, on: snapshot.sector_2_on },
@@ -40,11 +47,14 @@ export default function PanelTab({ snapshot, isCommandPending, onSetMode, onSetP
   ];
 
   const handleSetMode = async (mode: "manual" | "automatic") => {
+    const previousMode = currentMode;
+    setCurrentMode(mode);
     setModeLoading(true);
     try {
       await onSetMode(mode);
       toast.success(`Modo alterado para ${mode === "manual" ? "Manual" : "Automático"}`);
     } catch (err) {
+      setCurrentMode(previousMode);
       toast.error(err instanceof Error ? err.message : "Erro ao alterar modo");
     } finally {
       setModeLoading(false);
