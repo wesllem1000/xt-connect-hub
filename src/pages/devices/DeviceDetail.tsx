@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowLeft, Settings, Share2, Wifi, WifiOff, RefreshCw } from "lucide-react";
 import DynamicDashboard, { DynamicDashboardRef } from "@/components/dashboard/DynamicDashboard";
+import IrrigationDashboard, { IrrigationDashboardRef } from "@/components/irrigation/IrrigationDashboard";
 import { useSystemConfig, isDeviceOnline } from "@/hooks/useSystemConfig";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -60,12 +61,16 @@ export default function DeviceDetail() {
   const [isShared, setIsShared] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const dashboardRef = useRef<DynamicDashboardRef | null>(null);
+  const irrigationRef = useRef<IrrigationDashboardRef | null>(null);
+
+  const isIrrigationModel = model?.nome === "XT Automatize Irrigacao";
 
   const handleRealTimeUpdate = async () => {
     if (!device) return;
     
-    // Verificar se está conectado ao MQTT
-    if (dashboardRef.current?.mqttStatus !== "connected") {
+    const activeRef = isIrrigationModel ? irrigationRef.current : dashboardRef.current;
+    
+    if (activeRef?.mqttStatus !== "connected") {
       toast.error("Não conectado ao MQTT. Aguarde a conexão...");
       return;
     }
@@ -74,16 +79,12 @@ export default function DeviceDetail() {
     toast.info("Solicitando atualização em tempo real...");
     
     try {
-      if (dashboardRef.current) {
-        await dashboardRef.current.requestRealTimeUpdate();
-      }
+      await activeRef.requestRealTimeUpdate();
       toast.success("Comando enviado! Aguardando resposta do dispositivo...");
     } catch (error) {
       toast.error("Erro ao solicitar atualização");
     } finally {
-      setTimeout(() => {
-        setIsRefreshing(false);
-      }, 2000);
+      setTimeout(() => setIsRefreshing(false), 2000);
     }
   };
 
@@ -258,7 +259,12 @@ export default function DeviceDetail() {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        {dashboardConfigs.length > 0 ? (
+        {isIrrigationModel ? (
+          <IrrigationDashboard
+            ref={irrigationRef}
+            device={device}
+          />
+        ) : dashboardConfigs.length > 0 ? (
           <DynamicDashboard
             ref={dashboardRef}
             device={device}
