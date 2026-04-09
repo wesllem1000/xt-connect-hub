@@ -1,0 +1,226 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useMQTT } from "./useMQTT";
+
+export interface IrrigationSnapshot {
+  mode: "manual" | "automatic";
+  time_valid: boolean;
+  time_source: string;
+  wifi_connected: boolean;
+  mqtt_connected: boolean;
+  pump_on: boolean;
+  sectorization_enabled: boolean;
+  sector_1_enabled: boolean;
+  sector_1_on: boolean;
+  sector_2_enabled: boolean;
+  sector_2_on: boolean;
+  sector_3_enabled: boolean;
+  sector_3_on: boolean;
+  sector_4_enabled: boolean;
+  sector_4_on: boolean;
+  next_event_type: string;
+  next_event_target: number;
+  next_event_time: string;
+  warning: string;
+}
+
+export interface IrrigationFullConfig {
+  mode: string;
+  sectorization_enabled: boolean;
+  sectors: Array<{ index: number; enabled: boolean; name: string }>;
+  pump: Record<string, unknown>;
+  system: Record<string, unknown>;
+  relay: Record<string, unknown>;
+}
+
+export interface ScheduleItem {
+  id: number;
+  enabled: boolean;
+  target_type: "pump" | "sector";
+  target_index?: number;
+  start_time: string;
+  duration_min: number;
+  days: string[];
+}
+
+interface CommandResponse {
+  ok: boolean;
+  code: string;
+  message: string;
+  data?: unknown;
+  command: string;
+  request_id: string;
+}
+
+interface PendingCommand {
+  resolve: (resp: CommandResponse) => void;
+  reject: (err: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
+}
+
+interface UseIrrigationMQTTOptions {
+  deviceId: string; // The device_id string (e.g. "xt-34E3EC")
+  autoConnect?: boolean;
+  commandTimeout?: number;
+}
+
+export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout = 15000 }: UseIrrigationMQTTOptions) {
+  const [snapshot, setSnapshot] = useState<IrrigationSnapshot | null>(null);
+  const [fullConfig, setFullConfig] = useState<IrrigationFullConfig | null>(null);
+  const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [pendingCommands, setPendingCommands] = useState<Set<string>>(new Set());
+  const [lastSnapshotTime, setLastSnapshotTime] = useState<Date | null>(null);
+  const pendingRef = useRef<Map<string, PendingCommand>>(new Map());
+  const requestCounter = useRef(0);
+
+  const generateRequestId = useCallback(() => {
+    requestCounter.current += 1;
+    const ts = Date.now();
+    return `req_${ts}_${String(requestCounter.current).padStart(3, "0")}`;
+  }, []);
+
+  const handleMessage = useCallback((message: { topic: string; payload: Record<string, unknown> }) => {
+    const payload = message.payload;
+    const payloadDeviceId = String(payload.device_id || "");
+    if (payloadDeviceId && payloadDeviceId !== deviceId) return;
+
+    // Check if it's a status/response message (has request_id + type=command_result)
+    if (payload.request_id && (payload.type === "command_result" || payload.ok !== undefined)) {
+      const rid = String(payload.request_id);
+      const pending = pendingRef.current.get(rid);
+      if (pending) {
+        clearTimeout(pending.timeout);
+        pendingRef.current.delete(rid);
+        setPendingCommands(prev => {
+          const next = new Set(prev);
+          next.delete(rid);
+          return next;
+        });
+        pending.resolve(payload as unknown as CommandResponse);
+      }
+
+      // Also handle specific response data
+      const cmd = String(payload.command || "");
+      const respData = payload.data as Record<string, unknown> | undefined;
+
+      if (cmd === "list_schedules" && respData?.schedules) {
+        setSchedules(respData.schedules as ScheduleItem[]);
+      }
+      if (cmd === "get_logs" && respData?.logs) {
+        setLogs(respData.logs as string[]);
+      }
+      if (cmd === "get_full_config" && respData) {
+        setFullConfig(respData as unknown as IrrigationFullConfig);
+      }
+      if (cmd === "get_runtime_state" && respData) {
+        setSnapshot(prev => ({ ...prev, ...respData } as IrrigationSnapshot));
+        setLastSnapshotTime(new Date());
+      }
+      return;
+    }
+
+    // Data snapshot message
+    if (payload.data && typeof payload.data === "object") {
+      setSnapshot(payload.data as unknown as IrrigationSnapshot);
+      setLastSnapshotTime(new Date());
+    }
+  }, [deviceId]);
+
+  const { status: mqttStatus, publish, error: mqttError } = useMQTT({
+    deviceId,
+    autoConnect,
+    onMessage: handleMessage,
+  });
+
+  const sendCommand = useCallback((command: string, params: Record<string, unknown> = {}): Promise<CommandResponse> => {
+    const requestId = generateRequestId();
+    const message = {
+      device_id: deviceId,
+      request_id: requestId,
+      command,
+      params,
+      timestamp: new Date().toISOString(),
+    };
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pendingRef.current.delete(requestId);
+        setPendingCommands(prev => {
+          const next = new Set(prev);
+          next.delete(requestId);
+          return next;
+        });
+        reject(new Error(`Timeout: sem resposta para "${command}" em ${commandTimeout / 1000}s`));
+      }, commandTimeout);
+
+      pendingRef.current.set(requestId, { resolve, reject, timeout });
+      setPendingCommands(prev => new Set(prev).add(requestId));
+
+      publish(`devices/${deviceId}/commands`, message);
+    });
+  }, [deviceId, publish, generateRequestId, commandTimeout]);
+
+  // Convenience methods
+  const requestUpdate = useCallback(() => sendCommand("request_update"), [sendCommand]);
+  const getRuntimeState = useCallback(() => sendCommand("get_runtime_state"), [sendCommand]);
+  const getFullConfig = useCallback(() => sendCommand("get_full_config"), [sendCommand]);
+  const listSchedules = useCallback((targetType = "all") => sendCommand("list_schedules", { target_type: targetType }), [sendCommand]);
+  const setMode = useCallback((mode: "manual" | "automatic") => sendCommand("set_mode", { mode }), [sendCommand]);
+  const setPump = useCallback((on: boolean) => sendCommand("set_pump", { on }), [sendCommand]);
+  const setSector = useCallback((index: number, open: boolean) => sendCommand("set_sector", { index, open }), [sendCommand]);
+  const getLogs = useCallback((limit = 100) => sendCommand("get_logs", { limit }), [sendCommand]);
+  const clearLogs = useCallback(() => sendCommand("clear_logs"), [sendCommand]);
+  const setSectorization = useCallback((enabled: boolean) => sendCommand("set_sectorization", { enabled }), [sendCommand]);
+  const setSectorEnabled = useCallback((index: number, enabled: boolean) => sendCommand("set_sector_enabled", { index, enabled }), [sendCommand]);
+  const setSectorName = useCallback((index: number, name: string) => sendCommand("set_sector_name", { index, name }), [sendCommand]);
+  const setPumpConfig = useCallback((config: Record<string, unknown>) => sendCommand("set_pump_config", config), [sendCommand]);
+  const setSystemConfig = useCallback((config: Record<string, unknown>) => sendCommand("set_system_config", config), [sendCommand]);
+  const setRelayConfig = useCallback((config: Record<string, unknown>) => sendCommand("set_relay_config", config), [sendCommand]);
+  const setDatetime = useCallback((datetime: string) => sendCommand("set_datetime", { datetime }), [sendCommand]);
+  const addSchedule = useCallback((schedule: Omit<ScheduleItem, "id">) => sendCommand("add_schedule", schedule as unknown as Record<string, unknown>), [sendCommand]);
+  const updateSchedule = useCallback((schedule: Partial<ScheduleItem> & { id: number }) => sendCommand("update_schedule", schedule as unknown as Record<string, unknown>), [sendCommand]);
+  const deleteSchedule = useCallback((id: number) => sendCommand("delete_schedule", { id }), [sendCommand]);
+  const setScheduleEnabled = useCallback((id: number, enabled: boolean) => sendCommand("set_schedule_enabled", { id, enabled }), [sendCommand]);
+
+  // Cleanup pending commands on unmount
+  useEffect(() => {
+    return () => {
+      pendingRef.current.forEach((cmd) => {
+        clearTimeout(cmd.timeout);
+      });
+      pendingRef.current.clear();
+    };
+  }, []);
+
+  return {
+    mqttStatus,
+    mqttError,
+    snapshot,
+    fullConfig,
+    schedules,
+    logs,
+    lastSnapshotTime,
+    isCommandPending: pendingCommands.size > 0,
+    sendCommand,
+    requestUpdate,
+    getRuntimeState,
+    getFullConfig,
+    listSchedules,
+    setMode,
+    setPump,
+    setSector,
+    getLogs,
+    clearLogs,
+    setSectorization,
+    setSectorEnabled,
+    setSectorName,
+    setPumpConfig,
+    setSystemConfig,
+    setRelayConfig,
+    setDatetime,
+    addSchedule,
+    updateSchedule,
+    deleteSchedule,
+    setScheduleEnabled,
+  };
+}
