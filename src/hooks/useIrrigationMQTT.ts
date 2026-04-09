@@ -50,6 +50,50 @@ interface PendingCommand {
   timeout: ReturnType<typeof setTimeout>;
 }
 
+function normalizeScheduleItem(raw: Record<string, unknown>): ScheduleItem {
+  const targetType = String(raw.target_type ?? raw.targetType ?? "pump");
+  const rawStartTime = raw.start_time ?? raw.startTime;
+  const hour = Number(raw.hour ?? 0);
+  const minute = Number(raw.minute ?? 0);
+
+  return {
+    id: Number(raw.id ?? 0),
+    enabled: Boolean(raw.enabled ?? true),
+    target_type: targetType === "sector" ? "sector" : "pump",
+    target_index:
+      targetType === "sector"
+        ? Number(raw.target_index ?? raw.targetIndex ?? 1)
+        : undefined,
+    start_time:
+      typeof rawStartTime === "string" && rawStartTime.length > 0
+        ? rawStartTime
+        : `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+    duration_min: Number(raw.duration_min ?? raw.durationMin ?? 0),
+    days: Array.isArray(raw.days) ? raw.days.map((day) => String(day)) : [],
+  };
+}
+
+function buildAddScheduleParams(schedule: Omit<ScheduleItem, "id">): Record<string, unknown> {
+  return {
+    target_type: schedule.target_type,
+    ...(schedule.target_type === "sector" ? { target_index: schedule.target_index ?? 1 } : {}),
+    enabled: schedule.enabled,
+    start_time: schedule.start_time,
+    duration_min: schedule.duration_min,
+    days: schedule.days,
+  };
+}
+
+function buildUpdateScheduleParams(schedule: Partial<ScheduleItem> & { id: number }): Record<string, unknown> {
+  return {
+    id: schedule.id,
+    ...(schedule.enabled !== undefined ? { enabled: schedule.enabled } : {}),
+    ...(schedule.start_time ? { start_time: schedule.start_time } : {}),
+    ...(schedule.duration_min !== undefined ? { duration_min: schedule.duration_min } : {}),
+    ...(schedule.days ? { days: schedule.days } : {}),
+  };
+}
+
 function parseDataToSnapshot(raw: Record<string, unknown>): IrrigationSnapshot {
   const rawSectors = (raw.sectors as Array<Record<string, unknown>> || []).map(s => ({
     index: Number(s.index ?? 0),
@@ -125,8 +169,8 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
       const cmd = String(payload.command || "");
       const respData = payload.data as Record<string, unknown> | undefined;
 
-      if (cmd === "list_schedules" && respData?.schedules) {
-        setSchedules(respData.schedules as ScheduleItem[]);
+      if (cmd === "list_schedules" && respData?.schedules && Array.isArray(respData.schedules)) {
+        setSchedules((respData.schedules as Record<string, unknown>[]).map(normalizeScheduleItem));
       }
       if (cmd === "get_logs" && respData?.logs) {
         setLogs(respData.logs as string[]);
@@ -199,8 +243,14 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
   const setSystemConfig = useCallback((config: Record<string, unknown>) => sendCommand("set_system_config", config), [sendCommand]);
   const setRelayConfig = useCallback((config: Record<string, unknown>) => sendCommand("set_relay_config", config), [sendCommand]);
   const setDatetime = useCallback((datetime: string) => sendCommand("set_datetime", { datetime }), [sendCommand]);
-  const addSchedule = useCallback((schedule: Omit<ScheduleItem, "id">) => sendCommand("add_schedule", schedule as unknown as Record<string, unknown>), [sendCommand]);
-  const updateSchedule = useCallback((schedule: Partial<ScheduleItem> & { id: number }) => sendCommand("update_schedule", schedule as unknown as Record<string, unknown>), [sendCommand]);
+  const addSchedule = useCallback(
+    (schedule: Omit<ScheduleItem, "id">) => sendCommand("add_schedule", buildAddScheduleParams(schedule)),
+    [sendCommand]
+  );
+  const updateSchedule = useCallback(
+    (schedule: Partial<ScheduleItem> & { id: number }) => sendCommand("update_schedule", buildUpdateScheduleParams(schedule)),
+    [sendCommand]
+  );
   const deleteSchedule = useCallback((id: number) => sendCommand("delete_schedule", { id }), [sendCommand]);
   const setScheduleEnabled = useCallback((id: number, enabled: boolean) => sendCommand("set_schedule_enabled", { id, enabled }), [sendCommand]);
 
