@@ -259,7 +259,12 @@ export default function DeviceDetail() {
       </header>
 
       <main className="container mx-auto px-4 py-8">
-        {dashboardConfigs.length > 0 ? (
+        {isIrrigationModel ? (
+          <IrrigationDashboard
+            ref={irrigationRef}
+            device={device}
+          />
+        ) : dashboardConfigs.length > 0 ? (
           <DynamicDashboard
             ref={dashboardRef}
             device={device}
