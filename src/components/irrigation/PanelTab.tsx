@@ -43,14 +43,13 @@ export default function PanelTab({ snapshot, fullConfig, isCommandPending, onSet
   const isManual = currentMode === "manual";
   // Use fullConfig as source of truth for which sectors are enabled, fall back to snapshot
   const sectorizationEnabled = fullConfig?.sectorization_enabled ?? snapshot.sectorization_enabled;
-  const sectors = [1, 2, 3, 4].map(i => {
-    const cfgSector = fullConfig?.sectors?.find(s => s.index === i);
-    const snapshotEnabled = i === 1 ? snapshot.sector_1_enabled : i === 2 ? snapshot.sector_2_enabled : i === 3 ? snapshot.sector_3_enabled : snapshot.sector_4_enabled;
-    const snapshotOn = i === 1 ? snapshot.sector_1_on : i === 2 ? snapshot.sector_2_on : i === 3 ? snapshot.sector_3_on : snapshot.sector_4_on;
+  const sectors = (snapshot.sectors || []).map(s => {
+    const cfgSector = fullConfig?.sectors?.find(c => c.index === s.index);
     return {
-      index: i,
-      enabled: cfgSector ? cfgSector.enabled : snapshotEnabled,
-      on: snapshotOn,
+      index: s.index,
+      enabled: cfgSector ? cfgSector.enabled : s.enabled,
+      on: s.open,
+      name: cfgSector?.name || s.name,
     };
   });
 
@@ -242,7 +241,7 @@ export default function PanelTab({ snapshot, fullConfig, isCommandPending, onSet
                       }`} />
                     </div>
                     <div>
-                      <p className="text-sm font-medium">{sectorNames[sector.index] || `Setor ${sector.index}`}</p>
+                      <p className="text-sm font-medium">{sector.name || sectorNames[sector.index] || `Setor ${sector.index}`}</p>
                       <p className={`text-xs font-semibold ${sector.on ? "text-green-600" : "text-muted-foreground"}`}>
                         {sector.on ? "● Aberto" : "○ Fechado"}
                       </p>
