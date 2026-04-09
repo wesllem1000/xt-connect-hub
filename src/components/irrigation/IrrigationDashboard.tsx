@@ -151,6 +151,7 @@ const IrrigationDashboard = forwardRef<IrrigationDashboardRef, Props>(({ device 
         <TabsContent value="painel">
           <PanelTab
             snapshot={mqtt.snapshot}
+            fullConfig={mqtt.fullConfig}
             isCommandPending={mqtt.isCommandPending}
             onSetMode={async (mode) => { await mqtt.setMode(mode); }}
             onSetPump={async (on) => { await mqtt.setPump(on); }}
