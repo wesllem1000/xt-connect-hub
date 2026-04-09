@@ -241,7 +241,7 @@ export default function PanelTab({ snapshot, fullConfig, isCommandPending, onSet
                       }`} />
                     </div>
                     <div>
-                      <p className="text-sm font-medium">{sectorNames[sector.index] || `Setor ${sector.index}`}</p>
+                      <p className="text-sm font-medium">{sector.name || sectorNames[sector.index] || `Setor ${sector.index}`}</p>
                       <p className={`text-xs font-semibold ${sector.on ? "text-green-600" : "text-muted-foreground"}`}>
                         {sector.on ? "● Aberto" : "○ Fechado"}
                       </p>
