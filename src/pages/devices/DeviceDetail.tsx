@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { ArrowLeft, Settings, Share2, Wifi, WifiOff, RefreshCw } from "lucide-react";
 import DynamicDashboard, { DynamicDashboardRef } from "@/components/dashboard/DynamicDashboard";
+import IrrigationDashboard, { IrrigationDashboardRef } from "@/components/irrigation/IrrigationDashboard";
 import { useSystemConfig, isDeviceOnline } from "@/hooks/useSystemConfig";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
