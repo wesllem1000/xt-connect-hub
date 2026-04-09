@@ -23,11 +23,15 @@ export default function SectorsTab({ snapshot, fullConfig, isCommandPending, onS
   const [saving, setSaving] = useState<number | null>(null);
 
   const sectorization = snapshot?.sectorization_enabled ?? false;
-  const sectors = fullConfig?.sectors || [
-    { index: 1, enabled: snapshot?.sector_1_enabled ?? false, name: "Setor 1" },
-    { index: 2, enabled: snapshot?.sector_2_enabled ?? false, name: "Setor 2" },
-    { index: 3, enabled: snapshot?.sector_3_enabled ?? false, name: "Setor 3" },
-    { index: 4, enabled: snapshot?.sector_4_enabled ?? false, name: "Setor 4" },
+  const sectors = fullConfig?.sectors || snapshot?.sectors?.map(s => ({
+    index: s.index,
+    enabled: s.enabled,
+    name: s.name,
+  })) || [
+    { index: 1, enabled: false, name: "Setor 1" },
+    { index: 2, enabled: false, name: "Setor 2" },
+    { index: 3, enabled: false, name: "Setor 3" },
+    { index: 4, enabled: false, name: "Setor 4" },
   ];
 
   const handleToggleSectorization = async (enabled: boolean) => {
