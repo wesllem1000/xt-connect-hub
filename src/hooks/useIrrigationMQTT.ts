@@ -9,14 +9,7 @@ export interface IrrigationSnapshot {
   mqtt_connected: boolean;
   pump_on: boolean;
   sectorization_enabled: boolean;
-  sector_1_enabled: boolean;
-  sector_1_on: boolean;
-  sector_2_enabled: boolean;
-  sector_2_on: boolean;
-  sector_3_enabled: boolean;
-  sector_3_on: boolean;
-  sector_4_enabled: boolean;
-  sector_4_on: boolean;
+  sectors: Array<{ index: number; enabled: boolean; name: string; open: boolean }>;
   next_event_type: string;
   next_event_target: number;
   next_event_time: string;
@@ -55,6 +48,35 @@ interface PendingCommand {
   resolve: (resp: CommandResponse) => void;
   reject: (err: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
+}
+
+function parseDataToSnapshot(raw: Record<string, unknown>): IrrigationSnapshot {
+  const rawSectors = (raw.sectors as Array<Record<string, unknown>> || []).map(s => ({
+    index: Number(s.index ?? 0),
+    enabled: Boolean(s.enabled),
+    name: String(s.name || `Setor ${s.index}`),
+    open: Boolean(s.open),
+  }));
+
+  let mode: "manual" | "automatic" = "automatic";
+  if (raw.manual_mode !== undefined) mode = raw.manual_mode ? "manual" : "automatic";
+  else if (raw.manualMode !== undefined) mode = raw.manualMode ? "manual" : "automatic";
+  else if (raw.mode !== undefined) mode = raw.mode === "manual" ? "manual" : "automatic";
+
+  return {
+    mode,
+    time_valid: Boolean(raw.time_valid ?? raw.timeValid ?? true),
+    time_source: String(raw.time_source || raw.timeSource || "ntp"),
+    wifi_connected: Boolean(raw.wifi_connected ?? raw.wifiConnected ?? false),
+    mqtt_connected: Boolean(raw.mqtt_connected ?? raw.mqttConnected ?? false),
+    pump_on: Boolean(raw.pump_on ?? raw.pumpOn ?? false),
+    sectorization_enabled: Boolean(raw.sectorization_enabled ?? raw.sectorizationEnabled ?? false),
+    sectors: rawSectors,
+    next_event_type: "",
+    next_event_target: 0,
+    next_event_time: "",
+    warning: String(raw.overlap_warnings || raw.overlapWarnings || raw.warning || ""),
+  };
 }
 
 interface UseIrrigationMQTTOptions {
@@ -113,7 +135,7 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
         setFullConfig(respData as unknown as IrrigationFullConfig);
       }
       if (cmd === "get_runtime_state" && respData) {
-        setSnapshot(prev => ({ ...prev, ...respData } as IrrigationSnapshot));
+        setSnapshot(parseDataToSnapshot(respData as Record<string, unknown>));
         setLastSnapshotTime(new Date());
       }
       return;
@@ -121,7 +143,7 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
 
     // Data snapshot message
     if (payload.data && typeof payload.data === "object") {
-      setSnapshot(payload.data as unknown as IrrigationSnapshot);
+      setSnapshot(parseDataToSnapshot(payload.data as Record<string, unknown>));
       setLastSnapshotTime(new Date());
     }
   }, [deviceId]);
