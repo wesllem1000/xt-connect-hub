@@ -83,7 +83,7 @@ const IrrigationDashboard = forwardRef<IrrigationDashboardRef, Props>(({ device 
   }, []);
 
   useImperativeHandle(ref, () => ({
-    requestRealTimeUpdate: () => mqtt.requestUpdate(),
+    requestRealTimeUpdate: async () => { await mqtt.requestUpdate(); },
     mqttStatus: mqtt.mqttStatus,
   }));
 
