@@ -1,11 +1,11 @@
-import { useState, useEffect, forwardRef, useImperativeHandle, useCallback } from "react";
+import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Wifi, WifiOff, Loader2, AlertCircle, Clock, Database } from "lucide-react";
+import { Wifi, WifiOff, Loader2, AlertCircle, Clock } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
-import { useIrrigationMQTT, IrrigationSnapshot } from "@/hooks/useIrrigationMQTT";
+import { useIrrigationMQTT } from "@/hooks/useIrrigationMQTT";
 import { MQTTStatus } from "@/hooks/useMQTT";
 import PanelTab from "./PanelTab";
 import TimersTab from "./TimersTab";
@@ -70,7 +70,6 @@ const IrrigationDashboard = forwardRef<IrrigationDashboardRef, Props>(({ device 
           setInitialLoading(false);
         }
       };
-      // Small delay to ensure subscription is ready
       const timer = setTimeout(fetchInitial, 500);
       return () => clearTimeout(timer);
     }
@@ -153,9 +152,9 @@ const IrrigationDashboard = forwardRef<IrrigationDashboardRef, Props>(({ device 
           <PanelTab
             snapshot={mqtt.snapshot}
             isCommandPending={mqtt.isCommandPending}
-            onSetMode={async (mode) => { try { await mqtt.setMode(mode); } catch {} }}
-            onSetPump={async (on) => { try { await mqtt.setPump(on); } catch {} }}
-            onSetSector={async (idx, open) => { try { await mqtt.setSector(idx, open); } catch {} }}
+            onSetMode={async (mode) => { await mqtt.setMode(mode); }}
+            onSetPump={async (on) => { await mqtt.setPump(on); }}
+            onSetSector={async (idx, open) => { await mqtt.setSector(idx, open); }}
             sectorNames={sectorNames}
           />
         </TabsContent>
