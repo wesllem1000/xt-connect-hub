@@ -61,12 +61,16 @@ export default function DeviceDetail() {
   const [isShared, setIsShared] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const dashboardRef = useRef<DynamicDashboardRef | null>(null);
+  const irrigationRef = useRef<IrrigationDashboardRef | null>(null);
+
+  const isIrrigationModel = model?.nome === "XT Automatize Irrigacao";
 
   const handleRealTimeUpdate = async () => {
     if (!device) return;
     
-    // Verificar se está conectado ao MQTT
-    if (dashboardRef.current?.mqttStatus !== "connected") {
+    const activeRef = isIrrigationModel ? irrigationRef.current : dashboardRef.current;
+    
+    if (activeRef?.mqttStatus !== "connected") {
       toast.error("Não conectado ao MQTT. Aguarde a conexão...");
       return;
     }
@@ -75,16 +79,12 @@ export default function DeviceDetail() {
     toast.info("Solicitando atualização em tempo real...");
     
     try {
-      if (dashboardRef.current) {
-        await dashboardRef.current.requestRealTimeUpdate();
-      }
+      await activeRef.requestRealTimeUpdate();
       toast.success("Comando enviado! Aguardando resposta do dispositivo...");
     } catch (error) {
       toast.error("Erro ao solicitar atualização");
     } finally {
-      setTimeout(() => {
-        setIsRefreshing(false);
-      }, 2000);
+      setTimeout(() => setIsRefreshing(false), 2000);
     }
   };
 
