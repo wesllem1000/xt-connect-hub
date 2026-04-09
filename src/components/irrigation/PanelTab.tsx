@@ -3,11 +3,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Droplets, Power, PowerOff, Wifi, WifiOff, Clock, AlertTriangle, Sprout, Radio, Loader2 } from "lucide-react";
 import { IrrigationSnapshot } from "@/hooks/useIrrigationMQTT";
+import { IrrigationFullConfig } from "@/hooks/useIrrigationMQTT";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 interface PanelTabProps {
   snapshot: IrrigationSnapshot | null;
+  fullConfig: IrrigationFullConfig | null;
   isCommandPending: boolean;
   onSetMode: (mode: "manual" | "automatic") => Promise<void>;
   onSetPump: (on: boolean) => Promise<void>;
@@ -15,7 +17,7 @@ interface PanelTabProps {
   sectorNames?: Record<number, string>;
 }
 
-export default function PanelTab({ snapshot, isCommandPending, onSetMode, onSetPump, onSetSector, sectorNames = {} }: PanelTabProps) {
+export default function PanelTab({ snapshot, fullConfig, isCommandPending, onSetMode, onSetPump, onSetSector, sectorNames = {} }: PanelTabProps) {
   const [pumpLoading, setPumpLoading] = useState(false);
   const [modeLoading, setModeLoading] = useState(false);
   const [sectorLoading, setSectorLoading] = useState<Record<number, boolean>>({});
@@ -39,12 +41,18 @@ export default function PanelTab({ snapshot, isCommandPending, onSetMode, onSetP
   }
 
   const isManual = currentMode === "manual";
-  const sectors = [
-    { index: 1, enabled: snapshot.sector_1_enabled, on: snapshot.sector_1_on },
-    { index: 2, enabled: snapshot.sector_2_enabled, on: snapshot.sector_2_on },
-    { index: 3, enabled: snapshot.sector_3_enabled, on: snapshot.sector_3_on },
-    { index: 4, enabled: snapshot.sector_4_enabled, on: snapshot.sector_4_on },
-  ];
+  // Use fullConfig as source of truth for which sectors are enabled, fall back to snapshot
+  const sectorizationEnabled = fullConfig?.sectorization_enabled ?? snapshot.sectorization_enabled;
+  const sectors = [1, 2, 3, 4].map(i => {
+    const cfgSector = fullConfig?.sectors?.find(s => s.index === i);
+    const snapshotEnabled = i === 1 ? snapshot.sector_1_enabled : i === 2 ? snapshot.sector_2_enabled : i === 3 ? snapshot.sector_3_enabled : snapshot.sector_4_enabled;
+    const snapshotOn = i === 1 ? snapshot.sector_1_on : i === 2 ? snapshot.sector_2_on : i === 3 ? snapshot.sector_3_on : snapshot.sector_4_on;
+    return {
+      index: i,
+      enabled: cfgSector ? cfgSector.enabled : snapshotEnabled,
+      on: snapshotOn,
+    };
+  });
 
   const handleSetMode = async (mode: "manual" | "automatic") => {
     const previousMode = currentMode;
@@ -206,7 +214,7 @@ export default function PanelTab({ snapshot, isCommandPending, onSetMode, onSetP
       </Card>
 
       {/* Sectors card */}
-      {snapshot.sectorization_enabled && (
+      {sectorizationEnabled && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
