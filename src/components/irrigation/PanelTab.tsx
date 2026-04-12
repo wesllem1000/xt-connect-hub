@@ -205,29 +205,22 @@ export default function PanelTab({ snapshot, fullConfig, isCommandPending, onSet
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {sectors.filter(s => s.enabled).map(sector => (
-                <div key={sector.index} className={`flex items-center justify-between p-3 rounded-lg border transition-all duration-300 ${
+                <div key={sector.index} className={`flex flex-col items-center p-4 rounded-xl border transition-all duration-500 ${
                   sector.on 
                     ? "border-green-500/50 bg-green-500/5" 
                     : "bg-card"
                 }`}>
-                  <div className="flex items-center gap-3">
-                    <SectorStatusIndicator isOpen={sector.on} size={44} />
-                    <div>
-                      <p className="text-sm font-medium">{sector.name || sectorNames[sector.index] || `Setor ${sector.index}`}</p>
-                      <p className={`text-xs font-semibold ${sector.on ? "text-green-600" : "text-muted-foreground"}`}>
-                        {sector.on ? "● Aberto" : "○ Fechado"}
-                      </p>
-                    </div>
-                  </div>
+                  <SectorStatusIndicator isOpen={sector.on} size={90} />
+                  <p className="text-sm font-semibold mt-2">{sector.name || sectorNames[sector.index] || `Setor ${sector.index}`}</p>
                   {isManual && (
                     <Button
                       size="sm"
                       variant={sector.on ? "destructive" : "default"}
                       onClick={() => handleSetSector(sector.index, !sector.on)}
                       disabled={sectorLoading[sector.index] || isCommandPending}
-                      className={`gap-1 ${!sector.on ? "bg-green-600 hover:bg-green-700 text-white" : ""}`}
+                      className={`gap-1 mt-3 ${!sector.on ? "bg-green-600 hover:bg-green-700 text-white" : ""}`}
                     >
                       {sectorLoading[sector.index] ? (
                         <Loader2 className="h-4 w-4 animate-spin" />

@@ -270,20 +270,52 @@
   animation: pump-ring-spin 3s linear infinite;
 }
 
-@keyframes sector-wave {
+@keyframes sector-wave-slow {
   0% { transform: translateX(0); }
-  100% { transform: translateX(-12px); }
+  50% { transform: translateX(-14px); }
+  100% { transform: translateX(0); }
 }
 
-@keyframes sector-wave-reverse {
+@keyframes sector-wave-fast {
   0% { transform: translateX(0); }
-  100% { transform: translateX(10px); }
+  50% { transform: translateX(10px); }
+  100% { transform: translateX(0); }
 }
 
-.animate-sector-wave {
-  animation: sector-wave 2s ease-in-out infinite alternate;
+@keyframes sector-bubble {
+  0% { opacity: 0; transform: translateY(0) scale(1); }
+  20% { opacity: 0.5; }
+  100% { opacity: 0; transform: translateY(-30px) scale(0.3); }
 }
 
-.animate-sector-wave-reverse {
-  animation: sector-wave-reverse 2.5s ease-in-out infinite alternate;
+@keyframes sector-bubble-delayed {
+  0%, 30% { opacity: 0; transform: translateY(0) scale(1); }
+  50% { opacity: 0.4; }
+  100% { opacity: 0; transform: translateY(-25px) scale(0.4); }
+}
+
+@keyframes sector-bubble-slow {
+  0%, 15% { opacity: 0; transform: translateY(0) scale(1); }
+  40% { opacity: 0.35; }
+  100% { opacity: 0; transform: translateY(-35px) scale(0.2); }
+}
+
+.animate-sector-wave-slow {
+  animation: sector-wave-slow 3s ease-in-out infinite;
+}
+
+.animate-sector-wave-fast {
+  animation: sector-wave-fast 2s ease-in-out infinite;
+}
+
+.animate-sector-bubble {
+  animation: sector-bubble 2.5s ease-out infinite;
+}
+
+.animate-sector-bubble-delayed {
+  animation: sector-bubble-delayed 3s ease-out infinite;
+}
+
+.animate-sector-bubble-slow {
+  animation: sector-bubble-slow 3.5s ease-out infinite;
 }
