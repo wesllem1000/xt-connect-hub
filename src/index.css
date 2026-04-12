@@ -256,3 +256,16 @@
     transform: translateY(-10px);
   }
 }
+
+@keyframes pump-ring-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.pump-ring-spin {
+  animation: pump-ring-spin 3s linear infinite;
+}

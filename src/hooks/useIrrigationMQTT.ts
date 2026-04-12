@@ -1,6 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useMQTT } from "./useMQTT";
 
+export interface PumpRuntime {
+  active: boolean;
+  mode: "idle" | "countdown" | "elapsed";
+  seconds: number;
+  remainingSec: number;
+  elapsedSec: number;
+}
+
 export interface IrrigationSnapshot {
   mode: "manual" | "automatic";
   time_valid: boolean;
@@ -8,6 +16,7 @@ export interface IrrigationSnapshot {
   wifi_connected: boolean;
   mqtt_connected: boolean;
   pump_on: boolean;
+  pump_runtime: PumpRuntime | null;
   sectorization_enabled: boolean;
   sectors: Array<{ index: number; enabled: boolean; name: string; open: boolean }>;
   next_event_type: string;
