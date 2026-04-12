@@ -201,6 +201,13 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
   const [pendingCommands, setPendingCommands] = useState<Set<string>>(new Set());
   const [lastSnapshotTime, setLastSnapshotTime] = useState<Date | null>(null);
   const [securityAlert, setSecurityAlert] = useState<string | null>(null);
+
+  const addHistoryEvent = useCallback((description: string, category: HistoryEvent["category"]) => {
+    setHistory(prev => {
+      const event: HistoryEvent = { timestamp: new Date().toISOString(), description, category };
+      return [event, ...prev].slice(0, 200);
+    });
+  }, []);
   const pendingRef = useRef<Map<string, PendingCommand>>(new Map());
   const requestCounter = useRef(0);
 
