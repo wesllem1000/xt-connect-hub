@@ -43,17 +43,29 @@ export default function PanelTab({ snapshot, fullConfig, isCommandPending, onSet
   }
 
   const isManual = currentMode === "manual";
-  // Use fullConfig as source of truth for which sectors are enabled, fall back to snapshot
-  const sectorizationEnabled = fullConfig?.sectorization_enabled ?? snapshot.sectorization_enabled;
-  const sectors = (snapshot.sectors || []).map(s => {
-    const cfgSector = fullConfig?.sectors?.find(c => c.index === s.index);
-    return {
-      index: s.index,
-      enabled: cfgSector ? cfgSector.enabled : s.enabled,
-      on: s.open,
-      name: cfgSector?.name || s.name,
-    };
+  const sectorizationEnabled = snapshot.sectorization_enabled || fullConfig?.sectorization_enabled || false;
+  const sectorMap = new Map<number, { index: number; enabled: boolean; on: boolean; name: string }>();
+
+  fullConfig?.sectors?.forEach((sector) => {
+    sectorMap.set(sector.index, {
+      index: sector.index,
+      enabled: sector.enabled,
+      on: false,
+      name: sector.name,
+    });
   });
+
+  (snapshot.sectors || []).forEach((sector) => {
+    const current = sectorMap.get(sector.index);
+    sectorMap.set(sector.index, {
+      index: sector.index,
+      enabled: current?.enabled ?? sector.enabled,
+      on: sector.open,
+      name: current?.name || sector.name,
+    });
+  });
+
+  const sectors = Array.from(sectorMap.values()).sort((a, b) => a.index - b.index);
 
   const handleSetMode = async (mode: "manual" | "automatic") => {
     const previousMode = currentMode;

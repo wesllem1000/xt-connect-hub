@@ -29,8 +29,9 @@ export default function SystemTab({ fullConfig, isCommandPending, userType, onSe
 
   useEffect(() => {
     if (fullConfig?.system) {
-      setSafetyTime(String(fullConfig.system.safety_time_sec || 60));
-      setPublishInterval(String(fullConfig.system.publish_interval_sec || 300));
+      const system = fullConfig.system as Record<string, unknown>;
+      setSafetyTime(String(system.safety_time_sec ?? system.safetyTimeSec ?? 60));
+      setPublishInterval(String(system.publish_interval_sec ?? system.publishIntervalSec ?? 300));
     }
   }, [fullConfig]);
 
