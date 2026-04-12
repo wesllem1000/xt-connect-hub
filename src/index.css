@@ -341,11 +341,12 @@
   animation: sector-bubble-slow 3.5s ease-out infinite;
 }
 
-/* === Pump card water fill effect (organic) === */
+/* === Pump card water fill effect (organic v2) === */
 
-/* Water body fill/drain transforms */
+/* ---- Water body fill/drain ---- */
 @keyframes pump-organic-rise {
   0% { transform: translateY(100%); }
+  5% { transform: translateY(95%); }
   15% { transform: translateY(75%); }
   35% { transform: translateY(55%); }
   55% { transform: translateY(35%); }
@@ -368,7 +369,7 @@
 }
 
 .pump-organic-fill {
-  animation: pump-organic-rise 7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+  animation: pump-organic-rise 7s cubic-bezier(0.22, 0.61, 0.36, 1) forwards;
 }
 
 .pump-organic-full {
@@ -380,7 +381,7 @@
   animation: pump-organic-fall 3.5s ease-in forwards;
 }
 
-/* Organic wave surface animations */
+/* ---- Wave surface drifts ---- */
 @keyframes pump-wave-drift-1 {
   0% { transform: translateX(0); }
   50% { transform: translateX(-25px); }
@@ -400,121 +401,122 @@
   100% { transform: translateX(0); }
 }
 
-.pump-wave-surface-1 {
-  animation: pump-wave-drift-1 4s ease-in-out infinite;
+.pump-wave-surface-1 { animation: pump-wave-drift-1 4s ease-in-out infinite; }
+.pump-wave-surface-2 { animation: pump-wave-drift-2 5.5s ease-in-out infinite; }
+.pump-wave-surface-3 { animation: pump-wave-drift-3 7s ease-in-out infinite; }
+
+/* Turbulent waves while rising */
+@keyframes pump-wave-turb-1 {
+  0% { transform: translateX(0) scaleY(1); }
+  25% { transform: translateX(-20px) scaleY(1.4); }
+  50% { transform: translateX(15px) scaleY(0.8); }
+  75% { transform: translateX(-10px) scaleY(1.3); }
+  100% { transform: translateX(0) scaleY(1); }
 }
 
-.pump-wave-surface-2 {
-  animation: pump-wave-drift-2 5.5s ease-in-out infinite;
+@keyframes pump-wave-turb-2 {
+  0% { transform: translateX(0) scaleY(1); }
+  30% { transform: translateX(18px) scaleY(1.5); }
+  60% { transform: translateX(-15px) scaleY(0.7); }
+  100% { transform: translateX(0) scaleY(1); }
 }
 
-.pump-wave-surface-3 {
-  animation: pump-wave-drift-3 7s ease-in-out infinite;
-}
+.pump-wave-turbulent { animation: pump-wave-turb-1 1.8s ease-in-out infinite !important; }
+.pump-wave-turbulent-2 { animation: pump-wave-turb-2 2.2s ease-in-out infinite !important; }
 
-/* Organic bubble rise */
+/* ---- Bubbles ---- */
 @keyframes pump-organic-bubble-rise {
-  0% {
-    opacity: 0;
-    transform: translateY(0) scale(1);
-  }
-  10% {
-    opacity: var(--bubble-opacity, 0.25);
-  }
-  50% {
-    transform: translateY(-80px) translateX(8px) scale(0.7);
-  }
-  80% {
-    opacity: var(--bubble-opacity, 0.15);
-    transform: translateY(-140px) translateX(-5px) scale(0.4);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-180px) translateX(3px) scale(0.1);
-  }
+  0% { opacity: 0; transform: translateY(0) scale(1); }
+  10% { opacity: 0.25; }
+  50% { transform: translateY(-80px) translateX(8px) scale(0.7); }
+  80% { opacity: 0.15; transform: translateY(-140px) translateX(-5px) scale(0.4); }
+  100% { opacity: 0; transform: translateY(-180px) translateX(3px) scale(0.1); }
 }
 
-.pump-organic-bubble {
-  animation: pump-organic-bubble-rise 3s ease-out infinite;
+.pump-organic-bubble { animation: pump-organic-bubble-rise 3s ease-out infinite; }
+
+/* ---- Turbulence drops on water surface ---- */
+@keyframes pump-turb-drop {
+  0% { opacity: 0; transform: translateY(0) scale(0.5); }
+  20% { opacity: 0.3; transform: translateY(-12px) scale(1); }
+  60% { opacity: 0.15; transform: translateY(-25px) scale(0.6); }
+  100% { opacity: 0; transform: translateY(-35px) scale(0.2); }
 }
 
-/* Foam dots at surface */
-@keyframes pump-foam-pulse {
-  0%, 100% { opacity: 0.06; transform: scale(1); }
-  50% { opacity: 0.14; transform: scale(1.3); }
+.pump-turbulence-drop { animation: pump-turb-drop 1.2s ease-out infinite; }
+
+/* ---- Dripping drops (phase 1) ---- */
+@keyframes pump-drip-fall {
+  0% { top: -8px; opacity: 0; transform: scaleY(1); }
+  10% { opacity: 0.7; transform: scaleY(1.4); }
+  100% { top: 100%; opacity: 0.3; transform: scaleY(2); }
 }
 
-.pump-foam-dot {
-  animation: pump-foam-pulse 2s ease-in-out infinite;
+.pump-drip-drop {
+  position: absolute;
+  width: 4px;
+  height: 6px;
+  border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+  background: hsl(205, 85%, 58%);
+  opacity: 0;
+  animation: pump-drip-fall 0.9s ease-in infinite;
 }
 
-/* Faucet stream */
-.pump-faucet-container {
-  width: 30px;
-  height: 0;
-  overflow: visible;
-  animation: pump-faucet-appear 1.5s ease-out forwards;
+/* ---- Stream appear ---- */
+.pump-stream-appear {
+  animation: pump-stream-fade-in 0.8s ease-out forwards;
 }
 
-@keyframes pump-faucet-appear {
+@keyframes pump-stream-fade-in {
   0% { opacity: 0; }
-  20% { opacity: 1; }
   100% { opacity: 1; }
 }
 
-.pump-faucet-svg {
-  display: block;
-  animation: pump-stream-grow 2s ease-out forwards;
-}
-
-@keyframes pump-stream-grow {
-  0% { height: 0; opacity: 0; }
-  15% { opacity: 0.8; }
-  40% { height: 90px; }
-  100% { height: 140px; opacity: 0.6; }
-}
-
 /* Stream path wobble */
-@keyframes pump-stream-wobble {
-  0% { d: path("M15,0 Q13,25 16,45 Q18,65 14,85 Q11,105 16,125 Q18,135 15,140"); }
-  33% { d: path("M15,0 Q17,20 13,42 Q10,62 17,82 Q20,102 13,122 Q11,135 15,140"); }
-  66% { d: path("M15,0 Q12,28 17,48 Q19,68 13,88 Q10,108 17,128 Q19,138 15,140"); }
-  100% { d: path("M15,0 Q13,25 16,45 Q18,65 14,85 Q11,105 16,125 Q18,135 15,140"); }
+@keyframes pump-stream-wobble-v2 {
+  0% { d: path("M20,0 Q18,40 22,80 Q24,120 19,160 Q16,200 21,240 Q23,270 20,300"); }
+  33% { d: path("M20,0 Q23,35 17,75 Q14,115 22,155 Q25,195 18,235 Q16,268 20,300"); }
+  66% { d: path("M20,0 Q16,42 23,82 Q26,122 18,162 Q14,202 22,242 Q24,275 20,300"); }
+  100% { d: path("M20,0 Q18,40 22,80 Q24,120 19,160 Q16,200 21,240 Q23,270 20,300"); }
 }
 
-.pump-stream-path {
-  animation: pump-stream-wobble 1.2s ease-in-out infinite;
+.pump-stream-path-v2 { animation: pump-stream-wobble-v2 1.2s ease-in-out infinite; }
+
+@keyframes pump-stream-wobble-v2-thin {
+  0% { d: path("M20,0 Q22,35 18,75 Q15,115 21,155 Q24,195 19,235 Q17,265 20,300"); }
+  50% { d: path("M20,0 Q17,38 23,78 Q26,118 19,158 Q15,198 22,238 Q24,268 20,300"); }
+  100% { d: path("M20,0 Q22,35 18,75 Q15,115 21,155 Q24,195 19,235 Q17,265 20,300"); }
 }
 
-@keyframes pump-stream-wobble-thin {
-  0% { d: path("M15,0 Q17,30 13,55 Q10,75 16,95 Q19,115 14,135"); }
-  50% { d: path("M15,0 Q12,28 17,52 Q20,72 14,92 Q11,112 16,132"); }
-  100% { d: path("M15,0 Q17,30 13,55 Q10,75 16,95 Q19,115 14,135"); }
+.pump-stream-path-v2-thin { animation: pump-stream-wobble-v2-thin 1.5s ease-in-out infinite; }
+
+/* ---- Bottom splash particles ---- */
+@keyframes pump-bottom-splash-anim {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.5); }
+  20% { opacity: 0.5; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(var(--splash-dx), var(--splash-dy)) scale(0.2); }
 }
 
-.pump-stream-path-thin {
-  animation: pump-stream-wobble-thin 1.5s ease-in-out infinite;
+.pump-bottom-splash { animation: pump-bottom-splash-anim 0.8s ease-out infinite; }
+
+/* Ripple spreading at bottom */
+@keyframes pump-ripple-anim {
+  0% { rx: 0; ry: 0; opacity: 0; stroke-opacity: 0.3; }
+  30% { opacity: 1; }
+  100% { rx: 80; ry: 6; opacity: 0; stroke-opacity: 0; }
 }
 
-/* Organic splash drops */
+.pump-ripple-spread { animation: pump-ripple-anim 1.5s ease-out infinite; }
+
+/* ---- Spray droplets ---- */
 @keyframes pump-organic-drop-splash {
-  0% {
-    opacity: 0;
-    transform: translate(0, 0) scale(0.3);
-  }
-  20% {
-    opacity: 0.6;
-    transform: translate(0, 0) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translate(var(--drop-x), var(--drop-y)) scale(0);
-  }
+  0% { opacity: 0; transform: translate(0, 0) scale(0.3); }
+  20% { opacity: 0.6; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(var(--drop-x), var(--drop-y)) scale(0); }
 }
 
 .pump-organic-drop {
   position: absolute;
-  bottom: -5px;
   left: 50%;
   width: var(--drop-size, 3px);
   height: var(--drop-size, 3px);
