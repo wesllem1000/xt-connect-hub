@@ -1,125 +1,86 @@
 
 
-## Plano: Modelo Completo de Irrigacao Solar XT Automatize
+## Plano: Corrigir Setores, Sincronização e Diálogos de Confirmação
 
-### Contexto
+### Problemas Raiz Identificados no Código do Dispositivo
 
-A documentacao PDF descreve uma automacao de irrigacao com ESP32 que usa MQTT com comandos complexos: controle de bomba, 4 setores, timers CRUD, modos manual/automatico, logs e configuracoes. O sistema atual de dashboard generico (componentes simples como switch, sensor, botao) nao suporta essa complexidade. Precisamos de uma interface dedicada para irrigacao.
+1. **`normalizeFullConfig` não lê os campos corretos do dispositivo**
+   - O dispositivo envia setores de config como `sectorsConfig` (não `sectors`)
+   - O dispositivo envia `sectorizationEnabled` (camelCase) no config, mas o código procura `sectorization_enabled`
+   - O response do `get_full_config` aninha dados em `data.config` e `data.runtime`, mas `normalizeFullConfig` procura diretamente em `data`
+   - **Resultado**: fullConfig sempre fica com sectors vazio e sectorization_enabled = false
 
-### Abordagem
+2. **ACK `state` não inclui setores individuais**
+   - `fillMqttResponseBase` coloca no `state` apenas `sectorization_enabled`, `pump_on`, etc., mas NÃO inclui array de `sectors`
+   - O `sendRuntimeResponse` inclui sectors no `data`, mas o hook só lê `state` do ACK
+   - **Resultado**: após comandos, os setores não atualizam na UI
 
-Criar um **dashboard especializado de irrigacao** que substitui o `DynamicDashboard` generico quando o modelo do dispositivo for "XT Automatize Irrigacao". Este dashboard tera abas dedicadas com toda a logica de comandos MQTT com `request_id`, gerenciamento de timers, configuracoes e logs conforme o PDF.
+3. **Diálogo de confirmação não implementado**
+   - O dispositivo retorna `requiresDecision: true` com `secondaryAction: "safe_stop"` quando tenta fechar último setor com bomba ligada
+   - O dispositivo retorna `requiresConfirmation: true` com `confirmationAction: "force"` quando tenta ligar bomba com setores fechados
+   - O frontend ignora completamente essas respostas
 
----
+4. **Switch com visual ruim**
+   - Baixo contraste no tema escuro
 
-### Etapa 1 - Criar modelo de dispositivo no banco
+### Arquivos a Modificar
 
-Inserir na tabela `device_models`:
-- Nome: **XT Automatize Irrigacao**
-- Fabricante: **XT Devices**
-- Descricao: Automacao de irrigacao solar com controle de bomba, setores, timers e monitoramento remoto
-- Protocolos: MQTT
-- Retencion de historico: 168h (7 dias)
+#### 1. `src/hooks/useIrrigationMQTT.ts`
+- Corrigir `normalizeFullConfig` para:
+  - Ler `source.config` quando existir (response do `get_full_config`)
+  - Ler `sectorsConfig` além de `sectors` 
+  - Ler `sectorizationEnabled` (camelCase) além de `sectorization_enabled`
+  - Ler `publishIntervalSec` do bloco `mqtt` dentro do config
+- No handler de ACK, além do `state`, ler também o bloco `data` que contém `sectors` com estado `open`
+- Quando ACK for de `set_sectorization`, `set_sector_enabled`, `set_sector`, aplicar patch otimista no snapshot
+- Adicionar tratamento de `requiresDecision` e `requiresConfirmation`: rejeitar a Promise com informações estruturadas para a UI
 
-Tambem inserir dashboard components basicos mapeados ao snapshot do ESP (mode, pump_on, sector_1_on...sector_4_on, wifi_connected, mqtt_connected, time_valid, etc.) para que o historico funcione via o sistema existente.
+#### 2. `src/components/irrigation/PanelTab.tsx`
+- Adicionar `AlertDialog` para quando o dispositivo retorna `REQUIRES_DECISION` (fechar último setor com bomba ligada):
+  - Opção "Desligar bomba e fechar setor" → re-envia comando com `strategy: "safe_stop"`
+  - Opção "Fechar mesmo assim" → re-envia com `strategy: "force_close"`
+  - Opção "Cancelar"
+- Adicionar tratamento para `REQUIRES_CONFIRMATION` (ligar bomba com setores fechados):
+  - Opção "Ligar mesmo assim" → re-envia com `force: true`
+  - Opção "Cancelar"
+- Adicionar estados otimistas locais para setores (evitar flickering)
 
-### Etapa 2 - Componente IrrigationDashboard
+#### 3. `src/components/irrigation/SectorsTab.tsx`
+- Corrigir useEffects que resetam `localSectorization` e `localSectorEnabled` a cada update
+  - Só limpar estado local quando valor confirmado bater com valor otimista
+- Usar dados de `snapshot.sectors` como fonte primária de estado (enabled/open), com fallback em fullConfig para nomes
 
-Criar `src/components/dashboard/IrrigationDashboard.tsx` - dashboard completo com abas:
+#### 4. `src/components/ui/switch.tsx`
+- Melhorar contraste do track no estado desligado: usar `bg-input/80` ou similar
+- Adicionar borda sutil ao thumb para melhor visibilidade
 
-**Aba Painel (principal):**
-- Card de status: modo (manual/automatico), bomba (ligada/desligada), WiFi, MQTT, hora do dispositivo
-- Card de setores: estado de cada setor habilitado com nome amigavel, botoes para abrir/fechar no modo manual
-- Card de proximo evento: proximo timer programado
-- Indicadores visuais: bomba verde/vermelha, setores com cores, modo com badge
+### Detalhes Técnicos
 
-**Aba Timers:**
-- Listagem de timers (via comando `list_schedules`)
-- Formulario para criar timer: target_type (pump/sector), target_index, start_time, duration_min, days[]
-- Editar timer existente (via `update_schedule`)
-- Excluir timer (via `delete_schedule`)
-- Ativar/desativar timer (via `set_schedule_enabled`)
+```text
+Estrutura real do response de get_full_config:
+{
+  "data": {
+    "runtime": { sectors: [...], pumpOn, manualMode, ... },
+    "config": { sectorizationEnabled, sectorsConfig: [...], mqtt: { publishIntervalSec }, ... }
+  },
+  "state": { sectorization_enabled, pump_on, ... }
+}
 
-**Aba Setores:**
-- Toggle de setorizacao (via `set_sectorization`)
-- Habilitar/desabilitar cada setor (via `set_sector_enabled`)
-- Renomear setores (via `set_sector_name`)
+normalizeFullConfig atual procura:
+  source.sectors → NÃO EXISTE (é sectorsConfig)
+  source.sectorization_enabled → NÃO EXISTE (é sectorizationEnabled)
 
-**Aba Bomba:**
-- Configuracao do modo de operacao (via `set_pump_config`)
-- Opcoes relacionadas a bomba
+Fluxo de decisão do dispositivo ao fechar setor:
+  pump off → fecha direto
+  pump on + outros setores abertos → fecha com sequência segura
+  pump on + último setor → REQUIRES_DECISION (precisa strategy)
+```
 
-**Aba Sistema:**
-- Tempos de seguranca, intervalo de publicacao (via `set_system_config`)
-- Ajuste de data/hora (via `set_datetime`)
-- Configuracao de reles (via `set_relay_config`) - somente para perfil tecnico
-
-**Aba Logs:**
-- Visualizar logs (via `get_logs`)
-- Botao copiar logs
-- Botao atualizar logs
-- Botao limpar logs (somente suporte/admin)
-
-### Etapa 3 - Hook useIrrigationMQTT
-
-Criar `src/hooks/useIrrigationMQTT.ts` que extende o `useMQTT` existente com:
-- Geracao de `request_id` unico por comando
-- Correlacao de respostas por `request_id` no topico `status`
-- Subscribe automatico em `devices/{ID}/data` e `devices/{ID}/status`
-- Timeout configuravel para comandos (mostrar erro amigavel)
-- Estado de loading por comando
-- Parse do snapshot de `data` para alimentar o painel
-- Parse de respostas de `status` para confirmar acoes
-
-### Etapa 4 - Integracao no DeviceDetail
-
-Modificar `src/pages/devices/DeviceDetail.tsx` para:
-- Detectar quando o modelo do dispositivo e "XT Automatize Irrigacao" (por nome ou por um campo especifico)
-- Renderizar `IrrigationDashboard` em vez de `DynamicDashboard`
-- Enviar `request_update`, `get_full_config` e `list_schedules` ao abrir a pagina
-- Mostrar skeleton/loading enquanto aguarda primeiro lote de respostas
-
-### Etapa 5 - Comportamento visual conforme PDF
-
-- Botao ligar: **verde** quando a acao for ligar
-- Botao desligar: **vermelho** quando a acao for desligar
-- Bloquear botao durante comando em andamento (loading)
-- Ao receber `ok=true`, atualizar estado imediatamente
-- Ao receber erro, restaurar estado anterior + mensagem amigavel
-- Dispositivo offline: mostrar ultima informacao com selo "desatualizado"
-- Hora invalida: destaque no painel + bloquear operacoes automaticas
-
-### Etapa 6 - Permissoes por perfil
-
-- **Usuario final**: modo, bomba, setores, timers, nomes amigaveis
-- **Suporte/instalador**: tudo acima + logs, relay config, manutencao
-- **Admin**: tudo acima + configuracao MQTT remota
-
-Usar o `tipo_usuario` do perfil (usuario_final, instalador) e `has_role(admin)` para controlar visibilidade das abas.
-
----
-
-### Arquivos a criar
-
-| Arquivo | Descricao |
-|---------|-----------|
-| `src/hooks/useIrrigationMQTT.ts` | Hook MQTT com request_id e correlacao de respostas |
-| `src/components/irrigation/IrrigationDashboard.tsx` | Dashboard principal com abas |
-| `src/components/irrigation/PanelTab.tsx` | Aba painel: status, bomba, setores, proximo evento |
-| `src/components/irrigation/TimersTab.tsx` | Aba timers: CRUD de agendamentos |
-| `src/components/irrigation/SectorsTab.tsx` | Aba setores: habilitar, renomear |
-| `src/components/irrigation/PumpTab.tsx` | Aba bomba: configuracoes |
-| `src/components/irrigation/SystemTab.tsx` | Aba sistema: tempos, data/hora, reles |
-| `src/components/irrigation/LogsTab.tsx` | Aba logs: visualizar, copiar, limpar |
-
-### Arquivos a modificar
-
-| Arquivo | Mudanca |
-|---------|---------|
-| `src/pages/devices/DeviceDetail.tsx` | Detectar modelo irrigacao e renderizar IrrigationDashboard |
-
-### Dados a inserir no banco
-
-- 1 registro em `device_models` (XT Automatize Irrigacao)
-- ~10 registros em `device_model_dashboards` mapeando componentes ao snapshot do ESP (para historico via sistema existente)
+### Resultado Esperado
+- Setores aparecem corretamente na aba Setores e no Painel
+- Switch de setorização reflete estado real e não "pisca"
+- Habilitar/desabilitar setor funciona e fica sincronizado
+- Diálogo aparece ao fechar setor com bomba ligada
+- Diálogo aparece ao ligar bomba com setores fechados
+- Switch tem visual adequado no tema escuro
 
