@@ -10,8 +10,6 @@ export default function SectorStatusIndicator({ isOpen, size = 96 }: SectorStatu
   const strokeWidth = 3.5;
   const innerR = r - strokeWidth;
 
-  // Water level: 85% filled when open, 100% (empty) when closed
-  const waterTopY = isOpen ? size * 0.2 : size + 10;
 
   return (
     <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
@@ -47,46 +45,29 @@ export default function SectorStatusIndicator({ isOpen, size = 96 }: SectorStatu
 
         {/* Water fill group */}
         <g clipPath={`url(#sector-clip-${size})`}>
-          {/* Main water body */}
+          {/* Main water body - animated via CSS */}
           <rect
             x="0"
-            y={waterTopY}
             width={size}
-            height={size}
+            height={size * 1.2}
             fill="url(#sector-water-grad)"
-            className="transition-[y] duration-[1500ms] ease-in-out"
+            className={isOpen ? "animate-sector-fill" : "animate-sector-drain"}
+            style={{ 
+              '--sector-size': `${size}px`,
+            } as React.CSSProperties}
           />
 
-          {/* Wave layer 1 - slow, wide */}
-          <path
-            d={`
-              M -${size * 0.5} ${waterTopY + 2}
-              Q ${size * 0.1} ${waterTopY - 6}, ${size * 0.35} ${waterTopY + 2}
-              T ${size * 0.7} ${waterTopY + 2}
-              T ${size * 1.05} ${waterTopY + 2}
-              T ${size * 1.4} ${waterTopY + 2}
-              L ${size * 1.5} ${size}
-              L -${size * 0.5} ${size} Z
-            `}
-            fill="url(#sector-water-wave1)"
-            className={`transition-[d] duration-[1500ms] ease-in-out ${isOpen ? "animate-sector-wave-slow" : ""}`}
-          />
-
-          {/* Wave layer 2 - faster, narrower */}
-          <path
-            d={`
-              M -${size * 0.3} ${waterTopY + 4}
-              Q ${size * 0.15} ${waterTopY - 3}, ${size * 0.3} ${waterTopY + 4}
-              T ${size * 0.6} ${waterTopY + 4}
-              T ${size * 0.9} ${waterTopY + 4}
-              T ${size * 1.2} ${waterTopY + 4}
-              L ${size * 1.3} ${size}
-              L -${size * 0.3} ${size} Z
-            `}
-            fill="hsl(195, 70%, 55%)"
-            fillOpacity="0.18"
-            className={`transition-[d] duration-[1500ms] ease-in-out ${isOpen ? "animate-sector-wave-fast" : ""}`}
-          />
+          {/* Wave overlay */}
+          {isOpen && (
+            <rect
+              x="0"
+              width={size * 1.5}
+              height={size * 1.2}
+              fill="url(#sector-water-wave1)"
+              className="animate-sector-fill animate-sector-wave-slow"
+              style={{ '--sector-size': `${size}px` } as React.CSSProperties}
+            />
+          )}
 
           {/* Bubble particles when open */}
           {isOpen && (
