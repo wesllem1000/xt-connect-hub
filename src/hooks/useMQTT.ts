@@ -131,6 +131,10 @@ export function useMQTT({ deviceId, onMessage, autoConnect = true }: UseMQTTOpti
         });
       });
 
+      // Debounced update of ultima_conexao in the database
+      let lastDbUpdate = 0;
+      const DB_UPDATE_INTERVAL = 15_000; // max once every 15s
+
       client.on("message", (topic, message) => {
         try {
           const payloadStr = message.toString();
@@ -147,6 +151,19 @@ export function useMQTT({ deviceId, onMessage, autoConnect = true }: UseMQTTOpti
           
           if (onMessageRef.current) {
             onMessageRef.current(mqttMessage);
+          }
+
+          // Update ultima_conexao in DB (debounced)
+          const now = Date.now();
+          if (now - lastDbUpdate > DB_UPDATE_INTERVAL) {
+            lastDbUpdate = now;
+            supabase
+              .from("devices")
+              .update({ ultima_conexao: new Date().toISOString() })
+              .eq("device_id", deviceId)
+              .then(({ error: updErr }) => {
+                if (updErr) console.error("Erro ao atualizar ultima_conexao:", updErr);
+              });
           }
         } catch (err) {
           console.error("Erro ao processar mensagem MQTT:", err);
