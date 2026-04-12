@@ -1,7 +1,7 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Wifi, WifiOff, Loader2, AlertCircle, Clock } from "lucide-react";
+import { Wifi, WifiOff, Loader2, AlertCircle, Clock, ShieldAlert, X } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { supabase } from "@/integrations/supabase/client";
@@ -13,6 +13,8 @@ import SectorsTab from "./SectorsTab";
 import PumpTab from "./PumpTab";
 import SystemTab from "./SystemTab";
 import LogsTab from "./LogsTab";
+import HistoryTab from "./HistoryTab";
+import { Button } from "@/components/ui/button";
 
 interface Device {
   id: string;
@@ -114,6 +116,19 @@ const IrrigationDashboard = forwardRef<IrrigationDashboardRef, Props>(({ device 
 
   return (
     <div className="space-y-4">
+      {/* Security protection alert */}
+      {mqtt.securityAlert && (
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-destructive/10 text-destructive border border-destructive/30 animate-fade-in">
+          <ShieldAlert className="h-5 w-5 shrink-0" />
+          <span className="text-sm font-medium flex-1">
+            Proteção de segurança acionada: {mqtt.securityAlert}
+          </span>
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={mqtt.dismissSecurityAlert}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+
       {/* Status bar */}
       <div className="flex flex-wrap items-center gap-2 text-sm">
         {renderMQTTStatus()}
@@ -144,8 +159,9 @@ const IrrigationDashboard = forwardRef<IrrigationDashboardRef, Props>(({ device 
           <TabsTrigger value="timers">Timers</TabsTrigger>
           <TabsTrigger value="setores">Setores</TabsTrigger>
           <TabsTrigger value="bomba">Bomba</TabsTrigger>
+          <TabsTrigger value="historico">Histórico</TabsTrigger>
           <TabsTrigger value="sistema">Sistema</TabsTrigger>
-          {(canClearLogs || true) && <TabsTrigger value="logs">Logs</TabsTrigger>}
+          <TabsTrigger value="logs">Logs</TabsTrigger>
         </TabsList>
 
         <TabsContent value="painel">
@@ -192,6 +208,10 @@ const IrrigationDashboard = forwardRef<IrrigationDashboardRef, Props>(({ device 
             onSetPumpConfig={mqtt.setPumpConfig}
             onGetFullConfig={mqtt.getFullConfig}
           />
+        </TabsContent>
+
+        <TabsContent value="historico">
+          <HistoryTab history={mqtt.history} />
         </TabsContent>
 
         <TabsContent value="sistema">

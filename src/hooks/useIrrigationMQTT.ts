@@ -15,14 +15,26 @@ export interface IrrigationSnapshot {
   time_source: string;
   wifi_connected: boolean;
   mqtt_connected: boolean;
+  wifi_state_text: string;
+  wifi_detail: string;
   pump_on: boolean;
   pump_runtime: PumpRuntime | null;
   sectorization_enabled: boolean;
   sectors: Array<{ index: number; enabled: boolean; name: string; open: boolean }>;
+  next_event: string;
   next_event_type: string;
   next_event_target: number;
   next_event_time: string;
   warning: string;
+  clock: string;
+  fw_version: string;
+  sta_ip: string;
+}
+
+export interface HistoryEvent {
+  timestamp: string;
+  description: string;
+  category: "manual" | "automacao" | "conectividade" | "mqtt" | "seguranca" | "sistema";
 }
 
 export interface IrrigationFullConfig {
@@ -49,8 +61,10 @@ interface CommandResponse {
   code: string;
   message: string;
   data?: unknown;
+  state?: Record<string, unknown>;
   command: string;
   request_id: string;
+  ack?: boolean;
 }
 
 interface PendingCommand {
@@ -132,19 +146,48 @@ function parseDataToSnapshot(raw: Record<string, unknown>): IrrigationSnapshot {
     time_source: String(raw.time_source || raw.timeSource || "ntp"),
     wifi_connected: Boolean(raw.wifi_connected ?? raw.wifiConnected ?? false),
     mqtt_connected: Boolean(raw.mqtt_connected ?? raw.mqttConnected ?? false),
+    wifi_state_text: String(raw.wifiStateText ?? raw.wifi_state_text ?? ""),
+    wifi_detail: String(raw.wifiDetail ?? raw.wifi_detail ?? ""),
     pump_on: Boolean(raw.pump_on ?? raw.pumpOn ?? false),
     pump_runtime: pumpRuntime,
     sectorization_enabled: Boolean(raw.sectorization_enabled ?? raw.sectorizationEnabled ?? false),
     sectors: rawSectors,
+    next_event: String(raw.next_event ?? ""),
     next_event_type: "",
     next_event_target: 0,
     next_event_time: "",
     warning: String(raw.overlap_warnings || raw.overlapWarnings || raw.warning || ""),
+    clock: String(raw.clock ?? ""),
+    fw_version: String(raw.fw_version ?? raw.fwVersion ?? ""),
+    sta_ip: String(raw.sta_ip ?? raw.staIp ?? ""),
   };
 }
 
+function categorizeEvent(text: string): HistoryEvent["category"] {
+  const lower = text.toLowerCase();
+  if (lower.includes("proteção") || lower.includes("protecao") || lower.includes("segurança") || lower.includes("seguranca")) return "seguranca";
+  if (lower.includes("wi-fi") || lower.includes("wifi") || lower.includes("rede") || lower.includes("reconect")) return "conectividade";
+  if (lower.includes("mqtt")) return "mqtt";
+  if (lower.includes("manual")) return "manual";
+  if (lower.includes("horário") || lower.includes("horario") || lower.includes("automát") || lower.includes("automat") || lower.includes("agendamento") || lower.includes("schedule")) return "automacao";
+  return "sistema";
+}
+
+function parseHistoryEntry(entry: string, category: HistoryEvent["category"]): HistoryEvent {
+  // Format: "2026-04-11 18:10:00 | Description"
+  const pipeIdx = entry.indexOf("|");
+  if (pipeIdx > 0) {
+    return {
+      timestamp: entry.substring(0, pipeIdx).trim(),
+      description: entry.substring(pipeIdx + 1).trim(),
+      category,
+    };
+  }
+  return { timestamp: new Date().toISOString(), description: entry, category };
+}
+
 interface UseIrrigationMQTTOptions {
-  deviceId: string; // The device_id string (e.g. "xt-34E3EC")
+  deviceId: string;
   autoConnect?: boolean;
   commandTimeout?: number;
 }
@@ -154,8 +197,17 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
   const [fullConfig, setFullConfig] = useState<IrrigationFullConfig | null>(null);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
+  const [history, setHistory] = useState<HistoryEvent[]>([]);
   const [pendingCommands, setPendingCommands] = useState<Set<string>>(new Set());
   const [lastSnapshotTime, setLastSnapshotTime] = useState<Date | null>(null);
+  const [securityAlert, setSecurityAlert] = useState<string | null>(null);
+
+  const addHistoryEvent = useCallback((description: string, category: HistoryEvent["category"]) => {
+    setHistory(prev => {
+      const event: HistoryEvent = { timestamp: new Date().toISOString(), description, category };
+      return [event, ...prev].slice(0, 200);
+    });
+  }, []);
   const pendingRef = useRef<Map<string, PendingCommand>>(new Map());
   const requestCounter = useRef(0);
 
@@ -189,6 +241,17 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
       const cmd = String(payload.command || "");
       const respData = payload.data as Record<string, unknown> | undefined;
 
+      // Update snapshot from state block in ack response
+      const stateData = payload.state as Record<string, unknown> | undefined;
+      if (stateData) {
+        setSnapshot(prev => {
+          const updated = parseDataToSnapshot(stateData);
+          // Merge: keep fields from previous snapshot that aren't in state
+          return prev ? { ...prev, ...updated } : updated;
+        });
+        setLastSnapshotTime(new Date());
+      }
+
       if (cmd === "list_schedules" && respData?.schedules && Array.isArray(respData.schedules)) {
         setSchedules((respData.schedules as Record<string, unknown>[]).map(normalizeScheduleItem));
       }
@@ -202,13 +265,42 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
         setSnapshot(parseDataToSnapshot(respData as Record<string, unknown>));
         setLastSnapshotTime(new Date());
       }
+
+      // Track command as history event
+      const msg = String(payload.message || "");
+      if (msg) {
+        const category = categorizeEvent(msg);
+        addHistoryEvent(msg, category);
+      }
+
       return;
     }
 
     // Data snapshot message
     if (payload.data && typeof payload.data === "object") {
-      setSnapshot(parseDataToSnapshot(payload.data as Record<string, unknown>));
+      const data = payload.data as Record<string, unknown>;
+      setSnapshot(parseDataToSnapshot(data));
       setLastSnapshotTime(new Date());
+
+      // Check for security protection in history/logs
+      const diagnostics = data.diagnostics as Record<string, unknown> | undefined;
+      if (diagnostics?.history && Array.isArray(diagnostics.history)) {
+        const entries = (diagnostics.history as Array<{ entry: string }>).map(h => {
+          const category = categorizeEvent(h.entry);
+          return parseHistoryEntry(h.entry, category);
+        });
+        if (entries.length > 0) {
+          setHistory(prev => {
+            const merged = [...entries, ...prev];
+            return merged.slice(0, 200); // keep last 200
+          });
+        }
+        // Check for security alerts
+        const securityEntries = entries.filter(e => e.category === "seguranca");
+        if (securityEntries.length > 0) {
+          setSecurityAlert(securityEntries[0].description);
+        }
+      }
     }
   }, [deviceId]);
 
@@ -291,6 +383,9 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
     fullConfig,
     schedules,
     logs,
+    history,
+    securityAlert,
+    dismissSecurityAlert: useCallback(() => setSecurityAlert(null), []),
     lastSnapshotTime,
     isCommandPending: pendingCommands.size > 0,
     sendCommand,
