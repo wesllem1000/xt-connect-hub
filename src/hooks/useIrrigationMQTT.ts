@@ -15,14 +15,26 @@ export interface IrrigationSnapshot {
   time_source: string;
   wifi_connected: boolean;
   mqtt_connected: boolean;
+  wifi_state_text: string;
+  wifi_detail: string;
   pump_on: boolean;
   pump_runtime: PumpRuntime | null;
   sectorization_enabled: boolean;
   sectors: Array<{ index: number; enabled: boolean; name: string; open: boolean }>;
+  next_event: string;
   next_event_type: string;
   next_event_target: number;
   next_event_time: string;
   warning: string;
+  clock: string;
+  fw_version: string;
+  sta_ip: string;
+}
+
+export interface HistoryEvent {
+  timestamp: string;
+  description: string;
+  category: "manual" | "automacao" | "conectividade" | "mqtt" | "seguranca" | "sistema";
 }
 
 export interface IrrigationFullConfig {
@@ -49,8 +61,10 @@ interface CommandResponse {
   code: string;
   message: string;
   data?: unknown;
+  state?: Record<string, unknown>;
   command: string;
   request_id: string;
+  ack?: boolean;
 }
 
 interface PendingCommand {
