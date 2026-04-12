@@ -269,3 +269,21 @@
 .pump-ring-spin {
   animation: pump-ring-spin 3s linear infinite;
 }
+
+@keyframes sector-wave {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-12px); }
+}
+
+@keyframes sector-wave-reverse {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(10px); }
+}
+
+.animate-sector-wave {
+  animation: sector-wave 2s ease-in-out infinite alternate;
+}
+
+.animate-sector-wave-reverse {
+  animation: sector-wave-reverse 2.5s ease-in-out infinite alternate;
+}
