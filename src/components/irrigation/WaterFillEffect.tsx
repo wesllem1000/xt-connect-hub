@@ -87,11 +87,12 @@ export default function WaterFillEffect({ active }: WaterFillEffectProps) {
 
   if (phase === "idle") return null;
 
-  const showStream = phase === "dripping" || phase === "splashing" || phase === "rising";
+  const showStream = phase === "dripping" || phase === "splashing" || phase === "rising" || phase === "full";
   const showSplashBottom = phase === "splashing";
   const showWater = phase === "rising" || phase === "full" || phase === "draining";
   const showTurbulence = phase === "rising";
   const showBubbles = phase === "rising" || phase === "full";
+  const showFullStream = phase === "splashing" || phase === "rising" || phase === "full";
 
   return (
     <div className="absolute inset-0 overflow-hidden rounded-xl pointer-events-none z-0">
