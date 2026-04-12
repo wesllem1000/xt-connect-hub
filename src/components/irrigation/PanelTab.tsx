@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Droplets, Power, PowerOff, Wifi, WifiOff, Clock, AlertTriangle, Sprout, Radio, Loader2 } from "lucide-react";
+import SectorStatusIndicator from "./SectorStatusIndicator";
 import { IrrigationSnapshot } from "@/hooks/useIrrigationMQTT";
 import { IrrigationFullConfig } from "@/hooks/useIrrigationMQTT";
 import PumpStatusCard from "./PumpStatusCard";
@@ -212,16 +213,7 @@ export default function PanelTab({ snapshot, fullConfig, isCommandPending, onSet
                     : "bg-card"
                 }`}>
                   <div className="flex items-center gap-3">
-                    {/* Sector visual indicator */}
-                    <div className={`flex items-center justify-center w-10 h-10 rounded-full border-2 transition-all duration-300 ${
-                      sector.on 
-                        ? "border-green-500 bg-green-500/10" 
-                        : "border-muted bg-muted/30"
-                    }`}>
-                      <Sprout className={`h-5 w-5 transition-colors duration-300 ${
-                        sector.on ? "text-green-600" : "text-muted-foreground"
-                      }`} />
-                    </div>
+                    <SectorStatusIndicator isOpen={sector.on} size={44} />
                     <div>
                       <p className="text-sm font-medium">{sector.name || sectorNames[sector.index] || `Setor ${sector.index}`}</p>
                       <p className={`text-xs font-semibold ${sector.on ? "text-green-600" : "text-muted-foreground"}`}>
