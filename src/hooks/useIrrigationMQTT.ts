@@ -163,8 +163,31 @@ function parseDataToSnapshot(raw: Record<string, unknown>): IrrigationSnapshot {
   };
 }
 
+function categorizeEvent(text: string): HistoryEvent["category"] {
+  const lower = text.toLowerCase();
+  if (lower.includes("proteção") || lower.includes("protecao") || lower.includes("segurança") || lower.includes("seguranca")) return "seguranca";
+  if (lower.includes("wi-fi") || lower.includes("wifi") || lower.includes("rede") || lower.includes("reconect")) return "conectividade";
+  if (lower.includes("mqtt")) return "mqtt";
+  if (lower.includes("manual")) return "manual";
+  if (lower.includes("horário") || lower.includes("horario") || lower.includes("automát") || lower.includes("automat") || lower.includes("agendamento") || lower.includes("schedule")) return "automacao";
+  return "sistema";
+}
+
+function parseHistoryEntry(entry: string, category: HistoryEvent["category"]): HistoryEvent {
+  // Format: "2026-04-11 18:10:00 | Description"
+  const pipeIdx = entry.indexOf("|");
+  if (pipeIdx > 0) {
+    return {
+      timestamp: entry.substring(0, pipeIdx).trim(),
+      description: entry.substring(pipeIdx + 1).trim(),
+      category,
+    };
+  }
+  return { timestamp: new Date().toISOString(), description: entry, category };
+}
+
 interface UseIrrigationMQTTOptions {
-  deviceId: string; // The device_id string (e.g. "xt-34E3EC")
+  deviceId: string;
   autoConnect?: boolean;
   commandTimeout?: number;
 }
