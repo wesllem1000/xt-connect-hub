@@ -340,3 +340,134 @@
 .animate-sector-bubble-slow {
   animation: sector-bubble-slow 3.5s ease-out infinite;
 }
+
+/* === Pump card water fill effect === */
+@keyframes pump-fill {
+  0% { transform: translateY(100%); }
+  30% { transform: translateY(55%); }
+  50% { transform: translateY(40%); }
+  70% { transform: translateY(25%); }
+  85% { transform: translateY(18%); }
+  100% { transform: translateY(10%); }
+}
+
+@keyframes pump-full-idle {
+  0% { transform: translateY(10%); }
+  30% { transform: translateY(6%); }
+  60% { transform: translateY(14%); }
+  100% { transform: translateY(10%); }
+}
+
+@keyframes pump-drain {
+  0% { transform: translateY(10%); }
+  100% { transform: translateY(110%); }
+}
+
+@keyframes pump-wave {
+  0% { transform: translateX(0); }
+  25% { transform: translateX(-12px); }
+  50% { transform: translateX(0); }
+  75% { transform: translateX(10px); }
+  100% { transform: translateX(0); }
+}
+
+@keyframes pump-bubble-rise {
+  0% { opacity: 0; transform: translateY(0) scale(1); }
+  15% { opacity: 0.4; }
+  100% { opacity: 0; transform: translateY(-60px) scale(0.2); }
+}
+
+@keyframes pump-bubble-rise-delayed {
+  0%, 25% { opacity: 0; transform: translateY(0) scale(1); }
+  45% { opacity: 0.35; }
+  100% { opacity: 0; transform: translateY(-50px) scale(0.3); }
+}
+
+@keyframes pump-bubble-rise-slow {
+  0%, 15% { opacity: 0; transform: translateY(0) scale(1); }
+  35% { opacity: 0.3; }
+  100% { opacity: 0; transform: translateY(-70px) scale(0.15); }
+}
+
+@keyframes pump-faucet-flow {
+  0% { height: 0; opacity: 0; }
+  10% { opacity: 0.7; }
+  30% { height: 80px; }
+  100% { height: 120px; opacity: 0.5; }
+}
+
+@keyframes pump-splash {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.5); }
+  30% { opacity: 0.5; }
+  100% { opacity: 0; transform: translate(var(--splash-x), var(--splash-y)) scale(0); }
+}
+
+.animate-pump-fill {
+  animation: pump-fill 6s ease-in-out forwards;
+}
+
+.animate-pump-full-idle {
+  transform: translateY(10%);
+  animation: pump-full-idle 7s ease-in-out infinite;
+}
+
+.animate-pump-drain {
+  animation: pump-drain 3s ease-in forwards;
+}
+
+.animate-pump-wave {
+  animation: pump-wave 4s ease-in-out infinite;
+}
+
+.animate-pump-bubble {
+  animation: pump-bubble-rise 3s ease-out infinite;
+}
+
+.animate-pump-bubble-delayed {
+  animation: pump-bubble-rise-delayed 3.5s ease-out infinite;
+}
+
+.animate-pump-bubble-slow {
+  animation: pump-bubble-rise-slow 4s ease-out infinite;
+}
+
+.pump-faucet-stream {
+  width: 6px;
+  margin: 0 auto;
+  background: linear-gradient(180deg, hsl(200, 75%, 55%, 0.5), hsl(200, 75%, 45%, 0.15));
+  border-radius: 0 0 3px 3px;
+  animation: pump-faucet-flow 3s ease-out forwards;
+}
+
+.pump-splash-drop {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: hsl(200, 75%, 55%, 0.4);
+  animation: pump-splash 1.5s ease-out infinite;
+}
+
+.pump-splash-drop-1 {
+  --splash-x: -12px;
+  --splash-y: 8px;
+  top: 100%;
+  left: 50%;
+  animation-delay: 0.5s;
+}
+
+.pump-splash-drop-2 {
+  --splash-x: 10px;
+  --splash-y: 6px;
+  top: 100%;
+  left: 50%;
+  animation-delay: 0.9s;
+}
+
+.pump-splash-drop-3 {
+  --splash-x: -6px;
+  --splash-y: 10px;
+  top: 100%;
+  left: 50%;
+  animation-delay: 1.3s;
+}

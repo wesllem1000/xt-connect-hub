@@ -6,6 +6,7 @@ import SectorStatusIndicator from "./SectorStatusIndicator";
 import { IrrigationSnapshot, DeviceDecisionError } from "@/hooks/useIrrigationMQTT";
 import { IrrigationFullConfig } from "@/hooks/useIrrigationMQTT";
 import PumpStatusCard from "./PumpStatusCard";
+import WaterFillEffect from "./WaterFillEffect";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
