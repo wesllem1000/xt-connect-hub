@@ -113,18 +113,23 @@ export default function PanelTab({ snapshot, fullConfig, isCommandPending, onSet
 
       {/* Status indicators */}
       <div className="flex flex-wrap gap-2">
-        <Badge variant={snapshot.wifi_connected ? "default" : "secondary"} className="gap-1">
+        <Badge variant={snapshot.wifi_connected ? "default" : "secondary"} className="gap-1" title={snapshot.wifi_detail || undefined}>
           {snapshot.wifi_connected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
-          WiFi
+          {snapshot.wifi_state_text || (snapshot.wifi_connected ? "WiFi" : "WiFi desconectado")}
         </Badge>
         <Badge variant={snapshot.mqtt_connected ? "default" : "secondary"} className="gap-1">
           <Radio className="h-3 w-3" />
-          MQTT
+          {snapshot.mqtt_connected ? "MQTT" : "MQTT desconectado"}
         </Badge>
         <Badge variant={snapshot.time_valid ? "default" : "destructive"} className="gap-1">
           <Clock className="h-3 w-3" />
-          {snapshot.time_source || "NTP"}
+          {snapshot.clock || snapshot.time_source || "NTP"}
         </Badge>
+        {snapshot.fw_version && (
+          <Badge variant="outline" className="gap-1 text-xs">
+            v{snapshot.fw_version}
+          </Badge>
+        )}
       </div>
 
       {/* Operation card */}
@@ -243,7 +248,7 @@ export default function PanelTab({ snapshot, fullConfig, isCommandPending, onSet
       )}
 
       {/* Next event card */}
-      {snapshot.next_event_time && (
+      {(snapshot.next_event || snapshot.next_event_time) && (
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
@@ -255,11 +260,17 @@ export default function PanelTab({ snapshot, fullConfig, isCommandPending, onSet
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm">
-                  {snapshot.next_event_type === "pump" ? "Bomba" : `Setor ${snapshot.next_event_target}`}
+                  {snapshot.next_event || (
+                    snapshot.next_event_type === "pump"
+                      ? "Bomba"
+                      : `Setor ${snapshot.next_event_target}`
+                  )}
                 </p>
-                <p className="text-xs text-muted-foreground">
-                  {new Date(snapshot.next_event_time).toLocaleString("pt-BR")}
-                </p>
+                {snapshot.next_event_time && (
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(snapshot.next_event_time).toLocaleString("pt-BR")}
+                  </p>
+                )}
               </div>
               <Badge variant="outline">Programado</Badge>
             </div>
