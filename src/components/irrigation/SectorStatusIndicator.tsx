@@ -10,8 +10,6 @@ export default function SectorStatusIndicator({ isOpen, size = 96 }: SectorStatu
   const strokeWidth = 3.5;
   const innerR = r - strokeWidth;
 
-  // Water level: 85% filled when open, 100% (empty) when closed
-  const waterTopY = isOpen ? size * 0.2 : size + 10;
 
   return (
     <div className="relative flex items-center justify-center" style={{ width: size, height: size }}>
