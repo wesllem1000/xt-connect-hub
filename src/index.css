@@ -9,14 +9,14 @@
 
 @layer base {
   :root {
-    /* Brand Colors - XT CONECT (Orange theme) */
-    --primary: 25 95% 53%;
-    --primary-glow: 30 100% 60%;
-    --primary-dark: 20 90% 45%;
+    /* Brand Colors - XT CONECT (Green theme) */
+    --primary: 156 72% 40%;
+    --primary-glow: 162 78% 48%;
+    --primary-dark: 150 68% 32%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 0 0% 32%;
-    --secondary-glow: 30 100% 60%;
+    --secondary-glow: 156 72% 48%;
     --secondary-foreground: 0 0% 98%;
 
     /* Backgrounds */
@@ -39,7 +39,7 @@
 
     --border: 0 0% 83%;
     --input: 0 0% 83%;
-    --ring: 25 95% 53%;
+    --ring: 156 72% 40%;
 
     /* Status Colors */
     --success: 142 76% 36%;
@@ -48,8 +48,8 @@
     --info: 210 100% 50%;
 
     /* Accent */
-    --accent: 25 100% 95%;
-    --accent-foreground: 25 95% 53%;
+    --accent: 156 60% 95%;
+    --accent-foreground: 156 72% 40%;
 
     --muted: 0 0% 63%;
 
@@ -60,16 +60,16 @@
 
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 0 0% 9%;
-    --sidebar-primary: 25 95% 53%;
+    --sidebar-primary: 156 72% 40%;
     --sidebar-primary-foreground: 0 0% 100%;
     --sidebar-accent: 0 0% 32%;
     --sidebar-accent-foreground: 0 0% 98%;
     --sidebar-border: 0 0% 83%;
-    --sidebar-ring: 25 95% 53%;
-    --chart-1: 25 95% 53%;
-    --chart-2: 30 100% 60%;
-    --chart-3: 35 90% 50%;
-    --chart-4: 40 85% 55%;
+    --sidebar-ring: 156 72% 40%;
+    --chart-1: 156 72% 40%;
+    --chart-2: 162 78% 48%;
+    --chart-3: 170 65% 45%;
+    --chart-4: 148 60% 50%;
     --chart-5: 0 0% 45%;
     --sidebar: 0 0% 98%;
     --font-sans: 'Work Sans', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
@@ -98,7 +98,7 @@
     --popover: 220 15% 15%;
     --popover-foreground: 0 0% 95%;
 
-    --primary: 25 95% 53%;
+    --primary: 156 72% 40%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 220 10% 25%;
@@ -107,28 +107,28 @@
     --muted: 220 10% 25%;
     --muted-foreground: 0 0% 65%;
 
-    --accent: 25 50% 15%;
-    --accent-foreground: 25 95% 60%;
+    --accent: 156 40% 15%;
+    --accent-foreground: 156 72% 55%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 85% 97%;
 
     --border: 220 10% 20%;
     --input: 220 10% 20%;
-    --ring: 25 95% 53%;
+    --ring: 156 72% 40%;
 
     --sidebar-background: 220 15% 10%;
     --sidebar-foreground: 0 0% 95%;
-    --sidebar-primary: 25 95% 53%;
+    --sidebar-primary: 156 72% 40%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 25 50% 15%;
-    --sidebar-accent-foreground: 25 95% 60%;
+    --sidebar-accent: 156 40% 15%;
+    --sidebar-accent-foreground: 156 72% 55%;
     --sidebar-border: 220 10% 20%;
-    --sidebar-ring: 25 95% 53%;
-    --chart-1: 25 95% 53%;
-    --chart-2: 30 100% 60%;
-    --chart-3: 35 90% 50%;
-    --chart-4: 40 85% 55%;
+    --sidebar-ring: 156 72% 40%;
+    --chart-1: 156 72% 40%;
+    --chart-2: 162 78% 48%;
+    --chart-3: 170 65% 45%;
+    --chart-4: 148 60% 50%;
     --chart-5: 0 0% 45%;
     --sidebar: 220 15% 13%;
     --shadow-2xs: 0 1px 3px 0px hsl(0 0% 0% / 0.2);
