@@ -276,7 +276,7 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
       return;
     }
 
-    // Data snapshot message
+    // Data snapshot message (devices/<ID>/data with nested "data" block)
     if (payload.data && typeof payload.data === "object") {
       const data = payload.data as Record<string, unknown>;
       setSnapshot(parseDataToSnapshot(data));
@@ -292,15 +292,25 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
         if (entries.length > 0) {
           setHistory(prev => {
             const merged = [...entries, ...prev];
-            return merged.slice(0, 200); // keep last 200
+            return merged.slice(0, 200);
           });
         }
-        // Check for security alerts
         const securityEntries = entries.filter(e => e.category === "seguranca");
         if (securityEntries.length > 0) {
           setSecurityAlert(securityEntries[0].description);
         }
       }
+      return;
+    }
+
+    // Status topic message (devices/<ID>/status with root-level fields)
+    // These have pump_on, manual_mode, pump_runtime etc. at the root, no "data" wrapper
+    if (message.topic.endsWith("/status") && (payload.status !== undefined || payload.pump_on !== undefined || payload.pump_runtime !== undefined)) {
+      setSnapshot(prev => {
+        const updated = parseDataToSnapshot(payload);
+        return prev ? { ...prev, ...updated } : updated;
+      });
+      setLastSnapshotTime(new Date());
     }
   }, [deviceId]);
 
