@@ -160,56 +160,37 @@ export default function PanelTab({ snapshot, fullConfig, isCommandPending, onSet
             </div>
           </div>
 
-          {/* Pump visual status + control */}
-          <div className="rounded-lg border p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {/* Animated pump indicator */}
-                <div className={`relative flex items-center justify-center w-12 h-12 rounded-full border-2 transition-all duration-500 ${
-                  snapshot.pump_on 
-                    ? "border-green-500 bg-green-500/10" 
-                    : "border-muted bg-muted/30"
-                }`}>
-                  <Droplets className={`h-6 w-6 transition-all duration-300 ${
-                    snapshot.pump_on 
-                      ? "text-green-600 animate-bounce" 
-                      : "text-muted-foreground"
-                  }`} />
-                  {snapshot.pump_on && (
-                    <span className="absolute inset-0 rounded-full border-2 border-green-500 animate-ping opacity-30" />
-                  )}
-                </div>
-                <div>
-                  <p className="text-sm font-medium">Bomba</p>
-                  <p className={`text-xs font-semibold ${snapshot.pump_on ? "text-green-600" : "text-muted-foreground"}`}>
-                    {snapshot.pump_on ? "● Ligada" : "○ Desligada"}
-                  </p>
-                </div>
-              </div>
+          {/* Pump animated card */}
+          <PumpStatusCard
+            pumpOn={snapshot.pump_on}
+            manualMode={isManual}
+            pumpRuntime={snapshot.pump_runtime}
+          />
 
-              {isManual && (
-                <Button
-                  size="sm"
-                  variant={snapshot.pump_on ? "destructive" : "default"}
-                  onClick={() => handleSetPump(!snapshot.pump_on)}
-                  disabled={pumpLoading || isCommandPending}
-                  className={`gap-1 min-w-[100px] ${!snapshot.pump_on ? "bg-green-600 hover:bg-green-700 text-white" : ""}`}
-                >
-                  {pumpLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : snapshot.pump_on ? (
-                    <PowerOff className="h-4 w-4" />
-                  ) : (
-                    <Power className="h-4 w-4" />
-                  )}
-                  {snapshot.pump_on ? "Desligar" : "Ligar"}
-                </Button>
-              )}
-            </div>
-            {!isManual && (
-              <p className="text-xs text-muted-foreground">Controle manual da bomba disponível apenas no modo manual.</p>
+          {/* Pump control button */}
+          <div className="flex items-center justify-center gap-3">
+            {isManual && (
+              <Button
+                size="lg"
+                variant={snapshot.pump_on ? "destructive" : "default"}
+                onClick={() => handleSetPump(!snapshot.pump_on)}
+                disabled={pumpLoading || isCommandPending}
+                className={`gap-2 min-w-[140px] ${!snapshot.pump_on ? "bg-green-600 hover:bg-green-700 text-white" : ""}`}
+              >
+                {pumpLoading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : snapshot.pump_on ? (
+                  <PowerOff className="h-4 w-4" />
+                ) : (
+                  <Power className="h-4 w-4" />
+                )}
+                {snapshot.pump_on ? "Desligar Bomba" : "Ligar Bomba"}
+              </Button>
             )}
           </div>
+          {!isManual && (
+            <p className="text-xs text-muted-foreground text-center">Controle manual da bomba disponível apenas no modo manual.</p>
+          )}
         </CardContent>
       </Card>
 
