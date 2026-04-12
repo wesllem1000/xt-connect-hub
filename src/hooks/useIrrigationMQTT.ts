@@ -56,6 +56,32 @@ export interface ScheduleItem {
   days: string[];
 }
 
+// Custom error for device decision/confirmation requests
+export class DeviceDecisionError extends Error {
+  type: "requires_decision" | "requires_confirmation";
+  secondaryAction?: string;
+  confirmationAction?: string;
+  originalCommand: string;
+  originalParams: Record<string, unknown>;
+
+  constructor(opts: {
+    message: string;
+    type: "requires_decision" | "requires_confirmation";
+    secondaryAction?: string;
+    confirmationAction?: string;
+    originalCommand: string;
+    originalParams: Record<string, unknown>;
+  }) {
+    super(opts.message);
+    this.name = "DeviceDecisionError";
+    this.type = opts.type;
+    this.secondaryAction = opts.secondaryAction;
+    this.confirmationAction = opts.confirmationAction;
+    this.originalCommand = opts.originalCommand;
+    this.originalParams = opts.originalParams;
+  }
+}
+
 interface CommandResponse {
   ok: boolean;
   code: string;
@@ -65,12 +91,18 @@ interface CommandResponse {
   command: string;
   request_id: string;
   ack?: boolean;
+  requiresDecision?: boolean;
+  requiresConfirmation?: boolean;
+  secondaryAction?: string;
+  confirmationAction?: string;
 }
 
 interface PendingCommand {
   resolve: (resp: CommandResponse) => void;
   reject: (err: Error) => void;
   timeout: ReturnType<typeof setTimeout>;
+  command: string;
+  params: Record<string, unknown>;
 }
 
 const EMPTY_SNAPSHOT: IrrigationSnapshot = {
@@ -229,8 +261,10 @@ function buildSnapshotPatch(raw: Record<string, unknown>): Partial<IrrigationSna
   if (hasAnyKey(raw, ["sectorization_enabled", "sectorizationEnabled"])) {
     patch.sectorization_enabled = Boolean(raw.sectorization_enabled ?? raw.sectorizationEnabled);
   }
-  if (Array.isArray(raw.sectors)) {
-    patch.sectors = (raw.sectors as Array<Record<string, unknown>>).map(normalizeSector);
+  // Handle both "sectors" and "sectorsConfig" arrays
+  const rawSectors = Array.isArray(raw.sectors) ? raw.sectors : Array.isArray(raw.sectorsConfig) ? raw.sectorsConfig : null;
+  if (rawSectors) {
+    patch.sectors = (rawSectors as Array<Record<string, unknown>>).map(normalizeSector);
   }
   if (hasAnyKey(raw, ["next_event"])) {
     patch.next_event = String(raw.next_event ?? "");
@@ -272,41 +306,87 @@ function mergeSnapshot(previous: IrrigationSnapshot | null, raw: Record<string, 
 }
 
 function normalizeFullConfig(raw: Record<string, unknown>): IrrigationFullConfig {
-  const source = asRecord(raw.data) ?? raw;
-  const sectorization = asRecord(source.sectorization);
-  const system = asRecord(source.system) ?? asRecord(source.system_config) ?? {};
-  const pump = asRecord(source.pump) ?? asRecord(source.pump_config) ?? {};
-  const relay = asRecord(source.relay) ?? asRecord(source.relay_config) ?? {};
+  // The device sends get_full_config response as:
+  // { data: { config: { sectorizationEnabled, sectorsConfig, mqtt: { publishIntervalSec }, ... }, runtime: { sectors, pumpOn, ... } }, state: { ... } }
+  const dataBlock = asRecord(raw.data) ?? raw;
+  const configBlock = asRecord(dataBlock.config) ?? dataBlock;
+  const runtimeBlock = asRecord(dataBlock.runtime);
 
-  const rawSectors = Array.isArray(source.sectors)
-    ? source.sectors
-    : Array.isArray(sectorization?.sectors)
-      ? sectorization.sectors
+  // Read sectorization from config block (camelCase from device)
+  const sectorizationEnabled = Boolean(
+    configBlock.sectorizationEnabled
+    ?? configBlock.sectorization_enabled
+    ?? raw.sectorization_enabled
+    ?? raw.sectorizationEnabled
+    ?? false,
+  );
+
+  // Read sectors from config (sectorsConfig) or runtime (sectors)
+  const rawConfigSectors = Array.isArray(configBlock.sectorsConfig)
+    ? configBlock.sectorsConfig
+    : Array.isArray(configBlock.sectors)
+      ? configBlock.sectors
       : [];
 
-  const publishInterval = source.publish_interval_sec
-    ?? source.publishIntervalSec
+  const rawRuntimeSectors = runtimeBlock && Array.isArray(runtimeBlock.sectors)
+    ? runtimeBlock.sectors
+    : [];
+
+  // Merge: config sectors have enabled/name, runtime sectors have open state
+  const sectorMap = new Map<number, { index: number; enabled: boolean; name: string }>();
+  (rawConfigSectors as Array<Record<string, unknown>>).forEach((s) => {
+    const idx = Number(s.index ?? s.id ?? 0);
+    sectorMap.set(idx, {
+      index: idx,
+      enabled: Boolean(s.enabled ?? true),
+      name: String(s.name ?? `Setor ${idx}`),
+    });
+  });
+  (rawRuntimeSectors as Array<Record<string, unknown>>).forEach((s) => {
+    const idx = Number(s.index ?? s.id ?? 0);
+    const existing = sectorMap.get(idx);
+    sectorMap.set(idx, {
+      index: idx,
+      enabled: Boolean(s.enabled ?? existing?.enabled ?? true),
+      name: String(s.name || existing?.name || `Setor ${idx}`),
+    });
+  });
+
+  const sectors = Array.from(sectorMap.values()).sort((a, b) => a.index - b.index);
+
+  // System config: read from config block
+  const system = asRecord(configBlock.system) ?? asRecord(configBlock.system_config) ?? {};
+  const pump = asRecord(configBlock.pump) ?? asRecord(configBlock.pump_config) ?? {};
+  const relay = asRecord(configBlock.relay) ?? asRecord(configBlock.relay_config) ?? {};
+
+  // Read publish interval from mqtt sub-block or directly
+  const mqttBlock = asRecord(configBlock.mqtt);
+  const publishInterval = mqttBlock?.publishIntervalSec
+    ?? mqttBlock?.publish_interval_sec
+    ?? configBlock.publish_interval_sec
+    ?? configBlock.publishIntervalSec
     ?? system.publish_interval_sec
     ?? system.publishIntervalSec;
 
-  const safetyTime = source.safety_time_sec
-    ?? source.safetyTimeSec
+  const safetyTime = configBlock.safety_time_sec
+    ?? configBlock.safetyTimeSec
     ?? system.safety_time_sec
     ?? system.safetyTimeSec;
 
+  // Mode from runtime or config
+  const manualMode = runtimeBlock?.manualMode ?? runtimeBlock?.manual_mode ?? configBlock.manual_mode ?? configBlock.manualMode;
+  const modeStr = runtimeBlock?.mode ?? configBlock.mode;
+  let mode = "automatic";
+  if (modeStr !== undefined) {
+    mode = String(modeStr);
+  } else if (manualMode !== undefined) {
+    mode = manualMode ? "manual" : "automatic";
+  }
+
   return {
-    mode: String(source.mode ?? ((source.manual_mode ?? false) ? "manual" : "automatic")),
-    sectorization_enabled: Boolean(
-      source.sectorization_enabled
-      ?? source.sectorizationEnabled
-      ?? sectorization?.enabled
-      ?? false,
-    ),
-    sectors: (rawSectors as Array<Record<string, unknown>>).map((sector) => ({
-      index: Number(sector.index ?? 0),
-      enabled: Boolean(sector.enabled ?? true),
-      name: String(sector.name ?? `Setor ${sector.index ?? 0}`),
-    })),
+    mode,
+    sectorization_enabled: sectorizationEnabled,
+    sectors,
     pump,
     system: {
       ...system,
@@ -322,13 +402,12 @@ function categorizeEvent(text: string): HistoryEvent["category"] {
   if (lower.includes("proteção") || lower.includes("protecao") || lower.includes("segurança") || lower.includes("seguranca")) return "seguranca";
   if (lower.includes("wi-fi") || lower.includes("wifi") || lower.includes("rede") || lower.includes("reconect")) return "conectividade";
   if (lower.includes("mqtt")) return "mqtt";
-  if (lower.includes("manual") || lower.includes("manualmente") || lower.includes("pela interface") || lower.includes("botão") || lower.includes("botao")) return "manual";
+  if (lower.includes("manual") || lower.includes("manualmente") || lower.includes("pela interface") || lower.includes("botão") || lower.includes("botao") || lower.includes("setor") || lower.includes("bomba")) return "manual";
   if (lower.includes("horário") || lower.includes("horario") || lower.includes("automát") || lower.includes("automat") || lower.includes("agendamento") || lower.includes("schedule") || lower.includes("timer") || lower.includes("programa")) return "automacao";
   return "sistema";
 }
 
 function parseHistoryEntry(entry: string, category: HistoryEvent["category"]): HistoryEvent {
-  // Format: "2026-04-11 18:10:00 | Description"
   const pipeIdx = entry.indexOf("|");
   if (pipeIdx > 0) {
     return {
@@ -427,6 +506,67 @@ function buildTransitionEvents(previous: IrrigationSnapshot | null, next: Irriga
   return events;
 }
 
+// Apply optimistic patch to snapshot based on confirmed command
+function applyCommandPatch(
+  snapshot: IrrigationSnapshot,
+  command: string,
+  params: Record<string, unknown>,
+  respData: Record<string, unknown> | undefined,
+): Partial<IrrigationSnapshot> {
+  const patch: Partial<IrrigationSnapshot> = {};
+
+  // Also read sectors from respData if available (device sends sectors in data block)
+  const dataSectors = respData && Array.isArray(respData.sectors)
+    ? (respData.sectors as Array<Record<string, unknown>>).map(normalizeSector)
+    : null;
+
+  switch (command) {
+    case "set_mode":
+      patch.mode = params.mode === "manual" ? "manual" : "automatic";
+      break;
+    case "set_pump":
+      patch.pump_on = Boolean(params.on);
+      break;
+    case "set_sector": {
+      const idx = Number(params.index);
+      const open = Boolean(params.open);
+      if (dataSectors) {
+        patch.sectors = dataSectors;
+      } else {
+        patch.sectors = snapshot.sectors.map(s =>
+          s.index === idx ? { ...s, open } : s
+        );
+      }
+      // If device returned pumpOn in data, use it
+      if (respData && hasAnyKey(respData, ["pumpOn", "pump_on"])) {
+        patch.pump_on = Boolean(respData.pumpOn ?? respData.pump_on);
+      }
+      break;
+    }
+    case "set_sectorization":
+      patch.sectorization_enabled = Boolean(params.enabled);
+      break;
+    case "set_sector_enabled": {
+      const sIdx = Number(params.index);
+      const enabled = Boolean(params.enabled);
+      patch.sectors = snapshot.sectors.map(s =>
+        s.index === sIdx ? { ...s, enabled } : s
+      );
+      break;
+    }
+    case "set_sector_name": {
+      const nIdx = Number(params.index);
+      const name = String(params.name);
+      patch.sectors = snapshot.sectors.map(s =>
+        s.index === nIdx ? { ...s, name } : s
+      );
+      break;
+    }
+  }
+
+  return patch;
+}
+
 interface UseIrrigationMQTTOptions {
   deviceId: string;
   autoConnect?: boolean;
@@ -509,6 +649,19 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
     return nextSnapshot;
   }, [addHistoryEvent, mergeHistoryEntries]);
 
+  // Apply a partial patch directly to snapshot (for optimistic updates)
+  const patchSnapshot = useCallback((patch: Partial<IrrigationSnapshot>) => {
+    const base = snapshotRef.current ?? EMPTY_SNAPSHOT;
+    const next: IrrigationSnapshot = {
+      ...base,
+      ...patch,
+      sectors: patch.sectors ? mergeSectors(base.sectors, patch.sectors) : base.sectors,
+    };
+    snapshotRef.current = next;
+    setSnapshot(next);
+    setLastSnapshotTime(new Date());
+  }, []);
+
   const pendingRef = useRef<Map<string, PendingCommand>>(new Map());
   const requestCounter = useRef(0);
 
@@ -535,17 +688,47 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
           next.delete(rid);
           return next;
         });
-        pending.resolve(payload as unknown as CommandResponse);
+
+        // Check for device decision/confirmation requirements
+        if (payload.requiresDecision || payload.requiresConfirmation) {
+          const err = new DeviceDecisionError({
+            message: String(payload.message || "Dispositivo requer confirmação"),
+            type: payload.requiresDecision ? "requires_decision" : "requires_confirmation",
+            secondaryAction: payload.secondaryAction ? String(payload.secondaryAction) : undefined,
+            confirmationAction: payload.confirmationAction ? String(payload.confirmationAction) : undefined,
+            originalCommand: pending.command,
+            originalParams: pending.params,
+          });
+          pending.reject(err);
+        } else {
+          pending.resolve(payload as unknown as CommandResponse);
+        }
       }
 
-      // Also handle specific response data
       const cmd = String(payload.command || "");
-      const respData = payload.data as Record<string, unknown> | undefined;
+      const respData = asRecord(payload.data as Record<string, unknown> | undefined);
 
       // Update snapshot from state block in ack response
       const stateData = asRecord(payload.state);
       if (stateData) {
         updateSnapshot(stateData);
+      }
+
+      // Also read data block for sector states and apply optimistic patch
+      if (pending && payload.ok !== false) {
+        const currentSnap = snapshotRef.current ?? EMPTY_SNAPSHOT;
+        const cmdPatch = applyCommandPatch(currentSnap, cmd, pending.params, respData ?? undefined);
+        if (Object.keys(cmdPatch).length > 0) {
+          patchSnapshot(cmdPatch);
+        }
+      }
+
+      // Also update snapshot from data block if it has runtime-level fields
+      if (respData && !stateData) {
+        // Check if respData has snapshot-relevant fields
+        if (hasAnyKey(respData, ["pump_on", "pumpOn", "sectors", "sectorsConfig", "sectorization_enabled", "sectorizationEnabled", "manual_mode", "manualMode", "mode"])) {
+          updateSnapshot(respData);
+        }
       }
 
       if (cmd === "list_schedules" && respData?.schedules && Array.isArray(respData.schedules)) {
@@ -555,7 +738,18 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
         setLogs(respData.logs as string[]);
       }
       if (cmd === "get_full_config" && respData) {
-        setFullConfig(normalizeFullConfig(respData));
+        const fc = normalizeFullConfig({ data: respData });
+        setFullConfig(fc);
+        // Also update snapshot with fullConfig sectors for initial load
+        if (fc.sectors.length > 0) {
+          patchSnapshot({
+            sectorization_enabled: fc.sectorization_enabled,
+            sectors: fc.sectors.map(s => ({
+              ...s,
+              open: snapshotRef.current?.sectors.find(ss => ss.index === s.index)?.open ?? false,
+            })),
+          });
+        }
       }
       if (cmd === "get_runtime_state" && respData) {
         updateSnapshot(respData as Record<string, unknown>);
@@ -579,11 +773,10 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
     }
 
     // Status topic message (devices/<ID>/status with root-level fields)
-    // These have pump_on, manual_mode, pump_runtime etc. at the root, no "data" wrapper
     if (message.topic.endsWith("/status") && (payload.status !== undefined || payload.pump_on !== undefined || payload.pump_runtime !== undefined)) {
       updateSnapshot(asRecord(payload.state) ?? payload);
     }
-  }, [deviceId, addHistoryEvent, updateSnapshot]);
+  }, [deviceId, addHistoryEvent, updateSnapshot, patchSnapshot]);
 
   const { status: mqttStatus, publish, error: mqttError } = useMQTT({
     deviceId,
@@ -612,7 +805,7 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
         reject(new Error(`Timeout: sem resposta para "${command}" em ${commandTimeout / 1000}s`));
       }, commandTimeout);
 
-      pendingRef.current.set(requestId, { resolve, reject, timeout });
+      pendingRef.current.set(requestId, { resolve, reject, timeout, command, params });
       setPendingCommands(prev => new Set(prev).add(requestId));
 
       publish(`devices/${deviceId}/commands`, message);

@@ -172,6 +172,7 @@ const IrrigationDashboard = forwardRef<IrrigationDashboardRef, Props>(({ device 
             onSetMode={async (mode) => { await mqtt.setMode(mode); }}
             onSetPump={async (on) => { await mqtt.setPump(on); }}
             onSetSector={async (idx, open) => { await mqtt.setSector(idx, open); }}
+            onSendCommand={async (cmd, params) => { await mqtt.sendCommand(cmd, params); }}
             sectorNames={sectorNames}
           />
         </TabsContent>
