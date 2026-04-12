@@ -288,14 +288,15 @@ export default function PanelTab({ snapshot, fullConfig, isCommandPending, onSet
       </div>
 
       {/* Operation card */}
-      <Card>
-        <CardHeader className="pb-3">
+      <Card className="relative overflow-hidden">
+        <WaterFillEffect active={snapshot.pump_on} />
+        <CardHeader className="pb-3 relative z-10">
           <CardTitle className="text-base flex items-center gap-2">
             <Droplets className="h-5 w-5 text-primary" />
             Operação
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-6">
+        <CardContent className="space-y-6 relative z-10">
           {/* Mode */}
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium">Modo</span>
