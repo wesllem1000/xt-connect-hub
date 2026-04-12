@@ -116,6 +116,16 @@ function parseDataToSnapshot(raw: Record<string, unknown>): IrrigationSnapshot {
   else if (raw.manualMode !== undefined) mode = raw.manualMode ? "manual" : "automatic";
   else if (raw.mode !== undefined) mode = raw.mode === "manual" ? "manual" : "automatic";
 
+  // Parse pump_runtime
+  const rawRuntime = (raw.pump_runtime ?? raw.pumpRuntime) as Record<string, unknown> | undefined;
+  const pumpRuntime: PumpRuntime | null = rawRuntime ? {
+    active: Boolean(rawRuntime.active ?? false),
+    mode: (String(rawRuntime.mode ?? "idle") as PumpRuntime["mode"]),
+    seconds: Number(rawRuntime.seconds ?? 0),
+    remainingSec: Number(rawRuntime.remainingSec ?? rawRuntime.remaining_sec ?? 0),
+    elapsedSec: Number(rawRuntime.elapsedSec ?? rawRuntime.elapsed_sec ?? 0),
+  } : null;
+
   return {
     mode,
     time_valid: Boolean(raw.time_valid ?? raw.timeValid ?? true),
@@ -123,6 +133,7 @@ function parseDataToSnapshot(raw: Record<string, unknown>): IrrigationSnapshot {
     wifi_connected: Boolean(raw.wifi_connected ?? raw.wifiConnected ?? false),
     mqtt_connected: Boolean(raw.mqtt_connected ?? raw.mqttConnected ?? false),
     pump_on: Boolean(raw.pump_on ?? raw.pumpOn ?? false),
+    pump_runtime: pumpRuntime,
     sectorization_enabled: Boolean(raw.sectorization_enabled ?? raw.sectorizationEnabled ?? false),
     sectors: rawSectors,
     next_event_type: "",
