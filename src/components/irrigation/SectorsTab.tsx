@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,8 +21,18 @@ interface SectorsTabProps {
 export default function SectorsTab({ snapshot, fullConfig, isCommandPending, onSetSectorization, onSetSectorEnabled, onSetSectorName, onGetFullConfig }: SectorsTabProps) {
   const [editingNames, setEditingNames] = useState<Record<number, string>>({});
   const [saving, setSaving] = useState<number | null>(null);
+  const [localSectorization, setLocalSectorization] = useState<boolean | null>(null);
+  const [localSectorEnabled, setLocalSectorEnabled] = useState<Record<number, boolean>>({});
 
-  const sectorization = snapshot?.sectorization_enabled ?? false;
+  useEffect(() => {
+    setLocalSectorization(null);
+  }, [snapshot?.sectorization_enabled, fullConfig?.sectorization_enabled]);
+
+  useEffect(() => {
+    setLocalSectorEnabled({});
+  }, [fullConfig?.sectors, snapshot?.sectors]);
+
+  const sectorization = localSectorization ?? fullConfig?.sectorization_enabled ?? snapshot?.sectorization_enabled ?? false;
   const sectors = fullConfig?.sectors || snapshot?.sectors?.map(s => ({
     index: s.index,
     enabled: s.enabled,
@@ -35,21 +45,29 @@ export default function SectorsTab({ snapshot, fullConfig, isCommandPending, onS
   ];
 
   const handleToggleSectorization = async (enabled: boolean) => {
+    setLocalSectorization(enabled);
     try {
       await onSetSectorization(enabled);
       toast.success(enabled ? "Setorização habilitada" : "Setorização desabilitada");
       await onGetFullConfig();
     } catch (err) {
+      setLocalSectorization(null);
       toast.error(err instanceof Error ? err.message : "Erro");
     }
   };
 
   const handleToggleSector = async (index: number, enabled: boolean) => {
+    setLocalSectorEnabled(prev => ({ ...prev, [index]: enabled }));
     try {
       await onSetSectorEnabled(index, enabled);
       toast.success(`Setor ${index} ${enabled ? "habilitado" : "desabilitado"}`);
       await onGetFullConfig();
     } catch (err) {
+      setLocalSectorEnabled(prev => {
+        const next = { ...prev };
+        delete next[index];
+        return next;
+      });
       toast.error(err instanceof Error ? err.message : "Erro");
     }
   };
@@ -89,37 +107,41 @@ export default function SectorsTab({ snapshot, fullConfig, isCommandPending, onS
 
       {sectorization && (
         <div className="space-y-3">
-          {sectors.map(sector => (
-            <Card key={sector.index}>
-              <CardContent className="p-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Sprout className="h-4 w-4 text-green-600" />
-                      <span className="font-medium text-sm">{sector.name}</span>
+          {sectors.map(sector => {
+            const effectiveEnabled = localSectorEnabled[sector.index] ?? sector.enabled;
+
+            return (
+              <Card key={sector.index}>
+                <CardContent className="p-4">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Sprout className="h-4 w-4 text-green-600" />
+                        <span className="font-medium text-sm">{sector.name}</span>
+                      </div>
+                      <Switch checked={effectiveEnabled} onCheckedChange={(v) => handleToggleSector(sector.index, v)} disabled={isCommandPending} />
                     </div>
-                    <Switch checked={sector.enabled} onCheckedChange={(v) => handleToggleSector(sector.index, v)} disabled={isCommandPending} />
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder={`Nome do setor ${sector.index}`}
+                        value={editingNames[sector.index] ?? sector.name}
+                        onChange={(e) => setEditingNames(prev => ({ ...prev, [sector.index]: e.target.value }))}
+                        className="text-sm"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleSaveName(sector.index)}
+                        disabled={isCommandPending || saving === sector.index || !(editingNames[sector.index] && editingNames[sector.index] !== sector.name)}
+                      >
+                        {saving === sector.index ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder={`Nome do setor ${sector.index}`}
-                      value={editingNames[sector.index] ?? sector.name}
-                      onChange={(e) => setEditingNames(prev => ({ ...prev, [sector.index]: e.target.value }))}
-                      className="text-sm"
-                    />
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleSaveName(sector.index)}
-                      disabled={isCommandPending || saving === sector.index || !(editingNames[sector.index] && editingNames[sector.index] !== sector.name)}
-                    >
-                      {saving === sector.index ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>

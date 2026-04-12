@@ -73,6 +73,70 @@ interface PendingCommand {
   timeout: ReturnType<typeof setTimeout>;
 }
 
+const EMPTY_SNAPSHOT: IrrigationSnapshot = {
+  mode: "automatic",
+  time_valid: true,
+  time_source: "ntp",
+  wifi_connected: false,
+  mqtt_connected: false,
+  wifi_state_text: "",
+  wifi_detail: "",
+  pump_on: false,
+  pump_runtime: null,
+  sectorization_enabled: false,
+  sectors: [],
+  next_event: "",
+  next_event_type: "",
+  next_event_target: 0,
+  next_event_time: "",
+  warning: "",
+  clock: "",
+  fw_version: "",
+  sta_ip: "",
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function hasAnyKey(raw: Record<string, unknown>, keys: string[]) {
+  return keys.some((key) => Object.prototype.hasOwnProperty.call(raw, key));
+}
+
+function normalizeSector(raw: Record<string, unknown>) {
+  const index = Number(raw.index ?? raw.id ?? 0);
+  return {
+    index,
+    enabled: Boolean(raw.enabled ?? true),
+    name: String(raw.name ?? `Setor ${index}`),
+    open: Boolean(raw.open ?? raw.is_open ?? raw.on ?? false),
+  };
+}
+
+function mergeSectors(
+  previous: IrrigationSnapshot["sectors"],
+  next: IrrigationSnapshot["sectors"],
+): IrrigationSnapshot["sectors"] {
+  const merged = new Map<number, IrrigationSnapshot["sectors"][number]>();
+
+  previous.forEach((sector) => {
+    merged.set(sector.index, sector);
+  });
+
+  next.forEach((sector) => {
+    const current = merged.get(sector.index);
+    merged.set(sector.index, {
+      ...current,
+      ...sector,
+      name: sector.name || current?.name || `Setor ${sector.index}`,
+    });
+  });
+
+  return Array.from(merged.values()).sort((a, b) => a.index - b.index);
+}
+
 function normalizeScheduleItem(raw: Record<string, unknown>): ScheduleItem {
   const targetType = String(raw.target_type ?? raw.targetType ?? "pump");
   const rawStartTime = raw.start_time ?? raw.startTime;
@@ -117,49 +181,139 @@ function buildUpdateScheduleParams(schedule: Partial<ScheduleItem> & { id: numbe
   };
 }
 
-function parseDataToSnapshot(raw: Record<string, unknown>): IrrigationSnapshot {
-  const rawSectors = (raw.sectors as Array<Record<string, unknown>> || []).map(s => ({
-    index: Number(s.index ?? 0),
-    enabled: Boolean(s.enabled),
-    name: String(s.name || `Setor ${s.index}`),
-    open: Boolean(s.open),
-  }));
+function buildSnapshotPatch(raw: Record<string, unknown>): Partial<IrrigationSnapshot> {
+  const patch: Partial<IrrigationSnapshot> = {};
 
-  let mode: "manual" | "automatic" = "automatic";
-  if (raw.manual_mode !== undefined) mode = raw.manual_mode ? "manual" : "automatic";
-  else if (raw.manualMode !== undefined) mode = raw.manualMode ? "manual" : "automatic";
-  else if (raw.mode !== undefined) mode = raw.mode === "manual" ? "manual" : "automatic";
+  if (hasAnyKey(raw, ["manual_mode", "manualMode", "mode"])) {
+    let mode: "manual" | "automatic" = "automatic";
+    if (raw.manual_mode !== undefined) mode = raw.manual_mode ? "manual" : "automatic";
+    else if (raw.manualMode !== undefined) mode = raw.manualMode ? "manual" : "automatic";
+    else if (raw.mode !== undefined) mode = raw.mode === "manual" ? "manual" : "automatic";
+    patch.mode = mode;
+  }
 
-  // Parse pump_runtime
-  const rawRuntime = (raw.pump_runtime ?? raw.pumpRuntime) as Record<string, unknown> | undefined;
-  const pumpRuntime: PumpRuntime | null = rawRuntime ? {
-    active: Boolean(rawRuntime.active ?? false),
-    mode: (String(rawRuntime.mode ?? "idle") as PumpRuntime["mode"]),
-    seconds: Number(rawRuntime.seconds ?? 0),
-    remainingSec: Number(rawRuntime.remainingSec ?? rawRuntime.remaining_sec ?? 0),
-    elapsedSec: Number(rawRuntime.elapsedSec ?? rawRuntime.elapsed_sec ?? 0),
-  } : null;
+  if (hasAnyKey(raw, ["pump_runtime", "pumpRuntime"])) {
+    const rawRuntime = asRecord(raw.pump_runtime ?? raw.pumpRuntime);
+    patch.pump_runtime = rawRuntime
+      ? {
+          active: Boolean(rawRuntime.active ?? false),
+          mode: String(rawRuntime.mode ?? "idle") as PumpRuntime["mode"],
+          seconds: Number(rawRuntime.seconds ?? 0),
+          remainingSec: Number(rawRuntime.remainingSec ?? rawRuntime.remaining_sec ?? 0),
+          elapsedSec: Number(rawRuntime.elapsedSec ?? rawRuntime.elapsed_sec ?? 0),
+        }
+      : null;
+  }
+
+  if (hasAnyKey(raw, ["time_valid", "timeValid"])) {
+    patch.time_valid = Boolean(raw.time_valid ?? raw.timeValid);
+  }
+  if (hasAnyKey(raw, ["time_source", "timeSource"])) {
+    patch.time_source = String(raw.time_source ?? raw.timeSource ?? "ntp");
+  }
+  if (hasAnyKey(raw, ["wifi_connected", "wifiConnected"])) {
+    patch.wifi_connected = Boolean(raw.wifi_connected ?? raw.wifiConnected);
+  }
+  if (hasAnyKey(raw, ["mqtt_connected", "mqttConnected"])) {
+    patch.mqtt_connected = Boolean(raw.mqtt_connected ?? raw.mqttConnected);
+  }
+  if (hasAnyKey(raw, ["wifiStateText", "wifi_state_text"])) {
+    patch.wifi_state_text = String(raw.wifiStateText ?? raw.wifi_state_text ?? "");
+  }
+  if (hasAnyKey(raw, ["wifiDetail", "wifi_detail"])) {
+    patch.wifi_detail = String(raw.wifiDetail ?? raw.wifi_detail ?? "");
+  }
+  if (hasAnyKey(raw, ["pump_on", "pumpOn"])) {
+    patch.pump_on = Boolean(raw.pump_on ?? raw.pumpOn);
+  }
+  if (hasAnyKey(raw, ["sectorization_enabled", "sectorizationEnabled"])) {
+    patch.sectorization_enabled = Boolean(raw.sectorization_enabled ?? raw.sectorizationEnabled);
+  }
+  if (Array.isArray(raw.sectors)) {
+    patch.sectors = (raw.sectors as Array<Record<string, unknown>>).map(normalizeSector);
+  }
+  if (hasAnyKey(raw, ["next_event"])) {
+    patch.next_event = String(raw.next_event ?? "");
+  }
+  if (hasAnyKey(raw, ["next_event_type"])) {
+    patch.next_event_type = String(raw.next_event_type ?? "");
+  }
+  if (hasAnyKey(raw, ["next_event_target"])) {
+    patch.next_event_target = Number(raw.next_event_target ?? 0);
+  }
+  if (hasAnyKey(raw, ["next_event_time"])) {
+    patch.next_event_time = String(raw.next_event_time ?? "");
+  }
+  if (hasAnyKey(raw, ["overlap_warnings", "overlapWarnings", "warning"])) {
+    patch.warning = String(raw.overlap_warnings ?? raw.overlapWarnings ?? raw.warning ?? "");
+  }
+  if (hasAnyKey(raw, ["clock"])) {
+    patch.clock = String(raw.clock ?? "");
+  }
+  if (hasAnyKey(raw, ["fw_version", "fwVersion"])) {
+    patch.fw_version = String(raw.fw_version ?? raw.fwVersion ?? "");
+  }
+  if (hasAnyKey(raw, ["sta_ip", "staIp"])) {
+    patch.sta_ip = String(raw.sta_ip ?? raw.staIp ?? "");
+  }
+
+  return patch;
+}
+
+function mergeSnapshot(previous: IrrigationSnapshot | null, raw: Record<string, unknown>): IrrigationSnapshot {
+  const base = previous ?? EMPTY_SNAPSHOT;
+  const patch = buildSnapshotPatch(raw);
 
   return {
-    mode,
-    time_valid: Boolean(raw.time_valid ?? raw.timeValid ?? true),
-    time_source: String(raw.time_source || raw.timeSource || "ntp"),
-    wifi_connected: Boolean(raw.wifi_connected ?? raw.wifiConnected ?? false),
-    mqtt_connected: Boolean(raw.mqtt_connected ?? raw.mqttConnected ?? false),
-    wifi_state_text: String(raw.wifiStateText ?? raw.wifi_state_text ?? ""),
-    wifi_detail: String(raw.wifiDetail ?? raw.wifi_detail ?? ""),
-    pump_on: Boolean(raw.pump_on ?? raw.pumpOn ?? false),
-    pump_runtime: pumpRuntime,
-    sectorization_enabled: Boolean(raw.sectorization_enabled ?? raw.sectorizationEnabled ?? false),
-    sectors: rawSectors,
-    next_event: String(raw.next_event ?? ""),
-    next_event_type: "",
-    next_event_target: 0,
-    next_event_time: "",
-    warning: String(raw.overlap_warnings || raw.overlapWarnings || raw.warning || ""),
-    clock: String(raw.clock ?? ""),
-    fw_version: String(raw.fw_version ?? raw.fwVersion ?? ""),
-    sta_ip: String(raw.sta_ip ?? raw.staIp ?? ""),
+    ...base,
+    ...patch,
+    sectors: patch.sectors ? mergeSectors(base.sectors, patch.sectors) : base.sectors,
+  };
+}
+
+function normalizeFullConfig(raw: Record<string, unknown>): IrrigationFullConfig {
+  const source = asRecord(raw.data) ?? raw;
+  const sectorization = asRecord(source.sectorization);
+  const system = asRecord(source.system) ?? asRecord(source.system_config) ?? {};
+  const pump = asRecord(source.pump) ?? asRecord(source.pump_config) ?? {};
+  const relay = asRecord(source.relay) ?? asRecord(source.relay_config) ?? {};
+
+  const rawSectors = Array.isArray(source.sectors)
+    ? source.sectors
+    : Array.isArray(sectorization?.sectors)
+      ? sectorization.sectors
+      : [];
+
+  const publishInterval = source.publish_interval_sec
+    ?? source.publishIntervalSec
+    ?? system.publish_interval_sec
+    ?? system.publishIntervalSec;
+
+  const safetyTime = source.safety_time_sec
+    ?? source.safetyTimeSec
+    ?? system.safety_time_sec
+    ?? system.safetyTimeSec;
+
+  return {
+    mode: String(source.mode ?? ((source.manual_mode ?? false) ? "manual" : "automatic")),
+    sectorization_enabled: Boolean(
+      source.sectorization_enabled
+      ?? source.sectorizationEnabled
+      ?? sectorization?.enabled
+      ?? false,
+    ),
+    sectors: (rawSectors as Array<Record<string, unknown>>).map((sector) => ({
+      index: Number(sector.index ?? 0),
+      enabled: Boolean(sector.enabled ?? true),
+      name: String(sector.name ?? `Setor ${sector.index ?? 0}`),
+    })),
+    pump,
+    system: {
+      ...system,
+      ...(publishInterval !== undefined ? { publish_interval_sec: Number(publishInterval) } : {}),
+      ...(safetyTime !== undefined ? { safety_time_sec: Number(safetyTime) } : {}),
+    },
+    relay,
   };
 }
 
@@ -168,8 +322,8 @@ function categorizeEvent(text: string): HistoryEvent["category"] {
   if (lower.includes("proteção") || lower.includes("protecao") || lower.includes("segurança") || lower.includes("seguranca")) return "seguranca";
   if (lower.includes("wi-fi") || lower.includes("wifi") || lower.includes("rede") || lower.includes("reconect")) return "conectividade";
   if (lower.includes("mqtt")) return "mqtt";
-  if (lower.includes("manual")) return "manual";
-  if (lower.includes("horário") || lower.includes("horario") || lower.includes("automát") || lower.includes("automat") || lower.includes("agendamento") || lower.includes("schedule")) return "automacao";
+  if (lower.includes("manual") || lower.includes("manualmente") || lower.includes("pela interface") || lower.includes("botão") || lower.includes("botao")) return "manual";
+  if (lower.includes("horário") || lower.includes("horario") || lower.includes("automát") || lower.includes("automat") || lower.includes("agendamento") || lower.includes("schedule") || lower.includes("timer") || lower.includes("programa")) return "automacao";
   return "sistema";
 }
 
@@ -184,6 +338,93 @@ function parseHistoryEntry(entry: string, category: HistoryEvent["category"]): H
     };
   }
   return { timestamp: new Date().toISOString(), description: entry, category };
+}
+
+function extractHistoryEntries(raw: Record<string, unknown>): HistoryEvent[] {
+  const diagnostics = asRecord(raw.diagnostics);
+  const sources = [
+    ...(Array.isArray(diagnostics?.history) ? diagnostics.history : []),
+    ...(Array.isArray(raw.history) ? raw.history : []),
+  ];
+
+  return sources.flatMap((item) => {
+    if (typeof item === "string") {
+      const category = categorizeEvent(item);
+      return [parseHistoryEntry(item, category)];
+    }
+
+    const record = asRecord(item);
+    const text = String(record?.entry ?? record?.message ?? record?.description ?? "").trim();
+    if (!text) return [];
+
+    const category = categorizeEvent(text);
+    const parsed = parseHistoryEntry(text, category);
+    if (record?.timestamp) {
+      parsed.timestamp = String(record.timestamp);
+    }
+    return [parsed];
+  });
+}
+
+function buildTransitionEvents(previous: IrrigationSnapshot | null, next: IrrigationSnapshot): Array<Pick<HistoryEvent, "description" | "category">> {
+  if (!previous) return [];
+
+  const events: Array<Pick<HistoryEvent, "description" | "category">> = [];
+  const category: HistoryEvent["category"] = next.mode === "manual" ? "manual" : "automacao";
+
+  if (previous.pump_on !== next.pump_on) {
+    events.push({
+      description: next.pump_on
+        ? `Bomba ligada ${category === "manual" ? "manualmente" : "pelo horário"}.`
+        : `Bomba desligada ${category === "manual" ? "manualmente" : "pelo horário"}.`,
+      category,
+    });
+  }
+
+  if (previous.wifi_connected !== next.wifi_connected) {
+    events.push({
+      description: next.wifi_connected ? "Wi-Fi conectado no roteador." : "Wi-Fi desconectado do roteador.",
+      category: "conectividade",
+    });
+  }
+
+  if (previous.mqtt_connected !== next.mqtt_connected) {
+    events.push({
+      description: next.mqtt_connected ? "MQTT conectado e operando normalmente." : "MQTT desconectado.",
+      category: "mqtt",
+    });
+  }
+
+  if (previous.sectorization_enabled !== next.sectorization_enabled) {
+    events.push({
+      description: `Setorização ${next.sectorization_enabled ? "habilitada" : "desabilitada"}.`,
+      category: "sistema",
+    });
+  }
+
+  const previousSectors = new Map(previous.sectors.map((sector) => [sector.index, sector]));
+  next.sectors.forEach((sector) => {
+    const previousSector = previousSectors.get(sector.index);
+    const name = sector.name || `Setor ${sector.index}`;
+
+    if (previousSector && previousSector.enabled !== sector.enabled) {
+      events.push({
+        description: `${name} ${sector.enabled ? "habilitado" : "desabilitado"} para irrigação.`,
+        category: "sistema",
+      });
+    }
+
+    if (previousSector && previousSector.open !== sector.open) {
+      events.push({
+        description: sector.open
+          ? `${name} aberto ${category === "manual" ? "manualmente" : "pela automação"}.`
+          : `${name} fechado ${category === "manual" ? "manualmente" : "pela automação"}.`,
+        category,
+      });
+    }
+  });
+
+  return events;
 }
 
 interface UseIrrigationMQTTOptions {
@@ -201,13 +442,73 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
   const [pendingCommands, setPendingCommands] = useState<Set<string>>(new Set());
   const [lastSnapshotTime, setLastSnapshotTime] = useState<Date | null>(null);
   const [securityAlert, setSecurityAlert] = useState<string | null>(null);
+  const snapshotRef = useRef<IrrigationSnapshot | null>(null);
 
   const addHistoryEvent = useCallback((description: string, category: HistoryEvent["category"]) => {
+    const timestamp = new Date().toISOString();
+
+    if (category === "seguranca") {
+      setSecurityAlert(description);
+    }
+
     setHistory(prev => {
-      const event: HistoryEvent = { timestamp: new Date().toISOString(), description, category };
+      const now = Date.now();
+      const alreadyExists = prev.some((event) => {
+        if (event.description !== description) return false;
+        const eventTime = Date.parse(event.timestamp);
+        return Number.isFinite(eventTime) && Math.abs(now - eventTime) < 15000;
+      });
+
+      if (alreadyExists) return prev;
+
+      const event: HistoryEvent = { timestamp, description, category };
       return [event, ...prev].slice(0, 200);
     });
   }, []);
+
+  const mergeHistoryEntries = useCallback((entries: HistoryEvent[]) => {
+    if (entries.length === 0) return;
+
+    const securityEntry = entries.find((entry) => entry.category === "seguranca");
+    if (securityEntry) {
+      setSecurityAlert(securityEntry.description);
+    }
+
+    setHistory((prev) => {
+      const seen = new Set<string>();
+      const merged: HistoryEvent[] = [];
+
+      [...entries, ...prev].forEach((event) => {
+        const key = `${event.timestamp}|${event.description}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        merged.push(event);
+      });
+
+      return merged.slice(0, 200);
+    });
+  }, []);
+
+  const updateSnapshot = useCallback((raw: Record<string, unknown>) => {
+    const previousSnapshot = snapshotRef.current;
+    const nextSnapshot = mergeSnapshot(previousSnapshot, raw);
+
+    snapshotRef.current = nextSnapshot;
+    setSnapshot(nextSnapshot);
+    setLastSnapshotTime(new Date());
+
+    const extractedHistory = extractHistoryEntries(raw);
+    if (extractedHistory.length > 0) {
+      mergeHistoryEntries([...extractedHistory].reverse());
+    }
+
+    buildTransitionEvents(previousSnapshot, nextSnapshot).forEach((event) => {
+      addHistoryEvent(event.description, event.category);
+    });
+
+    return nextSnapshot;
+  }, [addHistoryEvent, mergeHistoryEntries]);
+
   const pendingRef = useRef<Map<string, PendingCommand>>(new Map());
   const requestCounter = useRef(0);
 
@@ -242,14 +543,9 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
       const respData = payload.data as Record<string, unknown> | undefined;
 
       // Update snapshot from state block in ack response
-      const stateData = payload.state as Record<string, unknown> | undefined;
+      const stateData = asRecord(payload.state);
       if (stateData) {
-        setSnapshot(prev => {
-          const updated = parseDataToSnapshot(stateData);
-          // Merge: keep fields from previous snapshot that aren't in state
-          return prev ? { ...prev, ...updated } : updated;
-        });
-        setLastSnapshotTime(new Date());
+        updateSnapshot(stateData);
       }
 
       if (cmd === "list_schedules" && respData?.schedules && Array.isArray(respData.schedules)) {
@@ -259,11 +555,10 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
         setLogs(respData.logs as string[]);
       }
       if (cmd === "get_full_config" && respData) {
-        setFullConfig(respData as unknown as IrrigationFullConfig);
+        setFullConfig(normalizeFullConfig(respData));
       }
       if (cmd === "get_runtime_state" && respData) {
-        setSnapshot(parseDataToSnapshot(respData as Record<string, unknown>));
-        setLastSnapshotTime(new Date());
+        updateSnapshot(respData as Record<string, unknown>);
       }
 
       // Track command as history event
@@ -279,40 +574,16 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
     // Data snapshot message (devices/<ID>/data with nested "data" block)
     if (payload.data && typeof payload.data === "object") {
       const data = payload.data as Record<string, unknown>;
-      setSnapshot(parseDataToSnapshot(data));
-      setLastSnapshotTime(new Date());
-
-      // Check for security protection in history/logs
-      const diagnostics = data.diagnostics as Record<string, unknown> | undefined;
-      if (diagnostics?.history && Array.isArray(diagnostics.history)) {
-        const entries = (diagnostics.history as Array<{ entry: string }>).map(h => {
-          const category = categorizeEvent(h.entry);
-          return parseHistoryEntry(h.entry, category);
-        });
-        if (entries.length > 0) {
-          setHistory(prev => {
-            const merged = [...entries, ...prev];
-            return merged.slice(0, 200);
-          });
-        }
-        const securityEntries = entries.filter(e => e.category === "seguranca");
-        if (securityEntries.length > 0) {
-          setSecurityAlert(securityEntries[0].description);
-        }
-      }
+      updateSnapshot(data);
       return;
     }
 
     // Status topic message (devices/<ID>/status with root-level fields)
     // These have pump_on, manual_mode, pump_runtime etc. at the root, no "data" wrapper
     if (message.topic.endsWith("/status") && (payload.status !== undefined || payload.pump_on !== undefined || payload.pump_runtime !== undefined)) {
-      setSnapshot(prev => {
-        const updated = parseDataToSnapshot(payload);
-        return prev ? { ...prev, ...updated } : updated;
-      });
-      setLastSnapshotTime(new Date());
+      updateSnapshot(asRecord(payload.state) ?? payload);
     }
-  }, [deviceId]);
+  }, [deviceId, addHistoryEvent, updateSnapshot]);
 
   const { status: mqttStatus, publish, error: mqttError } = useMQTT({
     deviceId,
@@ -385,6 +656,10 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
       pendingRef.current.clear();
     };
   }, []);
+
+  useEffect(() => {
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
 
   return {
     mqttStatus,
