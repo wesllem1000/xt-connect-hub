@@ -341,133 +341,185 @@
   animation: sector-bubble-slow 3.5s ease-out infinite;
 }
 
-/* === Pump card water fill effect === */
-@keyframes pump-fill {
+/* === Pump card water fill effect (organic) === */
+
+/* Water body fill/drain transforms */
+@keyframes pump-organic-rise {
   0% { transform: translateY(100%); }
-  30% { transform: translateY(55%); }
-  50% { transform: translateY(40%); }
-  70% { transform: translateY(25%); }
-  85% { transform: translateY(18%); }
-  100% { transform: translateY(10%); }
+  15% { transform: translateY(75%); }
+  35% { transform: translateY(55%); }
+  55% { transform: translateY(35%); }
+  75% { transform: translateY(20%); }
+  90% { transform: translateY(12%); }
+  100% { transform: translateY(8%); }
 }
 
-@keyframes pump-full-idle {
-  0% { transform: translateY(10%); }
-  30% { transform: translateY(6%); }
-  60% { transform: translateY(14%); }
-  100% { transform: translateY(10%); }
+@keyframes pump-organic-idle {
+  0% { transform: translateY(8%); }
+  25% { transform: translateY(5%); }
+  50% { transform: translateY(11%); }
+  75% { transform: translateY(6%); }
+  100% { transform: translateY(8%); }
 }
 
-@keyframes pump-drain {
-  0% { transform: translateY(10%); }
+@keyframes pump-organic-fall {
+  0% { transform: translateY(8%); }
   100% { transform: translateY(110%); }
 }
 
-@keyframes pump-wave {
+.pump-organic-fill {
+  animation: pump-organic-rise 7s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+.pump-organic-full {
+  transform: translateY(8%);
+  animation: pump-organic-idle 8s ease-in-out infinite;
+}
+
+.pump-organic-drain {
+  animation: pump-organic-fall 3.5s ease-in forwards;
+}
+
+/* Organic wave surface animations */
+@keyframes pump-wave-drift-1 {
   0% { transform: translateX(0); }
-  25% { transform: translateX(-12px); }
-  50% { transform: translateX(0); }
-  75% { transform: translateX(10px); }
+  50% { transform: translateX(-25px); }
   100% { transform: translateX(0); }
 }
 
-@keyframes pump-bubble-rise {
-  0% { opacity: 0; transform: translateY(0) scale(1); }
-  15% { opacity: 0.4; }
-  100% { opacity: 0; transform: translateY(-60px) scale(0.2); }
+@keyframes pump-wave-drift-2 {
+  0% { transform: translateX(0); }
+  50% { transform: translateX(20px); }
+  100% { transform: translateX(0); }
 }
 
-@keyframes pump-bubble-rise-delayed {
-  0%, 25% { opacity: 0; transform: translateY(0) scale(1); }
-  45% { opacity: 0.35; }
-  100% { opacity: 0; transform: translateY(-50px) scale(0.3); }
+@keyframes pump-wave-drift-3 {
+  0% { transform: translateX(0); }
+  33% { transform: translateX(15px); }
+  66% { transform: translateX(-18px); }
+  100% { transform: translateX(0); }
 }
 
-@keyframes pump-bubble-rise-slow {
-  0%, 15% { opacity: 0; transform: translateY(0) scale(1); }
-  35% { opacity: 0.3; }
-  100% { opacity: 0; transform: translateY(-70px) scale(0.15); }
+.pump-wave-surface-1 {
+  animation: pump-wave-drift-1 4s ease-in-out infinite;
 }
 
-@keyframes pump-faucet-flow {
+.pump-wave-surface-2 {
+  animation: pump-wave-drift-2 5.5s ease-in-out infinite;
+}
+
+.pump-wave-surface-3 {
+  animation: pump-wave-drift-3 7s ease-in-out infinite;
+}
+
+/* Organic bubble rise */
+@keyframes pump-organic-bubble-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(0) scale(1);
+  }
+  10% {
+    opacity: var(--bubble-opacity, 0.25);
+  }
+  50% {
+    transform: translateY(-80px) translateX(8px) scale(0.7);
+  }
+  80% {
+    opacity: var(--bubble-opacity, 0.15);
+    transform: translateY(-140px) translateX(-5px) scale(0.4);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-180px) translateX(3px) scale(0.1);
+  }
+}
+
+.pump-organic-bubble {
+  animation: pump-organic-bubble-rise 3s ease-out infinite;
+}
+
+/* Foam dots at surface */
+@keyframes pump-foam-pulse {
+  0%, 100% { opacity: 0.06; transform: scale(1); }
+  50% { opacity: 0.14; transform: scale(1.3); }
+}
+
+.pump-foam-dot {
+  animation: pump-foam-pulse 2s ease-in-out infinite;
+}
+
+/* Faucet stream */
+.pump-faucet-container {
+  width: 30px;
+  height: 0;
+  overflow: visible;
+  animation: pump-faucet-appear 1.5s ease-out forwards;
+}
+
+@keyframes pump-faucet-appear {
+  0% { opacity: 0; }
+  20% { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+.pump-faucet-svg {
+  display: block;
+  animation: pump-stream-grow 2s ease-out forwards;
+}
+
+@keyframes pump-stream-grow {
   0% { height: 0; opacity: 0; }
-  10% { opacity: 0.7; }
-  30% { height: 80px; }
-  100% { height: 120px; opacity: 0.5; }
+  15% { opacity: 0.8; }
+  40% { height: 90px; }
+  100% { height: 140px; opacity: 0.6; }
 }
 
-@keyframes pump-splash {
-  0% { opacity: 0; transform: translate(0, 0) scale(0.5); }
-  30% { opacity: 0.5; }
-  100% { opacity: 0; transform: translate(var(--splash-x), var(--splash-y)) scale(0); }
+/* Stream path wobble */
+@keyframes pump-stream-wobble {
+  0% { d: path("M15,0 Q13,25 16,45 Q18,65 14,85 Q11,105 16,125 Q18,135 15,140"); }
+  33% { d: path("M15,0 Q17,20 13,42 Q10,62 17,82 Q20,102 13,122 Q11,135 15,140"); }
+  66% { d: path("M15,0 Q12,28 17,48 Q19,68 13,88 Q10,108 17,128 Q19,138 15,140"); }
+  100% { d: path("M15,0 Q13,25 16,45 Q18,65 14,85 Q11,105 16,125 Q18,135 15,140"); }
 }
 
-.animate-pump-fill {
-  animation: pump-fill 6s ease-in-out forwards;
+.pump-stream-path {
+  animation: pump-stream-wobble 1.2s ease-in-out infinite;
 }
 
-.animate-pump-full-idle {
-  transform: translateY(10%);
-  animation: pump-full-idle 7s ease-in-out infinite;
+@keyframes pump-stream-wobble-thin {
+  0% { d: path("M15,0 Q17,30 13,55 Q10,75 16,95 Q19,115 14,135"); }
+  50% { d: path("M15,0 Q12,28 17,52 Q20,72 14,92 Q11,112 16,132"); }
+  100% { d: path("M15,0 Q17,30 13,55 Q10,75 16,95 Q19,115 14,135"); }
 }
 
-.animate-pump-drain {
-  animation: pump-drain 3s ease-in forwards;
+.pump-stream-path-thin {
+  animation: pump-stream-wobble-thin 1.5s ease-in-out infinite;
 }
 
-.animate-pump-wave {
-  animation: pump-wave 4s ease-in-out infinite;
+/* Organic splash drops */
+@keyframes pump-organic-drop-splash {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.3);
+  }
+  20% {
+    opacity: 0.6;
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--drop-x), var(--drop-y)) scale(0);
+  }
 }
 
-.animate-pump-bubble {
-  animation: pump-bubble-rise 3s ease-out infinite;
-}
-
-.animate-pump-bubble-delayed {
-  animation: pump-bubble-rise-delayed 3.5s ease-out infinite;
-}
-
-.animate-pump-bubble-slow {
-  animation: pump-bubble-rise-slow 4s ease-out infinite;
-}
-
-.pump-faucet-stream {
-  width: 6px;
-  margin: 0 auto;
-  background: linear-gradient(180deg, hsl(200, 75%, 55%, 0.5), hsl(200, 75%, 45%, 0.15));
-  border-radius: 0 0 3px 3px;
-  animation: pump-faucet-flow 3s ease-out forwards;
-}
-
-.pump-splash-drop {
+.pump-organic-drop {
   position: absolute;
-  width: 4px;
-  height: 4px;
+  bottom: -5px;
+  left: 50%;
+  width: var(--drop-size, 3px);
+  height: var(--drop-size, 3px);
   border-radius: 50%;
-  background: hsl(200, 75%, 55%, 0.4);
-  animation: pump-splash 1.5s ease-out infinite;
-}
-
-.pump-splash-drop-1 {
-  --splash-x: -12px;
-  --splash-y: 8px;
-  top: 100%;
-  left: 50%;
-  animation-delay: 0.5s;
-}
-
-.pump-splash-drop-2 {
-  --splash-x: 10px;
-  --splash-y: 6px;
-  top: 100%;
-  left: 50%;
-  animation-delay: 0.9s;
-}
-
-.pump-splash-drop-3 {
-  --splash-x: -6px;
-  --splash-y: 10px;
-  top: 100%;
-  left: 50%;
-  animation-delay: 1.3s;
+  background: hsl(205, 85%, 60%);
+  opacity: 0;
+  animation: pump-organic-drop-splash 1.2s ease-out infinite;
 }
