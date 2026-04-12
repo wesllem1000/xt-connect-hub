@@ -197,49 +197,50 @@ export default function DeviceDetail() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-secondary/5">
       <header className="border-b border-border/50 bg-card/50 backdrop-blur-sm sticky top-0 z-50">
-        <div className="container mx-auto px-4 py-4">
-          <div className="flex flex-wrap items-center gap-3 md:gap-4">
-            {/* Back button + Device info */}
-            <div className="flex items-center gap-3 min-w-0 flex-1">
-              <Button variant="ghost" size="icon" className="shrink-0" onClick={() => navigate("/dashboard")}>
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-lg md:text-xl font-bold truncate">{device.nome}</h1>
-                  {isShared && (
-                    <Badge variant="secondary" className="gap-1 shrink-0">
-                      <Share2 className="h-3 w-3" />
-                      Compartilhado
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex flex-wrap items-center gap-1 md:gap-2 text-xs text-muted-foreground">
-                  <span className="font-mono truncate max-w-[120px] md:max-w-none">{device.device_id}</span>
-                  {model && (
-                    <>
-                      <span>•</span>
-                      <span className="truncate">{model.nome}</span>
-                    </>
-                  )}
-                </div>
+        <div className="container mx-auto px-2 sm:px-4 py-2 sm:py-4">
+          {/* Row 1: Back + Title + Action buttons */}
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="icon" className="shrink-0 h-8 w-8 sm:h-9 sm:w-9" onClick={() => navigate("/dashboard")}>
+              <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
+            </Button>
+            
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <h1 className="text-sm sm:text-lg md:text-xl font-bold truncate">{device.nome}</h1>
+                {isShared && (
+                  <Badge variant="secondary" className="gap-1 shrink-0 text-[10px] sm:text-xs">
+                    <Share2 className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+                    <span className="hidden sm:inline">Compartilhado</span>
+                  </Badge>
+                )}
+              </div>
+              <div className="flex items-center gap-1 text-[10px] sm:text-xs text-muted-foreground">
+                <span className="font-mono truncate max-w-[80px] sm:max-w-[120px] md:max-w-none">{device.device_id}</span>
+                {model && (
+                  <>
+                    <span>•</span>
+                    <span className="truncate max-w-[80px] sm:max-w-none">{model.nome}</span>
+                  </>
+                )}
               </div>
             </div>
-            
-            {/* Actions */}
-            <div className="flex items-center gap-2 shrink-0">
+
+            {/* Actions - compact on mobile */}
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <Button 
                 variant="outline" 
-                size="sm" 
+                size="icon"
                 onClick={handleRealTimeUpdate}
                 disabled={isRefreshing}
-                className="gap-1 md:gap-2"
+                className="h-8 w-8 sm:h-9 sm:w-auto sm:px-3"
               >
-                <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-                <span className="hidden sm:inline">{isRefreshing ? "Atualizando..." : "Atualizar Agora"}</span>
-                <span className="sm:hidden">{isRefreshing ? "..." : "Atualizar"}</span>
+                <RefreshCw className={`h-3.5 w-3.5 sm:h-4 sm:w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                <span className="hidden sm:inline ml-1.5">{isRefreshing ? "Atualizando..." : "Atualizar"}</span>
               </Button>
-              <Badge variant={isDeviceOnline(device.ultima_conexao, config.status_timeout_minutes) ? "default" : "secondary"} className="gap-1">
+              <Badge 
+                variant={isDeviceOnline(device.ultima_conexao, config.status_timeout_minutes) ? "default" : "secondary"} 
+                className="gap-1 text-[10px] sm:text-xs px-1.5 sm:px-2"
+              >
                 {isDeviceOnline(device.ultima_conexao, config.status_timeout_minutes) ? (
                   <Wifi className="h-3 w-3" />
                 ) : (
@@ -249,8 +250,8 @@ export default function DeviceDetail() {
               </Badge>
               <ThemeToggle />
               {isOwner && (
-                <Button variant="outline" size="icon" onClick={() => navigate(`/devices/${deviceId}/settings`)}>
-                  <Settings className="h-4 w-4" />
+                <Button variant="outline" size="icon" className="h-8 w-8 sm:h-9 sm:w-9" onClick={() => navigate(`/devices/${deviceId}/settings`)}>
+                  <Settings className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </Button>
               )}
             </div>
