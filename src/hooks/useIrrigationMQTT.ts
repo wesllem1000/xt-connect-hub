@@ -146,14 +146,20 @@ function parseDataToSnapshot(raw: Record<string, unknown>): IrrigationSnapshot {
     time_source: String(raw.time_source || raw.timeSource || "ntp"),
     wifi_connected: Boolean(raw.wifi_connected ?? raw.wifiConnected ?? false),
     mqtt_connected: Boolean(raw.mqtt_connected ?? raw.mqttConnected ?? false),
+    wifi_state_text: String(raw.wifiStateText ?? raw.wifi_state_text ?? ""),
+    wifi_detail: String(raw.wifiDetail ?? raw.wifi_detail ?? ""),
     pump_on: Boolean(raw.pump_on ?? raw.pumpOn ?? false),
     pump_runtime: pumpRuntime,
     sectorization_enabled: Boolean(raw.sectorization_enabled ?? raw.sectorizationEnabled ?? false),
     sectors: rawSectors,
+    next_event: String(raw.next_event ?? ""),
     next_event_type: "",
     next_event_target: 0,
     next_event_time: "",
     warning: String(raw.overlap_warnings || raw.overlapWarnings || raw.warning || ""),
+    clock: String(raw.clock ?? ""),
+    fw_version: String(raw.fw_version ?? raw.fwVersion ?? ""),
+    sta_ip: String(raw.sta_ip ?? raw.staIp ?? ""),
   };
 }
 
