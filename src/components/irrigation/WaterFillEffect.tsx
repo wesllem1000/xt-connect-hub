@@ -87,11 +87,12 @@ export default function WaterFillEffect({ active }: WaterFillEffectProps) {
 
   if (phase === "idle") return null;
 
-  const showStream = phase === "dripping" || phase === "splashing" || phase === "rising";
+  const showStream = phase === "dripping" || phase === "splashing" || phase === "rising" || phase === "full";
   const showSplashBottom = phase === "splashing";
   const showWater = phase === "rising" || phase === "full" || phase === "draining";
   const showTurbulence = phase === "rising";
   const showBubbles = phase === "rising" || phase === "full";
+  const showFullStream = phase === "splashing" || phase === "rising" || phase === "full";
 
   return (
     <div className="absolute inset-0 overflow-hidden rounded-xl pointer-events-none z-0">
@@ -115,7 +116,7 @@ export default function WaterFillEffect({ active }: WaterFillEffectProps) {
           )}
 
           {/* Splashing/Rising: full stream that thickens */}
-          {(phase === "splashing" || phase === "rising") && (
+          {showFullStream && (
             <svg
               width="40"
               height="100%"
@@ -137,7 +138,7 @@ export default function WaterFillEffect({ active }: WaterFillEffectProps) {
                 className="pump-stream-path-v2"
                 d="M20,0 Q18,40 22,80 Q24,120 19,160 Q16,200 21,240 Q23,270 20,300"
                 stroke="url(#stream-grad-v2)"
-                strokeWidth={phase === "rising" ? "6" : "4"}
+                strokeWidth={phase === "rising" || phase === "full" ? "6" : "4"}
                 fill="none"
                 strokeLinecap="round"
               />
@@ -155,7 +156,7 @@ export default function WaterFillEffect({ active }: WaterFillEffectProps) {
           )}
 
           {/* Side droplets spraying from stream */}
-          {(phase === "splashing" || phase === "rising") && (
+          {showFullStream && (
             <>
               {[...Array(6)].map((_, i) => (
                 <div
