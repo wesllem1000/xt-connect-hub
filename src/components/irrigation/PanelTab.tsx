@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Droplets, Power, PowerOff, Wifi, WifiOff, Clock, AlertTriangle, Sprout, Radio, Loader2 } from "lucide-react";
 import { IrrigationSnapshot } from "@/hooks/useIrrigationMQTT";
 import { IrrigationFullConfig } from "@/hooks/useIrrigationMQTT";
+import PumpStatusCard from "./PumpStatusCard";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
