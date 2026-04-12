@@ -174,8 +174,10 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
   const [fullConfig, setFullConfig] = useState<IrrigationFullConfig | null>(null);
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [logs, setLogs] = useState<string[]>([]);
+  const [history, setHistory] = useState<HistoryEvent[]>([]);
   const [pendingCommands, setPendingCommands] = useState<Set<string>>(new Set());
   const [lastSnapshotTime, setLastSnapshotTime] = useState<Date | null>(null);
+  const [securityAlert, setSecurityAlert] = useState<string | null>(null);
   const pendingRef = useRef<Map<string, PendingCommand>>(new Map());
   const requestCounter = useRef(0);
 
@@ -209,6 +211,17 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
       const cmd = String(payload.command || "");
       const respData = payload.data as Record<string, unknown> | undefined;
 
+      // Update snapshot from state block in ack response
+      const stateData = payload.state as Record<string, unknown> | undefined;
+      if (stateData) {
+        setSnapshot(prev => {
+          const updated = parseDataToSnapshot(stateData);
+          // Merge: keep fields from previous snapshot that aren't in state
+          return prev ? { ...prev, ...updated } : updated;
+        });
+        setLastSnapshotTime(new Date());
+      }
+
       if (cmd === "list_schedules" && respData?.schedules && Array.isArray(respData.schedules)) {
         setSchedules((respData.schedules as Record<string, unknown>[]).map(normalizeScheduleItem));
       }
@@ -222,13 +235,42 @@ export function useIrrigationMQTT({ deviceId, autoConnect = true, commandTimeout
         setSnapshot(parseDataToSnapshot(respData as Record<string, unknown>));
         setLastSnapshotTime(new Date());
       }
+
+      // Track command as history event
+      const msg = String(payload.message || "");
+      if (msg) {
+        const category = categorizeEvent(msg);
+        addHistoryEvent(msg, category);
+      }
+
       return;
     }
 
     // Data snapshot message
     if (payload.data && typeof payload.data === "object") {
-      setSnapshot(parseDataToSnapshot(payload.data as Record<string, unknown>));
+      const data = payload.data as Record<string, unknown>;
+      setSnapshot(parseDataToSnapshot(data));
       setLastSnapshotTime(new Date());
+
+      // Check for security protection in history/logs
+      const diagnostics = data.diagnostics as Record<string, unknown> | undefined;
+      if (diagnostics?.history && Array.isArray(diagnostics.history)) {
+        const entries = (diagnostics.history as Array<{ entry: string }>).map(h => {
+          const category = categorizeEvent(h.entry);
+          return parseHistoryEntry(h.entry, category);
+        });
+        if (entries.length > 0) {
+          setHistory(prev => {
+            const merged = [...entries, ...prev];
+            return merged.slice(0, 200); // keep last 200
+          });
+        }
+        // Check for security alerts
+        const securityEntries = entries.filter(e => e.category === "seguranca");
+        if (securityEntries.length > 0) {
+          setSecurityAlert(securityEntries[0].description);
+        }
+      }
     }
   }, [deviceId]);
 
