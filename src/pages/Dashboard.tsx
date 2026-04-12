@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAdmin } from "@/hooks/useAdmin";
@@ -36,6 +36,63 @@ export default function Dashboard() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [loading, setLoading] = useState(true);
+  const [, setTick] = useState(0); // force re-render for online/offline recalc
+
+  const fetchDevices = useCallback(async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+
+    const { data: ownDevices } = await supabase
+      .from("devices")
+      .select("id, device_id, nome, tipo, localizacao, status, ultima_conexao, owner_id")
+      .or(`owner_id.eq.${session.user.id},usuario_id.eq.${session.user.id}`);
+
+    const { data: sharedDevicesData } = await supabase
+      .from("device_shares")
+      .select(`
+        device_id,
+        shared_by_user_id,
+        devices (
+          id, device_id, nome, tipo, localizacao, status, ultima_conexao, owner_id
+        )
+      `)
+      .eq("shared_with_user_id", session.user.id);
+
+    let sharedWithNames: Record<string, string> = {};
+    if (sharedDevicesData && sharedDevicesData.length > 0) {
+      const userIds = [...new Set(sharedDevicesData.map(s => s.shared_by_user_id))];
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, nome_completo")
+        .in("id", userIds);
+      if (profiles) {
+        sharedWithNames = profiles.reduce((acc, p) => {
+          acc[p.id] = p.nome_completo;
+          return acc;
+        }, {} as Record<string, string>);
+      }
+    }
+
+    const allDevices: Device[] = [
+      ...(ownDevices || []).map(d => ({ ...d, isShared: false, ultima_conexao: d.ultima_conexao || null })),
+      ...(sharedDevicesData || [])
+        .filter(s => s.devices)
+        .map(s => ({
+          ...(s.devices as unknown as Device),
+          isShared: true,
+          sharedBy: sharedWithNames[s.shared_by_user_id] || "Usuário"
+        }))
+    ];
+
+    const uniqueDevices = allDevices.reduce((acc, device) => {
+      if (!acc.find(d => d.id === device.id)) {
+        acc.push(device);
+      }
+      return acc;
+    }, [] as Device[]);
+
+    setDevices(uniqueDevices);
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -46,7 +103,6 @@ export default function Dashboard() {
         return;
       }
 
-      // Buscar perfil
       const { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("nome_completo, tipo_usuario")
@@ -60,66 +116,7 @@ export default function Dashboard() {
         setProfile(profileData);
       }
 
-      // Buscar dispositivos próprios
-      const { data: ownDevices, error: devicesError } = await supabase
-        .from("devices")
-        .select("id, device_id, nome, tipo, localizacao, status, ultima_conexao, owner_id")
-        .or(`owner_id.eq.${session.user.id},usuario_id.eq.${session.user.id}`);
-
-      if (devicesError) {
-        console.error(devicesError);
-      }
-
-      // Buscar dispositivos compartilhados
-      const { data: sharedDevicesData } = await supabase
-        .from("device_shares")
-        .select(`
-          device_id,
-          shared_by_user_id,
-          devices (
-            id, device_id, nome, tipo, localizacao, status, ultima_conexao, owner_id
-          )
-        `)
-        .eq("shared_with_user_id", session.user.id);
-
-      // Buscar nomes dos que compartilharam
-      let sharedWithNames: Record<string, string> = {};
-      if (sharedDevicesData && sharedDevicesData.length > 0) {
-        const userIds = [...new Set(sharedDevicesData.map(s => s.shared_by_user_id))];
-        const { data: profiles } = await supabase
-          .from("profiles")
-          .select("id, nome_completo")
-          .in("id", userIds);
-        
-        if (profiles) {
-          sharedWithNames = profiles.reduce((acc, p) => {
-            acc[p.id] = p.nome_completo;
-            return acc;
-          }, {} as Record<string, string>);
-        }
-      }
-
-      // Combinar dispositivos
-      const allDevices: Device[] = [
-        ...(ownDevices || []).map(d => ({ ...d, isShared: false, ultima_conexao: d.ultima_conexao || null })),
-        ...(sharedDevicesData || [])
-          .filter(s => s.devices)
-          .map(s => ({
-            ...(s.devices as unknown as Device),
-            isShared: true,
-            sharedBy: sharedWithNames[s.shared_by_user_id] || "Usuário"
-          }))
-      ];
-
-      // Remover duplicatas (caso o dispositivo próprio também apareça como compartilhado)
-      const uniqueDevices = allDevices.reduce((acc, device) => {
-        if (!acc.find(d => d.id === device.id)) {
-          acc.push(device);
-        }
-        return acc;
-      }, [] as Device[]);
-
-      setDevices(uniqueDevices);
+      await fetchDevices();
       setLoading(false);
     };
 
@@ -134,7 +131,33 @@ export default function Dashboard() {
     });
 
     return () => subscription.unsubscribe();
-  }, [navigate]);
+  }, [navigate, fetchDevices]);
+
+  // Realtime subscription: refetch when any device row changes
+  useEffect(() => {
+    const channel = supabase
+      .channel("dashboard-devices-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "devices" },
+        () => {
+          fetchDevices();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchDevices]);
+
+  // Periodic tick every 30s to re-evaluate online/offline status
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTick(t => t + 1);
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
