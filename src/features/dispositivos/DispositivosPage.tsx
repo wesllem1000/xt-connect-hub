@@ -1,14 +1,36 @@
 import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { AlertCircle, Cpu, Plus } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { AlertCircle, Cpu, MoreVertical, Plus, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 
-import { listDispositivos, type Dispositivo } from '@/api/dispositivos'
+import {
+  deleteDispositivo,
+  listDispositivos,
+  type Dispositivo,
+} from '@/api/dispositivos'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { extractApiError } from '@/lib/api'
+import { DispositivoFormDialog } from './DispositivoFormDialog'
 
 const dateFormatter = new Intl.DateTimeFormat('pt-BR', {
   dateStyle: 'short',
@@ -22,17 +44,50 @@ function formatPt(iso: string | null): string {
   return dateFormatter.format(d)
 }
 
-function DispositivoCard({ dispositivo }: { dispositivo: Dispositivo }) {
+function DispositivoCard({
+  dispositivo,
+  onDelete,
+}: {
+  dispositivo: Dispositivo
+  onDelete: (d: Dispositivo) => void
+}) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <CardTitle className="text-base leading-tight">{dispositivo.nome}</CardTitle>
-          {dispositivo.modelo ? (
-            <Badge variant="secondary">{dispositivo.modelo}</Badge>
-          ) : (
-            <Badge variant="outline" className="text-muted-foreground">sem modelo</Badge>
-          )}
+        <div className="flex items-start justify-between gap-2">
+          <CardTitle className="text-base leading-tight flex-1">
+            {dispositivo.nome}
+          </CardTitle>
+          <div className="flex items-center gap-2 shrink-0">
+            {dispositivo.modelo ? (
+              <Badge variant="secondary">{dispositivo.modelo}</Badge>
+            ) : (
+              <Badge variant="outline" className="text-muted-foreground">
+                sem modelo
+              </Badge>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  aria-label="Ações do dispositivo"
+                >
+                  <MoreVertical className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  className="text-destructive focus:text-destructive"
+                  onSelect={() => onDelete(dispositivo)}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Excluir
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
@@ -72,7 +127,7 @@ function LoadingState() {
   )
 }
 
-function EmptyState() {
+function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
     <Card className="max-w-md mx-auto text-center">
       <CardHeader>
@@ -85,7 +140,7 @@ function EmptyState() {
         <p className="text-sm text-muted-foreground mb-4">
           Cadastre um dispositivo para começar a receber telemetria.
         </p>
-        <Button disabled>
+        <Button onClick={onAdd}>
           <Plus className="h-4 w-4 mr-2" />
           Adicionar dispositivo
         </Button>
@@ -109,9 +164,27 @@ function ErrorMessage({ error }: { error: unknown }) {
 }
 
 export function DispositivosPage() {
+  const qc = useQueryClient()
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [toDelete, setToDelete] = useState<Dispositivo | null>(null)
+
   const query = useQuery({
     queryKey: ['dispositivos'],
     queryFn: listDispositivos,
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteDispositivo(id),
+    onSuccess: () => {
+      toast.success('Dispositivo excluído.')
+      qc.invalidateQueries({ queryKey: ['dispositivos'] })
+      setToDelete(null)
+    },
+    onError: async (err) => {
+      const msg = await extractApiError(err, 'Falha ao excluir dispositivo.')
+      toast.error(msg)
+      setToDelete(null)
+    },
   })
 
   return (
@@ -123,7 +196,7 @@ export function DispositivosPage() {
             Seus dispositivos conectados ao hub.
           </p>
         </div>
-        <Button disabled>
+        <Button onClick={() => setDialogOpen(true)}>
           <Plus className="h-4 w-4 mr-2" />
           Adicionar
         </Button>
@@ -141,15 +214,61 @@ export function DispositivosPage() {
         </Alert>
       )}
 
-      {query.isSuccess && query.data.length === 0 && <EmptyState />}
+      {query.isSuccess && query.data.length === 0 && (
+        <EmptyState onAdd={() => setDialogOpen(true)} />
+      )}
 
       {query.isSuccess && query.data.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {query.data.map((d) => (
-            <DispositivoCard key={d.id} dispositivo={d} />
+            <DispositivoCard
+              key={d.id}
+              dispositivo={d}
+              onDelete={(dev) => setToDelete(dev)}
+            />
           ))}
         </div>
       )}
+
+      <DispositivoFormDialog open={dialogOpen} onOpenChange={setDialogOpen} />
+
+      <AlertDialog
+        open={toDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleteMutation.isPending) setToDelete(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir dispositivo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {toDelete ? (
+                <>
+                  <strong>{toDelete.nome}</strong> será removido. Esta ação não
+                  pode ser desfeita.
+                </>
+              ) : (
+                'Esta ação não pode ser desfeita.'
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteMutation.isPending}
+              onClick={(e) => {
+                e.preventDefault()
+                if (toDelete) deleteMutation.mutate(toDelete.id)
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
