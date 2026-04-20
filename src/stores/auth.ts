@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import ky, { HTTPError } from 'ky'
 
 export type User = {
   id: string
@@ -16,6 +17,16 @@ type LoginResponse = {
 
 const REFRESH_KEY = 'xtconect.refresh_token'
 const USER_KEY = 'xtconect.user'
+
+const API_ERROR_PT: Record<string, string> = {
+  'invalid credentials': 'E-mail ou senha incorretos',
+  'missing credentials': 'Preencha e-mail e senha',
+  'user not found': 'Usuário não encontrado',
+  'user inactive': 'Usuário desativado',
+}
+
+const NETWORK_ERROR_PT = 'Falha de conexão com o servidor.'
+const GENERIC_ERROR_PT = 'Erro ao entrar. Tente novamente.'
 
 function readPersistedUser(): User | null {
   try {
@@ -37,6 +48,7 @@ type AuthState = {
   setSession: (data: LoginResponse) => void
   clearSession: () => void
   isAuthenticated: () => boolean
+  login: (email: string, password: string) => Promise<void>
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -63,5 +75,34 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isAuthenticated: () => {
     const s = get()
     return Boolean(s.user && (s.accessToken || s.refreshToken))
+  },
+
+  login: async (email, password) => {
+    try {
+      const data = await ky
+        .post('/api/auth/login', {
+          json: { email, password },
+          timeout: 15000,
+          retry: 0,
+        })
+        .json<LoginResponse>()
+      get().setSession(data)
+    } catch (err) {
+      if (err instanceof HTTPError) {
+        let raw = ''
+        try {
+          const body = (await err.response.clone().json()) as {
+            error?: string
+            message?: string
+          }
+          raw = (body.error || body.message || '').toLowerCase().trim()
+        } catch {
+          raw = ''
+        }
+        const msg = API_ERROR_PT[raw] ?? GENERIC_ERROR_PT
+        throw new Error(msg)
+      }
+      throw new Error(NETWORK_ERROR_PT)
+    }
   },
 }))

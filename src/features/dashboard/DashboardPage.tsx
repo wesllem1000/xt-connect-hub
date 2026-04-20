@@ -35,9 +35,13 @@ export function DashboardPage() {
               <CardDescription>{user?.email}</CardDescription>
             </div>
             {user?.role && (
-              <Badge variant="secondary" className="capitalize">
-                {user.role}
-              </Badge>
+              user.role === 'admin' ? (
+                <Badge className="capitalize bg-gold-500 text-gold-700 hover:bg-gold-500 border-gold-600">
+                  {user.role}
+                </Badge>
+              ) : (
+                <Badge className="capitalize">{user.role}</Badge>
+              )
             )}
           </div>
         </CardHeader>

@@ -24,8 +24,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
-import { api, extractApiError } from '@/lib/api'
-import { useAuthStore, type User } from '@/stores/auth'
+import { useAuthStore } from '@/stores/auth'
 
 const loginSchema = z.object({
   email: z.string().min(1, 'Informe o email').email('Email inválido'),
@@ -34,16 +33,9 @@ const loginSchema = z.object({
 
 type LoginForm = z.infer<typeof loginSchema>
 
-type LoginResponse = {
-  access_token: string
-  refresh_token: string
-  expires_in: number
-  user: User
-}
-
 export function LoginPage() {
   const navigate = useNavigate()
-  const setSession = useAuthStore((s) => s.setSession)
+  const login = useAuthStore((s) => s.login)
   const [apiError, setApiError] = useState<string | null>(null)
 
   const form = useForm<LoginForm>({
@@ -54,14 +46,10 @@ export function LoginPage() {
   async function onSubmit(values: LoginForm) {
     setApiError(null)
     try {
-      const data = await api
-        .post('auth/login', { json: values })
-        .json<LoginResponse>()
-      setSession(data)
+      await login(values.email, values.password)
       navigate('/dashboard', { replace: true })
     } catch (err) {
-      const msg = await extractApiError(err, 'Falha ao entrar')
-      setApiError(msg)
+      setApiError(err instanceof Error ? err.message : 'Erro ao entrar. Tente novamente.')
     }
   }
 
