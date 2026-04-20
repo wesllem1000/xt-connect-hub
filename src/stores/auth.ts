@@ -15,6 +15,11 @@ type LoginResponse = {
   user: User
 }
 
+type RefreshResponse = {
+  access_token: string
+  expires_in: number
+}
+
 const REFRESH_KEY = 'xtconect.refresh_token'
 const USER_KEY = 'xtconect.user'
 
@@ -46,9 +51,11 @@ type AuthState = {
   refreshToken: string | null
   user: User | null
   setSession: (data: LoginResponse) => void
+  setAccessToken: (token: string) => void
   clearSession: () => void
   isAuthenticated: () => boolean
   login: (email: string, password: string) => Promise<void>
+  refresh: () => Promise<string>
 }
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -65,6 +72,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       user: data.user,
     })
   },
+
+  setAccessToken: (token) => set({ accessToken: token }),
 
   clearSession: () => {
     localStorage.removeItem(REFRESH_KEY)
@@ -104,5 +113,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
       throw new Error(NETWORK_ERROR_PT)
     }
+  },
+
+  refresh: async () => {
+    const token = get().refreshToken
+    if (!token) throw new Error('no refresh token')
+    const data = await ky
+      .post('/api/auth/refresh', {
+        json: { refresh_token: token },
+        timeout: 15000,
+        retry: 0,
+      })
+      .json<RefreshResponse>()
+    set({ accessToken: data.access_token })
+    return data.access_token
   },
 }))
