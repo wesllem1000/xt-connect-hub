@@ -16,6 +16,7 @@ import {
 import { listDispositivos, type Dispositivo } from '@/api/dispositivos'
 import { listReadings, type Reading } from '@/api/readings'
 import { useDeviceLiveData } from '@/hooks/useDeviceLiveData'
+import { useDeviceStatus } from '@/hooks/useDeviceStatus'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -92,6 +93,10 @@ export function DispositivoDetailPage() {
   })
 
   const live = useDeviceLiveData(serial)
+  const status = useDeviceStatus(serial, {
+    online: dispositivo?.online ?? false,
+    lastSeenAt: dispositivo?.last_seen_at ?? null,
+  })
 
   const [buffer, setBuffer] = useState<ChartPoint[]>([])
 
@@ -121,7 +126,7 @@ export function DispositivoDetailPage() {
     : null
   const lastTs = lastPoint?.t ?? null
 
-  const isOnline = Boolean(live) // live message arrived recently → consider online
+  const isOnline = status.online
   const seriesKeys = useMemo(() => {
     const keys = new Set<string>()
     for (const p of buffer) {
@@ -190,9 +195,9 @@ export function DispositivoDetailPage() {
           <div className="flex items-center gap-3">
             <Cpu className="h-6 w-6 text-primary" />
             <h2 className="text-2xl font-bold tracking-tight">{dispositivo!.nome}</h2>
-            <Badge variant={isOnline ? 'default' : 'outline'} className={isOnline ? 'bg-green-600' : ''}>
+            <Badge variant={isOnline ? 'default' : 'outline'} className={isOnline ? 'bg-green-600 hover:bg-green-600' : 'text-muted-foreground'}>
               <Radio className="h-3 w-3 mr-1" />
-              {isOnline ? 'Online' : 'Aguardando…'}
+              {isOnline ? 'Online' : 'Offline'}
             </Badge>
           </div>
           <p className="font-mono text-xs text-muted-foreground">serial: {dispositivo!.serial}</p>

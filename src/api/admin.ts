@@ -18,6 +18,8 @@ export type DispositivoDoCliente = {
   owner_id: string
   admin_access_level: 'none' | 'maintenance' | 'full'
   criado_em: string
+  online: boolean
+  last_seen_at: string | null
 }
 
 export type ClienteDetalhe = {
