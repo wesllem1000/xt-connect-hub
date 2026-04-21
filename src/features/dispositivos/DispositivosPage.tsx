@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
   Cpu,
+  ExternalLink,
   KeyRound,
   MoreVertical,
   Plus,
@@ -69,7 +71,12 @@ function DispositivoCard({
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <CardTitle className="text-base leading-tight flex-1">
-            {dispositivo.nome}
+            <Link
+              to={`/dispositivos/${dispositivo.id}`}
+              className="hover:underline focus:underline outline-none"
+            >
+              {dispositivo.nome}
+            </Link>
           </CardTitle>
           <div className="flex items-center gap-2 shrink-0">
             {dispositivo.modelo ? (
@@ -91,6 +98,13 @@ function DispositivoCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild>
+                  <Link to={`/dispositivos/${dispositivo.id}`}>
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Abrir detalhes
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => onRegenerate(dispositivo)}>
                   <KeyRound className="h-4 w-4 mr-2" />
                   Regenerar credenciais MQTT

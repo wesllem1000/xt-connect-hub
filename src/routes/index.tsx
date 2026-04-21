@@ -7,6 +7,7 @@ import { LoginPage } from '@/features/auth/LoginPage'
 import { ProtectedRoute } from '@/features/auth/ProtectedRoute'
 import { SignupPage } from '@/features/auth/SignupPage'
 import { VerifyPage } from '@/features/auth/VerifyPage'
+import { DispositivoDetailPage } from '@/features/dispositivos/DispositivoDetailPage'
 import { DispositivosPage } from '@/features/dispositivos/DispositivosPage'
 import { useAuthStore } from '@/stores/auth'
 import type { ReactNode } from 'react'
@@ -36,6 +37,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/dispositivos" replace /> },
       { path: '/dispositivos', element: <DispositivosPage /> },
+      { path: '/dispositivos/:id', element: <DispositivoDetailPage /> },
       {
         path: '/admin',
         element: (
