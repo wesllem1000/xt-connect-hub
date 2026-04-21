@@ -2,10 +2,12 @@ import { Navigate, createBrowserRouter } from 'react-router-dom'
 
 import { AppShell } from '@/components/layout/AppShell'
 import { AdminPage } from '@/features/admin/AdminPage'
+import { ClienteDetailPage } from '@/features/admin/clientes/ClienteDetailPage'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { ProtectedRoute } from '@/features/auth/ProtectedRoute'
 import { DispositivosPage } from '@/features/dispositivos/DispositivosPage'
 import { useAuthStore } from '@/stores/auth'
+import type { ReactNode } from 'react'
 
 function LoginGate() {
   const isAuthed = useAuthStore((s) => Boolean(s.user && (s.accessToken || s.refreshToken)))
@@ -13,10 +15,10 @@ function LoginGate() {
   return <LoginPage />
 }
 
-function AdminRoute() {
+function RequireAdmin({ children }: { children: ReactNode }) {
   const role = useAuthStore((s) => s.user?.role)
   if (role !== 'admin') return <Navigate to="/dispositivos" replace />
-  return <AdminPage />
+  return <>{children}</>
 }
 
 export const router = createBrowserRouter([
@@ -30,7 +32,22 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/dispositivos" replace /> },
       { path: '/dispositivos', element: <DispositivosPage /> },
-      { path: '/admin', element: <AdminRoute /> },
+      {
+        path: '/admin',
+        element: (
+          <RequireAdmin>
+            <AdminPage />
+          </RequireAdmin>
+        ),
+      },
+      {
+        path: '/admin/clientes/:id',
+        element: (
+          <RequireAdmin>
+            <ClienteDetailPage />
+          </RequireAdmin>
+        ),
+      },
     ],
   },
   { path: '*', element: <Navigate to="/dispositivos" replace /> },

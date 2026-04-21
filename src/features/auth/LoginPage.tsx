@@ -47,7 +47,7 @@ export function LoginPage() {
     setApiError(null)
     try {
       await login(values.email, values.password)
-      navigate('/dashboard', { replace: true })
+      navigate('/dispositivos', { replace: true })
     } catch (err) {
       setApiError(err instanceof Error ? err.message : 'Erro ao entrar. Tente novamente.')
     }
