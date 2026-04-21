@@ -28,10 +28,18 @@ const API_ERROR_PT: Record<string, string> = {
   'missing credentials': 'Preencha e-mail e senha',
   'user not found': 'Usuário não encontrado',
   'user inactive': 'Usuário desativado',
+  'email_not_verified': 'Confirme seu e-mail antes de entrar.',
 }
 
 const NETWORK_ERROR_PT = 'Falha de conexão com o servidor.'
 const GENERIC_ERROR_PT = 'Erro ao entrar. Tente novamente.'
+
+export class EmailNotVerifiedError extends Error {
+  constructor(message = 'email_not_verified') {
+    super(message)
+    this.name = 'EmailNotVerifiedError'
+  }
+}
 
 function readPersistedUser(): User | null {
   try {
@@ -107,6 +115,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
           raw = (body.error || body.message || '').toLowerCase().trim()
         } catch {
           raw = ''
+        }
+        if (raw === 'email_not_verified') {
+          throw new EmailNotVerifiedError()
         }
         const msg = API_ERROR_PT[raw] ?? GENERIC_ERROR_PT
         throw new Error(msg)
