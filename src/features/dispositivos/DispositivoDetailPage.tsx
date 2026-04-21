@@ -43,7 +43,7 @@ function formatRelative(iso: string | number | null): string {
   if (Number.isNaN(d.getTime())) return '—'
   const diff = (Date.now() - d.getTime()) / 1000
   if (diff < 5) return 'agora'
-  if (diff < 60) return `há ${Math.floor(diff)}s`
+  if (diff < 60) return `há ${Math.max(0, Math.floor(diff))}s`
   if (diff < 3600) return `há ${Math.floor(diff / 60)}min`
   if (diff < 86400) return `há ${Math.floor(diff / 3600)}h`
   return dateTimeFormatter.format(d)

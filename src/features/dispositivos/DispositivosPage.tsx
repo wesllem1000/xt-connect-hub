@@ -63,6 +63,7 @@ function formatOfflineDuration(iso: string | null): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return 'Offline'
   const diff = (Date.now() - d.getTime()) / 1000
+  if (diff < 30) return 'Offline (agora mesmo)'
   if (diff < 60) return `Offline há ${Math.floor(diff)}s`
   if (diff < 3600) return `Offline há ${Math.floor(diff / 60)} min`
   if (diff < 86400) return `Offline há ${Math.floor(diff / 3600)} h`
