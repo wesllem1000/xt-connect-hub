@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
   Cpu,
-  ExternalLink,
   KeyRound,
   MoreVertical,
   Plus,
@@ -66,19 +65,32 @@ function DispositivoCard({
   onRegenerate: (d: Dispositivo) => void
   onDelete: (d: Dispositivo) => void
 }) {
+  const navigate = useNavigate()
+  const goToDetail = () => navigate(`/dispositivos/${dispositivo.id}`)
   return (
-    <Card>
+    <Card
+      role="button"
+      tabIndex={0}
+      aria-label={`Abrir ${dispositivo.nome}`}
+      onClick={goToDetail}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          goToDetail()
+        }
+      }}
+      className="cursor-pointer transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2">
           <CardTitle className="text-base leading-tight flex-1">
-            <Link
-              to={`/dispositivos/${dispositivo.id}`}
-              className="hover:underline focus:underline outline-none"
-            >
-              {dispositivo.nome}
-            </Link>
+            {dispositivo.nome}
           </CardTitle>
-          <div className="flex items-center gap-2 shrink-0">
+          <div
+            className="flex items-center gap-2 shrink-0"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
             {dispositivo.modelo ? (
               <Badge variant="secondary">{dispositivo.modelo}</Badge>
             ) : (
@@ -98,13 +110,6 @@ function DispositivoCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild>
-                  <Link to={`/dispositivos/${dispositivo.id}`}>
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Abrir detalhes
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
                 <DropdownMenuItem onSelect={() => onRegenerate(dispositivo)}>
                   <KeyRound className="h-4 w-4 mr-2" />
                   Regenerar credenciais MQTT
