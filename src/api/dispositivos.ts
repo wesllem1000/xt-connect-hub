@@ -15,7 +15,20 @@ export type Dispositivo = {
   criado_em: string
   online: boolean
   last_seen_at: string | null
+  telemetry_interval_s: number
+  burst_rate_s: number
   mqtt_credentials?: MqttCredentials
+}
+
+export type SetRateInput =
+  | { mode: 'default'; rate_s: number }
+  | { mode: 'burst'; rate_s: number; duration_s: number }
+
+export type SetRateResponse = {
+  ok: true
+  request_id: string
+  applied_rate_s: number
+  mode: 'default' | 'burst'
 }
 
 export type CreateDispositivoInput = {
@@ -53,4 +66,13 @@ export async function regenerarMqtt(
   return api
     .post(`dispositivos/${id}/regenerar-mqtt`)
     .json<{ mqtt_credentials: MqttCredentials }>()
+}
+
+export async function setDispositivoRate(
+  id: string,
+  input: SetRateInput,
+): Promise<SetRateResponse> {
+  return api
+    .post(`dispositivos/${id}/rate`, { json: input })
+    .json<SetRateResponse>()
 }

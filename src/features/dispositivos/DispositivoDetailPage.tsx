@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import { ArrowLeft, Cpu, Radio, Clock } from 'lucide-react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ArrowLeft, Cpu, Radio, Clock, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   CartesianGrid,
   Line,
@@ -13,7 +14,11 @@ import {
   Legend,
 } from 'recharts'
 
-import { listDispositivos, type Dispositivo } from '@/api/dispositivos'
+import {
+  listDispositivos,
+  setDispositivoRate,
+  type Dispositivo,
+} from '@/api/dispositivos'
 import { listReadings, type Reading } from '@/api/readings'
 import { useDeviceLiveData } from '@/hooks/useDeviceLiveData'
 import { useDeviceStatus } from '@/hooks/useDeviceStatus'
@@ -21,8 +26,23 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { extractApiError } from '@/lib/api'
+
+const BURST_DURATION_S = 120
+const BURST_HEARTBEAT_MS = 60_000
+
+function formatRate(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return '—'
+  if (seconds < 60) return `${seconds}s`
+  if (seconds < 3600) {
+    const m = seconds / 60
+    return Number.isInteger(m) ? `${m}min` : `${m.toFixed(1)}min`
+  }
+  const h = seconds / 3600
+  return Number.isInteger(h) ? `${h}h` : `${h.toFixed(1)}h`
+}
 
 const MAX_BUFFER_POINTS = 200
 
@@ -97,6 +117,52 @@ export function DispositivoDetailPage() {
     online: dispositivo?.online ?? false,
     lastSeenAt: dispositivo?.last_seen_at ?? null,
   })
+
+  const burstRateS = dispositivo?.burst_rate_s ?? 2
+  const defaultRateS = dispositivo?.telemetry_interval_s ?? 30
+
+  const [burstActive, setBurstActive] = useState(false)
+  const [burstExpiresAt, setBurstExpiresAt] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!id || !dispositivo) return
+    let cancelled = false
+
+    const trigger = async () => {
+      if (cancelled) return
+      try {
+        await setDispositivoRate(id, {
+          mode: 'burst',
+          rate_s: burstRateS,
+          duration_s: BURST_DURATION_S,
+        })
+        if (cancelled) return
+        setBurstActive(true)
+        setBurstExpiresAt(Date.now() + BURST_DURATION_S * 1000)
+      } catch (err) {
+        if (!cancelled) console.warn('burst request failed', err)
+      }
+    }
+
+    trigger()
+    const iv = setInterval(trigger, BURST_HEARTBEAT_MS)
+
+    return () => {
+      cancelled = true
+      clearInterval(iv)
+    }
+  }, [id, dispositivo, burstRateS])
+
+  useEffect(() => {
+    if (!burstExpiresAt) return
+    const remaining = burstExpiresAt - Date.now()
+    if (remaining <= 0) {
+      setBurstActive(false)
+      return
+    }
+    const t = setTimeout(() => setBurstActive(false), remaining)
+    return () => clearTimeout(t)
+  }, [burstExpiresAt])
 
   const [buffer, setBuffer] = useState<ChartPoint[]>([])
 
@@ -192,13 +258,24 @@ export function DispositivoDetailPage() {
           >
             <ArrowLeft className="h-4 w-4 mr-1" /> Voltar
           </Button>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <Cpu className="h-6 w-6 text-primary" />
             <h2 className="text-2xl font-bold tracking-tight">{dispositivo!.nome}</h2>
             <Badge variant={isOnline ? 'default' : 'outline'} className={isOnline ? 'bg-green-600 hover:bg-green-600' : 'text-muted-foreground'}>
               <Radio className="h-3 w-3 mr-1" />
               {isOnline ? 'Online' : 'Offline'}
             </Badge>
+            {isOnline && burstActive ? (
+              <Badge className="bg-red-600 hover:bg-red-600">
+                <span className="mr-1 h-2 w-2 rounded-full bg-white animate-pulse" />
+                ao vivo ({burstRateS}s)
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="text-muted-foreground">
+                <Clock className="h-3 w-3 mr-1" />
+                cada {formatRate(defaultRateS)}
+              </Badge>
+            )}
           </div>
           <p className="font-mono text-xs text-muted-foreground">serial: {dispositivo!.serial}</p>
         </div>
@@ -209,6 +286,11 @@ export function DispositivoDetailPage() {
           <div className="font-medium">{formatRelative(lastTs)}</div>
         </div>
       </div>
+
+      <RateConfigCard
+        deviceId={id!}
+        currentRate={defaultRateS}
+      />
 
       <Card>
         <CardHeader>
@@ -280,4 +362,101 @@ function ErrorMessage({ error }: { error: unknown }) {
     return () => { cancelled = true }
   }, [error])
   return <>{message}</>
+}
+
+function RateConfigCard({
+  deviceId,
+  currentRate,
+}: {
+  deviceId: string
+  currentRate: number
+}) {
+  const qc = useQueryClient()
+  const [value, setValue] = useState(String(currentRate))
+  const lastSynced = useRef(currentRate)
+
+  useEffect(() => {
+    if (currentRate !== lastSynced.current) {
+      lastSynced.current = currentRate
+      setValue(String(currentRate))
+    }
+  }, [currentRate])
+
+  const mutation = useMutation({
+    mutationFn: (rate_s: number) =>
+      setDispositivoRate(deviceId, { mode: 'default', rate_s }),
+    onSuccess: (_res, rate_s) => {
+      lastSynced.current = rate_s
+      toast.success(`Taxa default: cada ${formatRate(rate_s)}.`)
+      qc.invalidateQueries({ queryKey: ['dispositivos'] })
+    },
+    onError: async (err) => {
+      const msg = await extractApiError(err, 'Falha ao atualizar taxa.')
+      toast.error(msg)
+    },
+  })
+
+  const parsed = Number(value)
+  const isValid =
+    Number.isInteger(parsed) && parsed >= 1 && parsed <= 3600
+  const isDirty = isValid && parsed !== currentRate
+
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!isValid || !isDirty) return
+    mutation.mutate(parsed)
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Taxa de envio</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form
+          onSubmit={onSubmit}
+          className="flex flex-wrap items-end gap-3"
+        >
+          <div className="space-y-1">
+            <label
+              htmlFor="rate-input"
+              className="text-xs uppercase tracking-wide text-muted-foreground"
+            >
+              Segundos entre envios (1–3600)
+            </label>
+            <Input
+              id="rate-input"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={3600}
+              step={1}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              className="w-32"
+            />
+          </div>
+          <div className="text-sm text-muted-foreground pb-2">
+            {isValid
+              ? `equivale a cada ${formatRate(parsed)}`
+              : 'valor inválido'}
+          </div>
+          <Button
+            type="submit"
+            disabled={!isDirty || !isValid || mutation.isPending}
+          >
+            {mutation.isPending && (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            )}
+            Salvar
+          </Button>
+        </form>
+        <p className="mt-3 text-xs text-muted-foreground">
+          Valor persistente. Ao abrir esta página o dispositivo entra em modo
+          burst (~{formatRate(2)}) pra mostrar o gráfico ao vivo; ao fechar,
+          volta a essa taxa.
+        </p>
+      </CardContent>
+    </Card>
+  )
 }
