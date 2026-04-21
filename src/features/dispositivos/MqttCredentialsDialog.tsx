@@ -19,13 +19,21 @@ type Props = {
   contexto?: 'criado' | 'regenerado'
 }
 
+function deriveWssUrl(mqttsUrl: string): string | null {
+  const match = mqttsUrl.match(/^mqtts:\/\/([^:/]+)(?::\d+)?\/?$/)
+  if (!match) return null
+  return `wss://${match[1]}:8884/`
+}
+
 function CopyRow({
   label,
   value,
+  hint,
   mono = false,
 }: {
   label: string
   value: string
+  hint?: string
   mono?: boolean
 }) {
   async function copy() {
@@ -41,6 +49,9 @@ function CopyRow({
       <p className="text-xs uppercase tracking-wide text-muted-foreground">
         {label}
       </p>
+      {hint ? (
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      ) : null}
       <div className="flex items-center gap-2">
         <code
           className={`flex-1 rounded-md bg-muted px-3 py-2 text-sm break-all select-all ${
@@ -107,7 +118,23 @@ export function MqttCredentialsDialog({
         </Alert>
 
         <div className="space-y-3 pt-2">
-          <CopyRow label="Broker" value={credentials.broker} mono />
+          <CopyRow
+            label="URL para firmware (ESP32)"
+            value={credentials.broker}
+            hint="Protocolo MQTT sobre TLS. Use no código do dispositivo."
+            mono
+          />
+          {(() => {
+            const wss = deriveWssUrl(credentials.broker)
+            return wss ? (
+              <CopyRow
+                label="URL para navegador / debug"
+                value={wss}
+                hint="WebSocket Secure. Use no simulador web ou em ferramentas como MQTT Explorer."
+                mono
+              />
+            ) : null
+          })()}
           <CopyRow label="Usuário" value={credentials.username} mono />
           <CopyRow label="Senha" value={credentials.password} mono />
         </div>
