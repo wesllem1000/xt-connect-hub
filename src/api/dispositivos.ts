@@ -1,5 +1,11 @@
 import { api } from '@/lib/api'
 
+export type MqttCredentials = {
+  username: string
+  password: string
+  broker: string
+}
+
 export type Dispositivo = {
   id: string
   nome: string
@@ -7,6 +13,7 @@ export type Dispositivo = {
   modelo: string | null
   ultimo_valor: string | null
   criado_em: string
+  mqtt_credentials?: MqttCredentials
 }
 
 export type CreateDispositivoInput = {
@@ -36,4 +43,12 @@ export async function createDispositivo(
 
 export async function deleteDispositivo(id: string): Promise<void> {
   await api.delete(`dispositivos/${id}`).json<{ ok: true }>()
+}
+
+export async function regenerarMqtt(
+  id: string,
+): Promise<{ mqtt_credentials: MqttCredentials }> {
+  return api
+    .post(`dispositivos/${id}/regenerar-mqtt`)
+    .json<{ mqtt_credentials: MqttCredentials }>()
 }

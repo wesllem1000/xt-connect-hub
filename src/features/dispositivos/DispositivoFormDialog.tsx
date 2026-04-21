@@ -10,6 +10,7 @@ import {
   createDispositivo,
   type CreateDispositivoInput,
   type Dispositivo,
+  type MqttCredentials,
 } from '@/api/dispositivos'
 import { listModelos } from '@/api/modelos'
 import { Button } from '@/components/ui/button'
@@ -53,9 +54,14 @@ type FormValues = z.infer<typeof schema>
 type Props = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onCreated?: (credentials: MqttCredentials) => void
 }
 
-export function DispositivoFormDialog({ open, onOpenChange }: Props) {
+export function DispositivoFormDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: Props) {
   const qc = useQueryClient()
 
   const modelos = useQuery({
@@ -79,10 +85,13 @@ export function DispositivoFormDialog({ open, onOpenChange }: Props) {
 
   const mutation = useMutation<Dispositivo, unknown, CreateDispositivoInput>({
     mutationFn: createDispositivo,
-    onSuccess: () => {
+    onSuccess: (data) => {
       toast.success('Dispositivo criado.')
       qc.invalidateQueries({ queryKey: ['dispositivos'] })
       onOpenChange(false)
+      if (data.mqtt_credentials && onCreated) {
+        onCreated(data.mqtt_credentials)
+      }
     },
     onError: async (err) => {
       const msg = await extractApiError(err, 'Erro ao criar dispositivo')
