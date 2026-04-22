@@ -2771,5 +2771,75 @@
         "x": 940,
         "y": 3200,
         "wires": []
+    },
+    {
+        "id": "httpPreviewClaim",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /dispositivos/preview-claim",
+        "url": "/dispositivos/preview-claim",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 3300,
+        "wires": [
+            [
+                "fnAuthPreviewClaim"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthPreviewClaim",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 3300,
+        "wires": [
+            [
+                "fnPreviewClaim"
+            ],
+            [
+                "respPreviewClaim"
+            ]
+        ]
+    },
+    {
+        "id": "fnPreviewClaim",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Preview claim",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n\nconst q = msg.req.query || {};\nconst token = q.token ? String(q.token).trim() : '';\nconst serial = q.serial ? String(q.serial).trim() : '';\nconst pairing = q.pairing_code ? String(q.pairing_code).trim().toUpperCase() : '';\n\nif (!token && !(serial && pairing)) {\n  msg.statusCode=400; msg.payload={error:'informe token ou (serial + pairing_code)'}; return msg;\n}\n\ntry {\n  let sel;\n  if (token) {\n    sel = await pool.query(\n      `SELECT d.id, d.device_id AS serial, d.status,\n              d.modelo_id,\n              m.nome AS modelo_nome, m.prefixo, m.major_version, m.imagem_url AS modelo_icone\n         FROM devices d\n         LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n         WHERE d.claim_token = $1 LIMIT 1`,\n      [token]\n    );\n  } else {\n    sel = await pool.query(\n      `SELECT d.id, d.device_id AS serial, d.status,\n              d.modelo_id,\n              m.nome AS modelo_nome, m.prefixo, m.major_version, m.imagem_url AS modelo_icone\n         FROM devices d\n         LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n         WHERE d.device_id = $1 AND d.pairing_code = $2 LIMIT 1`,\n      [serial, pairing]\n    );\n  }\n\n  if (sel.rowCount === 0) {\n    msg.statusCode=404; msg.payload={error:'codigo invalido ou dispositivo nao encontrado'}; return msg;\n  }\n  const d = sel.rows[0];\n  if (d.status !== 'ocioso') {\n    msg.statusCode=409; msg.payload={error:'dispositivo ja foi reivindicado'}; return msg;\n  }\n\n  msg.statusCode = 200;\n  msg.payload = {\n    serial: d.serial,\n    status: d.status,\n    modelo: d.modelo_id ? {\n      id: d.modelo_id,\n      nome: d.modelo_nome,\n      prefixo: d.prefixo,\n      major_version: d.major_version,\n      icone: d.modelo_icone\n    } : null\n  };\n} catch(e) {\n  node.error('preview claim: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 700,
+        "y": 3300,
+        "wires": [
+            [
+                "respPreviewClaim"
+            ]
+        ]
+    },
+    {
+        "id": "respPreviewClaim",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 3300,
+        "wires": []
     }
 ]
