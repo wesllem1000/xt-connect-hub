@@ -5,8 +5,9 @@
 //   1. Patch fnListDisp     → usa view dispositivos_visiveis (own + shared)
 //   2. Patch fnSetRate      → gate de permissão (owner OR controle/operator)
 //   3. Patch fnSignup       → ativa shares pendentes pelo email do novo user
-//   4. Endpoints novos:
-//        POST   /dispositivos/:id/compartilhamentos
+//   4. Patch fnInitMail     → carrega templates dinamicamente de /data/templates/email
+//   5. Endpoints novos:
+//        POST   /dispositivos/:id/compartilhamentos  (envia email fire-and-forget)
 //        GET    /dispositivos/:id/compartilhamentos
 //        DELETE /dispositivos/:id/compartilhamentos/:shareId
 //        GET    /compartilhamentos/inbox
@@ -240,6 +241,49 @@ try {
 }`;
 }
 
+// ---------- 2b) PATCH fnInitMail — carrega templates dinamicamente ----------
+{
+  const n = find('fnInitMail');
+  if (!n) throw new Error('fnInitMail not found');
+  n.func = `if (global.get('sendMail')) { node.status({fill:'green',shape:'dot',text:'mail ok'}); return null; }
+const passFile = env.get('SMTP_PASSWORD_FILE') || '/data/env/smtp-password';
+let pass = '';
+try { pass = fs.readFileSync(passFile, 'utf8').trim(); } catch(e) { node.error('cannot read smtp password: '+e.message); node.status({fill:'red',shape:'ring',text:'pass missing'}); return null; }
+if (!pass) { node.error('smtp password is empty'); node.status({fill:'red',shape:'ring',text:'pass empty'}); return null; }
+const transport = nodemailer.createTransport({
+  host: env.get('SMTP_HOST') || 'smtp.hostinger.com',
+  port: parseInt(env.get('SMTP_PORT') || '465'),
+  secure: (env.get('SMTP_SECURE') || 'true').toLowerCase() === 'true',
+  auth: { user: env.get('SMTP_USER'), pass: pass }
+});
+const from = env.get('MAIL_FROM') || env.get('SMTP_USER');
+const baseUrl = env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';
+const templatesDir = '/data/templates/email';
+const templates = {};
+try {
+  const files = fs.readdirSync(templatesDir).filter(f => f.endsWith('.html'));
+  for (const f of files) {
+    const name = f.replace(/\\.html$/, '');
+    try { templates[name] = fs.readFileSync(templatesDir + '/' + f, 'utf8'); }
+    catch(e) { node.warn('template load failed: '+name+': '+e.message); }
+  }
+  node.log('mail templates loaded: '+Object.keys(templates).join(', '));
+} catch(e) {
+  node.error('cannot read templates dir ('+templatesDir+'): '+e.message);
+}
+function render(tpl, vars) {
+  return Object.entries(vars||{}).reduce(function(s, kv){ return s.split('{{'+kv[0]+'}}').join(String(kv[1])); }, tpl);
+}
+const sendMail = async function(opts) {
+  const html = templates[opts.template] ? render(templates[opts.template], opts.vars) : undefined;
+  return transport.sendMail({ from: from, to: opts.to, subject: opts.subject, html: html, text: opts.text });
+};
+global.set('sendMail', sendMail);
+global.set('mailBaseUrl', baseUrl);
+node.status({fill:'green',shape:'dot',text:'smtp ready'});
+return null;`;
+}
+
 // ---------- 3) PATCH fnSignup — ativa shares pendentes pelo email ----------
 {
   const n = find('fnSignup');
@@ -328,8 +372,55 @@ try {
     throw e;
   }
 
+  const share = r.rows[0];
+
+  // Envio de email fire-and-forget (não trava o 201 se SMTP falhar)
+  let emailSent = false;
+  let emailWarning = null;
+  const sendMail = global.get('sendMail');
+  const baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';
+  if (!sendMail) {
+    emailWarning = 'mailer nao inicializado';
+    node.warn('create share: sendMail not initialized');
+  } else {
+    try {
+      // Busca nome do owner + nome do device pra personalizar o template
+      const meta = await pool.query(
+        \`SELECT COALESCE(NULLIF(u.full_name,''), u.email) AS owner_name,
+                COALESCE(NULLIF(d.nome_amigavel,''), d.name, d.device_id) AS device_name
+           FROM devices d JOIN app_users u ON u.id = d.user_id
+          WHERE d.id=$1 LIMIT 1\`,
+        [id]
+      );
+      const ownerName = meta.rows[0] ? meta.rows[0].owner_name : (msg.user.name || msg.user.email);
+      const deviceName = meta.rows[0] ? meta.rows[0].device_name : 'seu dispositivo';
+      const permissionLabel = permissao === 'controle' ? 'Comandar (visualizar + ajustar taxa)' : 'Visualizar (somente leitura)';
+      const link = share.token_convite
+        ? (baseUrl + '/convites/aceitar?token=' + share.token_convite)
+        : (baseUrl + '/convites');
+      const subject = ownerName + ' te convidou pra acessar "' + deviceName + '" no XT Connect Hub';
+      await sendMail({
+        to: email,
+        subject: subject,
+        template: 'device-invite',
+        vars: {
+          owner_name: ownerName,
+          device_name: deviceName,
+          permission_label: permissionLabel,
+          link: link,
+          invite_token: share.token_convite || ''
+        }
+      });
+      emailSent = true;
+    } catch(e) {
+      emailWarning = 'falha ao enviar email: ' + e.message;
+      node.warn('device-invite email failed for '+email+': '+e.message);
+    }
+  }
+
   msg.statusCode = 201;
-  msg.payload = { compartilhamento: r.rows[0] };
+  msg.payload = { compartilhamento: share, email_sent: emailSent };
+  if (emailWarning) msg.payload.warning = emailWarning;
 } catch(e) {
   node.error('create share: '+e.message, msg);
   msg.statusCode=500; msg.payload={error:'internal'};

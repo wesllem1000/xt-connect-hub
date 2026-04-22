@@ -34,6 +34,12 @@ const loginSchema = z.object({
 
 type LoginForm = z.infer<typeof loginSchema>
 
+function safeNext(raw: string | null): string | null {
+  if (!raw) return null
+  if (!raw.startsWith('/') || raw.startsWith('//')) return null
+  return raw
+}
+
 const VERIFIED_BANNERS: Record<string, { variant: 'default' | 'destructive'; text: string }> = {
   true: { variant: 'default', text: 'E-mail confirmado! Faça login para continuar.' },
   expired: { variant: 'destructive', text: 'Este link expirou. Solicite um novo abaixo.' },
@@ -54,6 +60,7 @@ export function LoginPage() {
 
   const verifiedParam = params.get('verified')
   const banner = verifiedParam ? VERIFIED_BANNERS[verifiedParam] : null
+  const nextPath = safeNext(params.get('next'))
 
   const form = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
@@ -66,7 +73,7 @@ export function LoginPage() {
     setResendStatus('idle')
     try {
       await login(values.email, values.password)
-      navigate('/dispositivos', { replace: true })
+      navigate(nextPath ?? '/dispositivos', { replace: true })
     } catch (err) {
       if (err instanceof EmailNotVerifiedError) {
         setNeedsVerify(values.email)

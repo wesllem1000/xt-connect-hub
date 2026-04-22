@@ -1,4 +1,4 @@
-import { Navigate, createBrowserRouter } from 'react-router-dom'
+import { Navigate, createBrowserRouter, useSearchParams } from 'react-router-dom'
 
 import { AppShell } from '@/components/layout/AppShell'
 import { AdminPage } from '@/features/admin/AdminPage'
@@ -7,14 +7,26 @@ import { LoginPage } from '@/features/auth/LoginPage'
 import { ProtectedRoute } from '@/features/auth/ProtectedRoute'
 import { SignupPage } from '@/features/auth/SignupPage'
 import { VerifyPage } from '@/features/auth/VerifyPage'
+import { AceitarConvitePage } from '@/features/convites/AceitarConvitePage'
+import { ConvitesPage } from '@/features/convites/ConvitesPage'
 import { DispositivoDetailPage } from '@/features/dispositivos/DispositivoDetailPage'
 import { DispositivosPage } from '@/features/dispositivos/DispositivosPage'
 import { useAuthStore } from '@/stores/auth'
 import type { ReactNode } from 'react'
 
+function safeNext(raw: string | null): string | null {
+  if (!raw) return null
+  if (!raw.startsWith('/') || raw.startsWith('//')) return null
+  return raw
+}
+
 function LoginGate() {
   const isAuthed = useAuthStore((s) => Boolean(s.user && (s.accessToken || s.refreshToken)))
-  if (isAuthed) return <Navigate to="/dispositivos" replace />
+  const [params] = useSearchParams()
+  if (isAuthed) {
+    const next = safeNext(params.get('next'))
+    return <Navigate to={next ?? '/dispositivos'} replace />
+  }
   return <LoginPage />
 }
 
@@ -28,6 +40,7 @@ export const router = createBrowserRouter([
   { path: '/login', element: <LoginGate /> },
   { path: '/signup', element: <SignupPage /> },
   { path: '/verify', element: <VerifyPage /> },
+  { path: '/convites/aceitar', element: <AceitarConvitePage /> },
   {
     element: (
       <ProtectedRoute>
@@ -38,6 +51,7 @@ export const router = createBrowserRouter([
       { index: true, element: <Navigate to="/dispositivos" replace /> },
       { path: '/dispositivos', element: <DispositivosPage /> },
       { path: '/dispositivos/:id', element: <DispositivoDetailPage /> },
+      { path: '/convites', element: <ConvitesPage /> },
       {
         path: '/admin',
         element: (

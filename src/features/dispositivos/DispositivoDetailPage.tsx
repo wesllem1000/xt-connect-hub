@@ -1,7 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, Cpu, Radio, Clock, Loader2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  Cpu,
+  Eye,
+  Lock,
+  Radio,
+  Clock,
+  Loader2,
+  UserPlus,
+} from 'lucide-react'
 import { toast } from 'sonner'
 import {
   CartesianGrid,
@@ -29,6 +38,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { extractApiError } from '@/lib/api'
+import { ShareDialog } from './ShareDialog'
 
 const BURST_DURATION_S = 120
 const BURST_HEARTBEAT_MS = 60_000
@@ -121,11 +131,18 @@ export function DispositivoDetailPage() {
   const burstRateS = dispositivo?.burst_rate_s ?? 2
   const defaultRateS = dispositivo?.telemetry_interval_s ?? 30
 
+  const canCommand =
+    dispositivo?.access_type === 'owner' || dispositivo?.permissao === 'controle'
+  const isShared = dispositivo?.access_type === 'shared'
+  const isViewer = isShared && dispositivo?.permissao === 'leitura'
+  const isOwner = dispositivo?.access_type === 'owner'
+
   const [burstActive, setBurstActive] = useState(false)
   const [burstExpiresAt, setBurstExpiresAt] = useState<number | null>(null)
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
 
   useEffect(() => {
-    if (!id || !dispositivo) return
+    if (!id || !dispositivo || !canCommand) return
     let cancelled = false
 
     const trigger = async () => {
@@ -151,7 +168,7 @@ export function DispositivoDetailPage() {
       cancelled = true
       clearInterval(iv)
     }
-  }, [id, dispositivo, burstRateS])
+  }, [id, dispositivo, burstRateS, canCommand])
 
   useEffect(() => {
     if (!burstExpiresAt) return
@@ -265,7 +282,21 @@ export function DispositivoDetailPage() {
               <Radio className="h-3 w-3 mr-1" />
               {isOnline ? 'Online' : 'Offline'}
             </Badge>
-            {isOnline && burstActive ? (
+            {isShared && (
+              <Badge
+                className={
+                  dispositivo!.permissao === 'controle'
+                    ? 'bg-emerald-600 hover:bg-emerald-600'
+                    : 'bg-blue-600 hover:bg-blue-600'
+                }
+              >
+                <Eye className="h-3 w-3 mr-1" />
+                {dispositivo!.permissao === 'controle'
+                  ? 'Compartilhado · Comandar'
+                  : 'Compartilhado · Visualizar'}
+              </Badge>
+            )}
+            {isOnline && burstActive && canCommand ? (
               <Badge className="bg-red-600 hover:bg-red-600">
                 <span className="mr-1 h-2 w-2 rounded-full bg-white animate-pulse" />
                 ao vivo ({burstRateS}s)
@@ -279,18 +310,49 @@ export function DispositivoDetailPage() {
           </div>
           <p className="font-mono text-xs text-muted-foreground">serial: {dispositivo!.serial}</p>
         </div>
-        <div className="text-right text-sm">
-          <div className="flex items-center gap-1 justify-end text-muted-foreground">
-            <Clock className="h-3 w-3" /> Último dado
+        <div className="flex flex-col items-end gap-2">
+          {isOwner && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShareDialogOpen(true)}
+            >
+              <UserPlus className="h-4 w-4 mr-1.5" />
+              Compartilhar
+            </Button>
+          )}
+          <div className="text-right text-sm">
+            <div className="flex items-center gap-1 justify-end text-muted-foreground">
+              <Clock className="h-3 w-3" /> Último dado
+            </div>
+            <div className="font-medium">{formatRelative(lastTs)}</div>
           </div>
-          <div className="font-medium">{formatRelative(lastTs)}</div>
         </div>
       </div>
 
-      <RateConfigCard
-        deviceId={id!}
-        currentRate={defaultRateS}
-      />
+      {isViewer && (
+        <Alert className="border-blue-200 bg-blue-50 text-blue-900">
+          <Lock className="h-4 w-4" />
+          <AlertTitle>Modo visualização</AlertTitle>
+          <AlertDescription>
+            Apenas o dono pode ajustar a taxa de envio. Você vê os dados em tempo real,
+            mas não pode comandar este dispositivo.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {canCommand && (
+        <RateConfigCard deviceId={id!} currentRate={defaultRateS} />
+      )}
+
+      {isOwner && (
+        <ShareDialog
+          dispositivoId={id!}
+          dispositivoNome={dispositivo!.nome}
+          open={shareDialogOpen}
+          onOpenChange={setShareDialogOpen}
+        />
+      )}
 
       <Card>
         <CardHeader>
@@ -391,7 +453,10 @@ function RateConfigCard({
       qc.invalidateQueries({ queryKey: ['dispositivos'] })
     },
     onError: async (err) => {
-      const msg = await extractApiError(err, 'Falha ao atualizar taxa.')
+      const raw = await extractApiError(err, 'Falha ao atualizar taxa.')
+      const msg = /sem permissao/i.test(raw)
+        ? 'Sem permissão pra comandar este dispositivo.'
+        : raw
       toast.error(msg)
     },
   })

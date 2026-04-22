@@ -1,9 +1,11 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Cpu, LogOut, Settings } from 'lucide-react'
+import { Cpu, LogOut, Mail, Settings } from 'lucide-react'
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import { useInboxPendingCount } from '@/hooks/useInboxPendingCount'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth'
 
@@ -12,10 +14,12 @@ type NavItem = {
   label: string
   icon: typeof Cpu
   adminOnly?: boolean
+  badgeKey?: 'invites'
 }
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/dispositivos', label: 'Dispositivos', icon: Cpu },
+  { to: '/convites', label: 'Convites', icon: Mail, badgeKey: 'invites' },
   { to: '/admin', label: 'Admin', icon: Settings, adminOnly: true },
 ]
 
@@ -31,6 +35,7 @@ export function Sidebar() {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const clearSession = useAuthStore((s) => s.clearSession)
+  const invitesCount = useInboxPendingCount()
 
   const items = NAV_ITEMS.filter((i) => !i.adminOnly || user?.role === 'admin')
 
@@ -46,23 +51,34 @@ export function Sidebar() {
       </div>
       <Separator />
       <nav className="flex-1 px-3 py-4 flex flex-col gap-1">
-        {items.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-                isActive
-                  ? 'bg-primary/10 text-primary font-medium'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-              )
-            }
-          >
-            <Icon className="h-4 w-4" />
-            <span>{label}</span>
-          </NavLink>
-        ))}
+        {items.map(({ to, label, icon: Icon, badgeKey }) => {
+          const count = badgeKey === 'invites' ? invitesCount : 0
+          return (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+                  isActive
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                )
+              }
+            >
+              <Icon className="h-4 w-4" />
+              <span className="flex-1">{label}</span>
+              {count > 0 && (
+                <Badge
+                  className="h-5 min-w-[1.25rem] px-1.5 justify-center bg-primary hover:bg-primary text-primary-foreground text-xs"
+                  aria-label={`${count} pendente${count === 1 ? '' : 's'}`}
+                >
+                  {count > 99 ? '99+' : count}
+                </Badge>
+              )}
+            </NavLink>
+          )
+        })}
       </nav>
       <Separator />
       {user && (

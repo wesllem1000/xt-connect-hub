@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
   Cpu,
+  Eye,
   KeyRound,
   MoreVertical,
   Plus,
   Radio,
+  Sliders,
   Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -70,6 +72,23 @@ function formatOfflineDuration(iso: string | null): string {
   return `Offline há ${Math.floor(diff / 86400)} d`
 }
 
+function ShareChip({ permissao }: { permissao: Dispositivo['permissao'] }) {
+  if (permissao === 'controle') {
+    return (
+      <Badge className="bg-emerald-600 hover:bg-emerald-600 shrink-0">
+        <Sliders className="h-3 w-3 mr-1" />
+        Compartilhado · Comandar
+      </Badge>
+    )
+  }
+  return (
+    <Badge className="bg-blue-600 hover:bg-blue-600 shrink-0">
+      <Eye className="h-3 w-3 mr-1" />
+      Compartilhado · Visualizar
+    </Badge>
+  )
+}
+
 function DispositivoCard({
   dispositivo,
   onRegenerate,
@@ -85,6 +104,7 @@ function DispositivoCard({
     online: dispositivo.online,
     lastSeenAt: dispositivo.last_seen_at,
   })
+  const isShared = dispositivo.access_type === 'shared'
   return (
     <Card
       role="button"
@@ -100,6 +120,11 @@ function DispositivoCard({
       className="cursor-pointer transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <CardHeader className="pb-3">
+        {isShared && (
+          <div className="flex justify-end mb-1">
+            <ShareChip permissao={dispositivo.permissao} />
+          </div>
+        )}
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <CardTitle className="text-base leading-tight truncate">
@@ -125,32 +150,34 @@ function DispositivoCard({
                 sem modelo
               </Badge>
             )}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  aria-label="Ações do dispositivo"
-                >
-                  <MoreVertical className="h-4 w-4" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => onRegenerate(dispositivo)}>
-                  <KeyRound className="h-4 w-4 mr-2" />
-                  Regenerar credenciais MQTT
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  className="text-destructive focus:text-destructive"
-                  onSelect={() => onDelete(dispositivo)}
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Excluir
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {!isShared && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    aria-label="Ações do dispositivo"
+                  >
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => onRegenerate(dispositivo)}>
+                    <KeyRound className="h-4 w-4 mr-2" />
+                    Regenerar credenciais MQTT
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => onDelete(dispositivo)}
+                  >
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    Excluir
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
       </CardHeader>
@@ -249,6 +276,16 @@ export function DispositivosPage() {
     queryFn: listDispositivos,
   })
 
+  const dispositivos = useMemo(() => {
+    if (!query.data) return []
+    return [...query.data].sort((a, b) => {
+      if (a.access_type !== b.access_type) {
+        return a.access_type === 'owner' ? -1 : 1
+      }
+      return 0
+    })
+  }, [query.data])
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteDispositivo(id),
     onSuccess: () => {
@@ -310,9 +347,9 @@ export function DispositivosPage() {
         <EmptyState onAdd={() => setDialogOpen(true)} />
       )}
 
-      {query.isSuccess && query.data.length > 0 && (
+      {query.isSuccess && dispositivos.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {query.data.map((d) => (
+          {dispositivos.map((d) => (
             <DispositivoCard
               key={d.id}
               dispositivo={d}

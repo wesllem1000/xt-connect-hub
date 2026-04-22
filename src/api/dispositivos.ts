@@ -6,6 +6,9 @@ export type MqttCredentials = {
   broker: string
 }
 
+export type AccessType = 'owner' | 'shared'
+export type SharePermissao = 'leitura' | 'controle'
+
 export type Dispositivo = {
   id: string
   nome: string
@@ -17,6 +20,9 @@ export type Dispositivo = {
   last_seen_at: string | null
   telemetry_interval_s: number
   burst_rate_s: number
+  access_type: AccessType
+  permissao: SharePermissao
+  share_id: string | null
   mqtt_credentials?: MqttCredentials
 }
 
