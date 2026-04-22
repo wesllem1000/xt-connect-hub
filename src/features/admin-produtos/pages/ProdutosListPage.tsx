@@ -121,12 +121,12 @@ export function ProdutosListPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Serial</TableHead>
-                  <TableHead>Modelo</TableHead>
+                  <TableHead className="hidden sm:table-cell">Modelo</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Online</TableHead>
-                  <TableHead>Cliente</TableHead>
-                  <TableHead>Provisionado</TableHead>
-                  <TableHead>Último dado</TableHead>
+                  <TableHead className="hidden md:table-cell">Online</TableHead>
+                  <TableHead className="hidden lg:table-cell">Cliente</TableHead>
+                  <TableHead className="hidden lg:table-cell">Provisionado</TableHead>
+                  <TableHead className="hidden xl:table-cell">Último dado</TableHead>
                   <TableHead className="w-[60px]"></TableHead>
                 </TableRow>
               </TableHeader>
@@ -174,8 +174,16 @@ function ProdutoRow({
         }
       }}
     >
-      <TableCell className="font-mono text-xs">{produto.serial}</TableCell>
-      <TableCell className="text-sm">
+      <TableCell className="font-mono text-xs">
+        <div>{produto.serial}</div>
+        <div className="sm:hidden text-muted-foreground text-[10px] mt-0.5 truncate max-w-[180px]">
+          {produto.modelo_nome ?? '—'}
+          {produto.owner_email && (
+            <span className="ml-2">· {produto.owner_email}</span>
+          )}
+        </div>
+      </TableCell>
+      <TableCell className="hidden sm:table-cell text-sm">
         {produto.modelo_nome ?? '—'}
         {produto.prefixo && produto.major_version && (
           <span className="ml-1 text-xs text-muted-foreground font-mono">
@@ -186,7 +194,7 @@ function ProdutoRow({
       <TableCell>
         <ProdutoStatusChip status={produto.status} />
       </TableCell>
-      <TableCell>
+      <TableCell className="hidden md:table-cell">
         {produto.status === 'associado' ? (
           <Badge
             variant={produto.is_online ? 'default' : 'outline'}
@@ -203,15 +211,15 @@ function ProdutoRow({
           <span className="text-muted-foreground text-xs">—</span>
         )}
       </TableCell>
-      <TableCell className="text-sm truncate max-w-[200px]">
+      <TableCell className="hidden lg:table-cell text-sm truncate max-w-[200px]">
         {produto.owner_email ?? (
           <span className="text-muted-foreground">—</span>
         )}
       </TableCell>
-      <TableCell className="text-sm text-muted-foreground">
+      <TableCell className="hidden lg:table-cell text-sm text-muted-foreground">
         {formatRel(produto.provisionado_em)}
       </TableCell>
-      <TableCell className="text-sm text-muted-foreground">
+      <TableCell className="hidden xl:table-cell text-sm text-muted-foreground">
         {produto.status === 'associado' ? formatRel(produto.last_seen) : '—'}
       </TableCell>
       <TableCell onClick={(e) => e.stopPropagation()}>
