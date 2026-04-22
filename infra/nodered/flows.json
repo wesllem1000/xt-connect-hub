@@ -454,7 +454,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Listar dispositivos",
-        "func": "// E3.1 follow-up — sempre do ponto-de-vista do user logado (owner + shares ativos).\n// Admin usa /admin/produtos pra visão de fleet; nada de bypass aqui.\nconst pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst userId = msg.user && msg.user.id;\nif (!userId) { msg.statusCode=401; msg.payload={error:'unauthenticated'}; return msg; }\ntry {\n  const r = await pool.query(`\n    SELECT\n      v.id,\n      COALESCE(NULLIF(v.nome_amigavel, ''), v.name) AS nome,\n      v.device_id AS serial,\n      m.nome AS modelo,\n      uv.recebido_em AS ultimo_valor,\n      v.created_at AS criado_em,\n      v.is_online AS online,\n      v.last_seen AS last_seen_at,\n      v.telemetry_interval_s,\n      v.burst_rate_s,\n      v.access_type,\n      v.permissao::text AS permissao,\n      v.share_id\n    FROM dispositivos_visiveis v\n    LEFT JOIN modelos_dispositivo m ON m.id = v.modelo_id\n    LEFT JOIN LATERAL (\n      SELECT recebido_em FROM dispositivo_ultimo_valor\n      WHERE dispositivo_id = v.id ORDER BY recebido_em DESC LIMIT 1\n    ) uv ON TRUE\n    WHERE v.viewer_id = $1::uuid\n    ORDER BY v.created_at DESC\n  `, [userId]);\n  msg.statusCode = 200;\n  msg.payload = r.rows;\n} catch(e) {\n  node.error('list dispositivos: '+e.message, msg);\n  msg.statusCode = 500; msg.payload = {error:'internal'};\n}\nreturn msg;",
+        "func": "// E3.5 — lista do user logado, com apelido opcional.\nconst pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst userId = msg.user && msg.user.id;\nif (!userId) { msg.statusCode=401; msg.payload={error:'unauthenticated'}; return msg; }\ntry {\n  const r = await pool.query(`\n    SELECT\n      v.id,\n      COALESCE(NULLIF(v.nome_amigavel, ''), v.name) AS nome,\n      v.apelido,\n      v.device_id AS serial,\n      m.nome AS modelo,\n      uv.recebido_em AS ultimo_valor,\n      v.created_at AS criado_em,\n      v.is_online AS online,\n      v.last_seen AS last_seen_at,\n      v.telemetry_interval_s,\n      v.burst_rate_s,\n      v.access_type,\n      v.permissao::text AS permissao,\n      v.share_id\n    FROM dispositivos_visiveis v\n    LEFT JOIN modelos_dispositivo m ON m.id = v.modelo_id\n    LEFT JOIN LATERAL (\n      SELECT recebido_em FROM dispositivo_ultimo_valor\n      WHERE dispositivo_id = v.id ORDER BY recebido_em DESC LIMIT 1\n    ) uv ON TRUE\n    WHERE v.viewer_id = $1::uuid\n    ORDER BY v.created_at DESC\n  `, [userId]);\n  msg.statusCode = 200;\n  msg.payload = r.rows;\n} catch(e) {\n  node.error('list dispositivos: '+e.message, msg);\n  msg.statusCode = 500; msg.payload = {error:'internal'};\n}\nreturn msg;",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -2673,7 +2673,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Claim produto",
-        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n\nconst body = msg.payload || {};\nconst token = body.claim_token ? String(body.claim_token).trim() : '';\nconst serial = body.serial ? String(body.serial).trim() : '';\nconst pairing = body.pairing_code ? String(body.pairing_code).trim().toUpperCase() : '';\n\nif (!token && !(serial && pairing)) {\n  msg.statusCode=400; msg.payload={error:'informe claim_token ou (serial + pairing_code)'}; return msg;\n}\n\ntry {\n  let sel;\n  if (token) {\n    sel = await pool.query(\n      'SELECT id, device_id, status FROM devices WHERE claim_token = $1 LIMIT 1',\n      [token]\n    );\n  } else {\n    sel = await pool.query(\n      'SELECT id, device_id, status FROM devices WHERE device_id = $1 AND pairing_code = $2 LIMIT 1',\n      [serial, pairing]\n    );\n  }\n  if (sel.rowCount === 0) {\n    msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado ou codigo invalido'}; return msg;\n  }\n  const cur = sel.rows[0];\n  if (cur.status !== 'ocioso') {\n    msg.statusCode=409; msg.payload={error:'dispositivo ja foi reivindicado'}; return msg;\n  }\n\n  const upd = await pool.query(\n    \"UPDATE devices SET status='associado', user_id=$1, claimed_em=NOW(), claim_token=NULL, pairing_code=NULL WHERE id=$2 AND status='ocioso' RETURNING id\",\n    [msg.user.id, cur.id]\n  );\n  if (upd.rowCount === 0) {\n    msg.statusCode=409; msg.payload={error:'estado mudou durante o claim, tente novamente'}; return msg;\n  }\n\n  const selectSql = 'SELECT d.id, d.device_id AS serial, d.status, d.sequencial, d.provisionado_em, d.claimed_em, d.user_id AS owner_id, d.nome_amigavel AS nome, d.is_online, d.last_seen, d.telemetry_interval_s, d.burst_rate_s, d.modelo_id, m.nome AS modelo_nome, m.prefixo, m.major_version, u.email AS owner_email, u.full_name AS owner_nome FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id LEFT JOIN app_users u ON u.id = d.user_id WHERE d.id=$1 LIMIT 1';\n  const r = await pool.query(selectSql, [cur.id]);\n  msg.statusCode = 200;\n  msg.payload = { dispositivo: r.rows[0] };\n} catch(e) {\n  node.error('claim: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n\nconst body = msg.payload || {};\nconst token = body.claim_token ? String(body.claim_token).trim() : '';\nconst serial = body.serial ? String(body.serial).trim() : '';\nconst pairing = body.pairing_code ? String(body.pairing_code).trim().toUpperCase() : '';\n\n// Apelido opcional: trim; vazio/só espaço = NULL; 1..80 chars = aceita.\nlet apelido = null;\nif (body.apelido !== undefined && body.apelido !== null) {\n  const trimmed = String(body.apelido).trim();\n  if (trimmed.length > 80) {\n    msg.statusCode=400; msg.payload={error:'apelido deve ter no maximo 80 caracteres'}; return msg;\n  }\n  if (trimmed.length > 0) apelido = trimmed;\n}\n\nif (!token && !(serial && pairing)) {\n  msg.statusCode=400; msg.payload={error:'informe claim_token ou (serial + pairing_code)'}; return msg;\n}\n\ntry {\n  let sel;\n  if (token) {\n    sel = await pool.query(\n      'SELECT id, device_id, status FROM devices WHERE claim_token = $1 LIMIT 1',\n      [token]\n    );\n  } else {\n    sel = await pool.query(\n      'SELECT id, device_id, status FROM devices WHERE device_id = $1 AND pairing_code = $2 LIMIT 1',\n      [serial, pairing]\n    );\n  }\n  if (sel.rowCount === 0) {\n    msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado ou codigo invalido'}; return msg;\n  }\n  const cur = sel.rows[0];\n  if (cur.status !== 'ocioso') {\n    msg.statusCode=409; msg.payload={error:'dispositivo ja foi reivindicado'}; return msg;\n  }\n\n  const upd = await pool.query(\n    \"UPDATE devices SET status='associado', user_id=$1, claimed_em=NOW(), claim_token=NULL, pairing_code=NULL, apelido=$2 WHERE id=$3 AND status='ocioso' RETURNING id\",\n    [msg.user.id, apelido, cur.id]\n  );\n  if (upd.rowCount === 0) {\n    msg.statusCode=409; msg.payload={error:'estado mudou durante o claim, tente novamente'}; return msg;\n  }\n\n  // Retorna shape compatível com lista (inclui apelido)\n  const r = await pool.query(\n    `SELECT d.id, d.device_id AS serial, d.status, d.apelido,\n            COALESCE(NULLIF(d.nome_amigavel, ''), d.name) AS nome,\n            d.user_id AS owner_id,\n            d.is_online AS online, d.last_seen AS last_seen_at,\n            d.telemetry_interval_s, d.burst_rate_s,\n            m.nome AS modelo_nome\n       FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n      WHERE d.id=$1 LIMIT 1`,\n    [cur.id]\n  );\n  msg.statusCode = 200;\n  msg.payload = { dispositivo: r.rows[0] };\n} catch(e) {\n  if (/apelido_length/i.test(e.message)) {\n    msg.statusCode=400; msg.payload={error:'apelido invalido (1 a 80 caracteres)'}; return msg;\n  }\n  node.error('claim: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
         "outputs": 1,
         "libs": [],
         "x": 700,
@@ -2840,6 +2840,76 @@
         },
         "x": 940,
         "y": 3300,
+        "wires": []
+    },
+    {
+        "id": "httpUpdateDisp",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "PATCH /dispositivos/:id",
+        "url": "/dispositivos/:id",
+        "method": "patch",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 3400,
+        "wires": [
+            [
+                "fnAuthUpdateDisp"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthUpdateDisp",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 3400,
+        "wires": [
+            [
+                "fnUpdateDisp"
+            ],
+            [
+                "respUpdateDisp"
+            ]
+        ]
+    },
+    {
+        "id": "fnUpdateDisp",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Update dispositivo (apelido)",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return msg; }\n\nconst body = msg.payload || {};\nif (!Object.prototype.hasOwnProperty.call(body, 'apelido')) {\n  msg.statusCode=400; msg.payload={error:'body deve conter campo apelido (string ou null)'}; return msg;\n}\n\nlet apelido = null;\nif (body.apelido !== null && body.apelido !== undefined) {\n  const trimmed = String(body.apelido).trim();\n  if (trimmed.length > 80) {\n    msg.statusCode=400; msg.payload={error:'apelido deve ter no maximo 80 caracteres'}; return msg;\n  }\n  if (trimmed.length > 0) apelido = trimmed;\n}\n\ntry {\n  const dev = await pool.query('SELECT user_id, status FROM devices WHERE id=$1 LIMIT 1', [id]);\n  if (dev.rowCount === 0) { msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado'}; return msg; }\n  const isAdmin = msg.user && msg.user.role === 'admin';\n  if (dev.rows[0].user_id !== msg.user.id && !isAdmin) {\n    msg.statusCode=403; msg.payload={error:'apenas o dono pode renomear'}; return msg;\n  }\n\n  const r = await pool.query(\n    `UPDATE devices SET apelido=$1, updated_at=NOW() WHERE id=$2\n     RETURNING id, device_id AS serial, apelido, status,\n               COALESCE(NULLIF(nome_amigavel, ''), name) AS nome,\n               user_id AS owner_id`,\n    [apelido, id]\n  );\n\n  msg.statusCode = 200;\n  msg.payload = { dispositivo: r.rows[0] };\n} catch(e) {\n  if (/apelido_length/i.test(e.message)) {\n    msg.statusCode=400; msg.payload={error:'apelido invalido (1 a 80 caracteres)'}; return msg;\n  }\n  node.error('update dispositivo: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 700,
+        "y": 3400,
+        "wires": [
+            [
+                "respUpdateDisp"
+            ]
+        ]
+    },
+    {
+        "id": "respUpdateDisp",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 3400,
         "wires": []
     }
 ]
