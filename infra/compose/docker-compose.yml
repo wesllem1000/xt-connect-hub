@@ -1,0 +1,118 @@
+name: xtconect
+
+networks:
+  xtnet:
+    driver: bridge
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: ../env/secrets.env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      TZ: America/Sao_Paulo
+    volumes:
+      - ../data/postgres:/var/lib/postgresql/data
+    networks: [xtnet]
+
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    restart: unless-stopped
+    ports:
+      - "8883:8883"
+      - "8884:8884"
+    volumes:
+      - ../mosquitto/config:/mosquitto/config:ro
+      - ../mosquitto/auth:/mosquitto/auth:ro
+      - ../data/mosquitto/data:/mosquitto/data
+      - ../data/mosquitto/log:/mosquitto/log
+      - ../letsencrypt:/etc/letsencrypt:ro
+    networks: [xtnet]
+    profiles: [full]
+
+  nodered:
+    image: nodered/node-red:4.1.8-minimal
+    container_name: xtconect-nodered-1
+    restart: unless-stopped
+    profiles: ["full"]
+    environment:
+      - TZ=America/Sao_Paulo
+    env_file:
+      - ../env/secrets.env
+    volumes:
+      - /opt/xtconect/nodered/data:/data
+      - /opt/xtconect/env:/data/env:ro
+      - /opt/xtconect/nodered/templates:/data/templates:ro
+    networks:
+      - xtnet
+    depends_on:
+      - postgres
+      - mosquitto
+
+  influxdb:
+    image: influxdb:2.7
+    container_name: xtconect-influxdb-1
+    restart: unless-stopped
+    profiles: ["full"]
+    environment:
+      - TZ=America/Sao_Paulo
+      - DOCKER_INFLUXDB_INIT_MODE=setup
+      - DOCKER_INFLUXDB_INIT_USERNAME=${INFLUX_ADMIN_USER}
+      - DOCKER_INFLUXDB_INIT_PASSWORD=${INFLUX_ADMIN_PASSWORD}
+      - DOCKER_INFLUXDB_INIT_ORG=${INFLUX_ORG}
+      - DOCKER_INFLUXDB_INIT_BUCKET=${INFLUX_BUCKET}
+      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=${INFLUX_ADMIN_TOKEN}
+      - DOCKER_INFLUXDB_INIT_RETENTION=90d
+    volumes:
+      - /opt/xtconect/influxdb/data:/var/lib/influxdb2
+      - /opt/xtconect/influxdb/config:/etc/influxdb2
+    networks:
+      - xtnet
+
+  grafana:
+    image: grafana/grafana-oss:11.2.0
+    container_name: xtconect-grafana-1
+    restart: unless-stopped
+    profiles: ["full"]
+    environment:
+      - TZ=America/Sao_Paulo
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_SERVER_ROOT_URL=https://hub.xtconect.online/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_SERVER_DOMAIN=hub.xtconect.online
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_USERS_ALLOW_ORG_CREATE=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_INSTALL_PLUGINS=
+      - INFLUX_ORG=${INFLUX_ORG}
+      - INFLUX_BUCKET=${INFLUX_BUCKET}
+      - INFLUX_ADMIN_TOKEN=${INFLUX_ADMIN_TOKEN}
+    volumes:
+      - /opt/xtconect/grafana/data:/var/lib/grafana
+      - /opt/xtconect/grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - xtnet
+    depends_on:
+      - influxdb
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: xtconect-nginx-1
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /opt/xtconect/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /opt/xtconect/nginx/conf.d:/etc/nginx/conf.d:ro
+      - /opt/xtconect/letsencrypt:/etc/letsencrypt:ro
+      - /opt/xtconect/letsencrypt/www:/var/www/certbot:ro
+      - /opt/xtconect/www:/usr/share/nginx/html:ro
+    networks:
+      - xtnet

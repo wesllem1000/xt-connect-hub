@@ -1,0 +1,1995 @@
+[
+    {
+        "id": "e056058d3565845e",
+        "type": "tab",
+        "label": "Fluxo 1",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "tabIngest",
+        "type": "tab",
+        "label": "Ingestão MQTT",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "tabAuth",
+        "type": "tab",
+        "label": "API / Auth",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "brokerMosq",
+        "type": "mqtt-broker",
+        "name": "Mosquitto Interno",
+        "broker": "mosquitto",
+        "port": "1883",
+        "clientid": "node-red-hub",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": false,
+        "autoUnsubscribe": true,
+        "birthTopic": "$SYS/node-red/status",
+        "birthQos": "1",
+        "birthRetain": "true",
+        "birthPayload": "online",
+        "birthMsg": {},
+        "closeTopic": "$SYS/node-red/status",
+        "closeQos": "1",
+        "closeRetain": "true",
+        "closePayload": "offline",
+        "closeMsg": {},
+        "willTopic": "$SYS/node-red/status",
+        "willQos": "1",
+        "willRetain": "true",
+        "willPayload": "offline",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    },
+    {
+        "id": "injInitPg",
+        "type": "inject",
+        "z": "tabIngest",
+        "name": "init pool (on start)",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "1",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 180,
+        "y": 80,
+        "wires": [
+            [
+                "fnInitPg"
+            ]
+        ]
+    },
+    {
+        "id": "fnInitPg",
+        "type": "function",
+        "z": "tabIngest",
+        "name": "Criar pool PG",
+        "func": "if (global.get('pgPool') && global.get('influxWrite')) {\n  node.status({ fill: 'green', shape: 'dot', text: 'pool+influx ok' });\n  return null;\n}\n\n// --- PostgreSQL ---\nif (!global.get('pgPool')) {\n  const { Pool } = pg;\n  const pool = new Pool({\n    host: env.get('POSTGRES_HOST') || 'postgres',\n    port: parseInt(env.get('POSTGRES_PORT') || '5432'),\n    user: env.get('POSTGRES_USER'),\n    password: env.get('POSTGRES_PASSWORD'),\n    database: env.get('POSTGRES_DB'),\n    max: 10,\n    idleTimeoutMillis: 30000\n  });\n  try {\n    await pool.query('SELECT 1');\n    global.set('pgPool', pool);\n  } catch (e) {\n    node.error('PG pool: ' + e.message);\n    node.status({ fill: 'red', shape: 'ring', text: 'pg: ' + e.message.slice(0, 30) });\n    return null;\n  }\n}\n\n// --- InfluxDB ---\nif (!global.get('influxWrite')) {\n  const { InfluxDB, Point } = Influx;\n  const client = new InfluxDB({\n    url: env.get('INFLUXDB_URL') || 'http://influxdb:8086',\n    token: env.get('INFLUX_ADMIN_TOKEN')\n  });\n  const writeApi = client.getWriteApi(\n    env.get('INFLUX_ORG'),\n    env.get('INFLUX_BUCKET'),\n    'ns',\n    { flushInterval: 2000, batchSize: 100 }\n  );\n  global.set('influxWrite', writeApi);\n  global.set('influxPoint', Point);\n}\n\nnode.status({ fill: 'green', shape: 'dot', text: 'pool+influx OK ' + new Date().toISOString().slice(11, 19) });\nreturn null;",
+        "outputs": 1,
+        "timeout": "30",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [
+            {
+                "var": "pg",
+                "module": "pg"
+            },
+            {
+                "var": "Influx",
+                "module": "@influxdata/influxdb-client"
+            }
+        ],
+        "x": 400,
+        "y": 80,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "mqttInData",
+        "type": "mqtt in",
+        "z": "tabIngest",
+        "name": "devices/+/data",
+        "topic": "devices/+/data",
+        "qos": "1",
+        "datatype": "auto-detect",
+        "broker": "brokerMosq",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 160,
+        "y": 200,
+        "wires": [
+            [
+                "fnHandleData"
+            ]
+        ]
+    },
+    {
+        "id": "fnHandleData",
+        "type": "function",
+        "z": "tabIngest",
+        "name": "Gravar leitura",
+        "func": "// E2.2 + E2.2.1 — validação do envelope + emite presence event no flip offline→online\nconst MAX = parseInt(env.get('MQTT_MAX_PAYLOAD_BYTES') || '4096');\nconst pool = global.get('pgPool');\nconst writeApi = global.get('influxWrite');\nconst Point = global.get('influxPoint');\nif (!pool) { node.status({ fill:'red', shape:'ring', text:'sem pool' }); return null; }\n\nconst topic = msg.topic || '';\nconst parts = topic.split('/');\nif (parts.length !== 3 || parts[0] !== 'devices' || parts[2] !== 'data') {\n  node.warn('topic invalido: ' + topic); return null;\n}\nconst mqttUser = parts[1];\nif (!mqttUser || mqttUser.length > 64) { node.warn('serial invalido'); return null; }\n\nlet raw = msg.payload;\nlet str;\nif (Buffer.isBuffer(raw)) str = raw.toString('utf8');\nelse if (typeof raw === 'string') str = raw;\nelse if (raw && typeof raw === 'object') str = JSON.stringify(raw);\nelse { node.warn('payload type inesperado: ' + typeof raw); return null; }\nif (str.length > MAX) { node.warn('payload > ' + MAX + 'B'); return null; }\n\nlet env_;\ntry { env_ = JSON.parse(str); } catch (e) { node.warn('JSON invalido: ' + e.message); return null; }\nif (!env_ || typeof env_ !== 'object' || Array.isArray(env_)) { node.warn('envelope nao e objeto'); return null; }\nif (typeof env_.ts !== 'number' || !Number.isFinite(env_.ts) || env_.ts <= 0) { node.warn('ts invalido'); return null; }\nif (!env_.readings || typeof env_.readings !== 'object' || Array.isArray(env_.readings)) {\n  node.warn('readings ausente/invalido'); return null;\n}\nconst keys = Object.keys(env_.readings);\nif (keys.length === 0) { node.warn('readings vazio'); return null; }\nfor (const k of keys) {\n  if (typeof k !== 'string' || k.length === 0 || k.length > 32) { node.warn('key invalida: ' + k); return null; }\n  const v = env_.readings[k];\n  if (typeof v !== 'number' || !Number.isFinite(v)) { node.warn('valor nao numerico em ' + k); return null; }\n}\n\nconst tsNum = env_.ts;\nconst tsMs = tsNum < 1e12 ? tsNum * 1000 : tsNum;\nconst tsIso = new Date(tsMs).toISOString();\n\ntry {\n  const r = await pool.query(\n    'SELECT id, user_id, status, is_online FROM devices WHERE mqtt_username=$1 LIMIT 1',\n    [mqttUser]\n  );\n  if (r.rowCount === 0) {\n    await pool.query('INSERT INTO mqtt_events(topic,client_id,payload) VALUES($1,$2,$3)',\n      [topic, mqttUser, JSON.stringify(env_)]);\n    node.status({ fill:'yellow', shape:'ring', text: mqttUser + ' nao cadastrado' });\n    return null;\n  }\n  const dev = r.rows[0];\n  if (dev.status !== 'active') {\n    node.status({ fill:'yellow', shape:'ring', text: mqttUser + ' status=' + dev.status });\n    return null;\n  }\n  const devId = dev.id;\n  const wasOnline = dev.is_online === true;\n  const readingsJson = JSON.stringify(env_.readings);\n\n  await pool.query(\n    'INSERT INTO device_readings(device_id, ts, topic, payload) VALUES($1,$2,$3,$4::jsonb)',\n    [devId, tsIso, topic, readingsJson]\n  );\n  await pool.query(\n    'UPDATE devices SET last_reading=$1::jsonb, last_reading_at=$2, last_seen=NOW(), is_online=TRUE WHERE id=$3',\n    [readingsJson, tsIso, devId]\n  );\n\n  let fieldCount = 0;\n  if (writeApi && Point) {\n    const p = new Point('readings').tag('device_id', devId).tag('mqtt_user', mqttUser).timestamp(new Date(tsMs));\n    for (const k of keys) { p.floatField(k, env_.readings[k]); fieldCount++; }\n    if (fieldCount > 0) writeApi.writePoint(p);\n  }\n\n  node.status({ fill:'green', shape:'dot', text: mqttUser + ' pg+ifx('+fieldCount+'f) '+new Date().toISOString().slice(11,19) });\n  msg.saved = { device_id: devId, ts: tsIso, readings: env_.readings, influx_fields: fieldCount };\n\n  // Emite presence event somente se estava offline (transição)\n  let presenceMsg = null;\n  if (!wasOnline) {\n    presenceMsg = {\n      topic: 'devices/' + mqttUser + '/status',\n      payload: JSON.stringify({\n        type: 'device_status_changed',\n        online: true,\n        device_id: devId,\n        serial: mqttUser,\n        user_id: dev.user_id,\n        last_seen_at: new Date().toISOString(),\n        source: 'ingest'\n      })\n    };\n  }\n  return [msg, presenceMsg];\n} catch (e) {\n  node.error('ingest: ' + e.message, msg);\n  return null;\n}\n",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 200,
+        "wires": [
+            [
+                "dbgData"
+            ],
+            [
+                "mqttOutPresence"
+            ]
+        ]
+    },
+    {
+        "id": "dbgData",
+        "type": "debug",
+        "z": "tabIngest",
+        "name": "saved",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "complete": "saved",
+        "targetType": "msg",
+        "x": 580,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "mqttInStatus",
+        "type": "mqtt in",
+        "z": "tabIngest",
+        "name": "devices/+/status",
+        "topic": "devices/+/status",
+        "qos": "1",
+        "datatype": "auto-detect",
+        "broker": "brokerMosq",
+        "inputs": 0,
+        "x": 160,
+        "y": 280,
+        "wires": [
+            [
+                "fnHandleStatus"
+            ]
+        ]
+    },
+    {
+        "id": "fnHandleStatus",
+        "type": "function",
+        "z": "tabIngest",
+        "name": "Atualizar status",
+        "func": "// E2.2.1 — status estrito: 'online' -> true, qq outra coisa -> false.\n// Ignora payloads que sejam objetos/JSON (são eventos publicados pela\n// própria plataforma → evita loop que flipa is_online=false logo após o\n// ingest flipar pra true).\n// Publica device_status_changed apenas se houve transição real.\nconst pool = global.get('pgPool');\nif (!pool) return null;\nconst parts = (msg.topic || '').split('/');\nif (parts.length !== 3) return null;\nconst mqttUser = parts[1];\nif (!mqttUser || mqttUser.length > 64) return null;\n// Skip self-published presence events. O mqtt in com datatype=auto-detect\n// parseia JSON → msg.payload vira objeto; String(obj) dá '[object Object]',\n// então não basta checar startsWith('{').\nif (msg.payload && typeof msg.payload === 'object') return null;\nconst raw = Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') : String(msg.payload || '');\nconst trimmed = raw.trim();\nif (trimmed.startsWith('{') || trimmed.startsWith('[')) return null;\nconst online = trimmed.toLowerCase() === 'online';\ntry {\n  const sel = await pool.query(\n    'SELECT id, user_id, is_online, last_seen FROM devices WHERE mqtt_username=$1 LIMIT 1',\n    [mqttUser]\n  );\n  if (sel.rowCount === 0) return null;\n  const dev = sel.rows[0];\n  const wasOnline = dev.is_online === true;\n  // Atualiza last_seen só quando online=true; offline preserva o timestamp\n  // da última vez que realmente vimos dado (importante pro sweeper).\n  if (online) {\n    await pool.query(\n      'UPDATE devices SET is_online=TRUE, last_seen=NOW() WHERE mqtt_username=$1',\n      [mqttUser]\n    );\n  } else {\n    await pool.query(\n      'UPDATE devices SET is_online=FALSE WHERE mqtt_username=$1',\n      [mqttUser]\n    );\n  }\n  node.status({ fill: online ? 'green' : 'red', shape: 'dot', text: mqttUser + ' ' + (online ? 'on' : 'off') });\n  if (wasOnline === online) return null; // sem transição\n  const presence = {\n    topic: 'devices/' + mqttUser + '/status',\n    payload: JSON.stringify({\n      type: 'device_status_changed',\n      online: online,\n      device_id: dev.id,\n      serial: mqttUser,\n      user_id: dev.user_id,\n      last_seen_at: online ? new Date().toISOString() : (dev.last_seen ? new Date(dev.last_seen).toISOString() : null),\n      source: 'status-mirror'\n    })\n  };\n  return [null, presence];\n} catch (e) { node.warn('status update: ' + e.message); }\nreturn null;\n",
+        "outputs": 2,
+        "libs": [],
+        "x": 390,
+        "y": 280,
+        "wires": [
+            [],
+            [
+                "mqttOutPresence"
+            ]
+        ]
+    },
+    {
+        "id": "httpLogin",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /auth/login",
+        "url": "/auth/login",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 100,
+        "wires": [
+            [
+                "fnLogin"
+            ]
+        ]
+    },
+    {
+        "id": "fnLogin",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Validar + emitir JWT",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nconst password = body.password||'';\nif (!email || !password) { msg.statusCode=400; msg.payload={error:'missing credentials'}; return msg; }\ntry {\n  const r = await pool.query('SELECT id,email,password_hash,full_name,role,is_active,email_verified FROM app_users WHERE email=$1',[email]);\n  if (r.rowCount===0) { msg.statusCode=401; msg.payload={error:'invalid credentials'}; return msg; }\n  const u = r.rows[0];\n  if (!u.is_active) { msg.statusCode=403; msg.payload={error:'user inactive'}; return msg; }\n  if (!u.email_verified) { msg.statusCode=403; msg.payload={error:'email_not_verified'}; return msg; }\n  const ok = await bcrypt.compare(password, u.password_hash);\n  if (!ok) { msg.statusCode=401; msg.payload={error:'invalid credentials'}; return msg; }\n  const secret = env.get('JWT_SECRET');\n  const access = jwt.sign({sub:u.id,email:u.email,role:u.role,name:u.full_name}, secret, {expiresIn:'15m'});\n  const refresh = jwt.sign({sub:u.id,typ:'refresh'}, secret, {expiresIn:'7d'});\n  msg.statusCode=200;\n  msg.payload={access_token:access, refresh_token:refresh, expires_in:900, user:{id:u.id,email:u.email,name:u.full_name,role:u.role}};\n} catch(e) {\n  node.error('login: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [
+            {
+                "var": "bcrypt",
+                "module": "bcryptjs"
+            },
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 400,
+        "y": 100,
+        "wires": [
+            [
+                "respLogin"
+            ]
+        ]
+    },
+    {
+        "id": "respLogin",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 620,
+        "y": 100,
+        "wires": []
+    },
+    {
+        "id": "httpMqttCfg",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /mqtt-config",
+        "url": "/mqtt-config",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 200,
+        "wires": [
+            [
+                "fnMqttCfg"
+            ]
+        ]
+    },
+    {
+        "id": "fnMqttCfg",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Validar JWT + config",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return msg; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return msg; }\n  msg.statusCode=200;\n  msg.payload = {\n    host: 'hub.xtconect.online',\n    port: 8884,\n    protocol: 'wss',\n    path: '/mqtt',\n    username: 'webapp',\n    password: env.get('MQTT_WEB_PASSWORD'),\n    client_id_prefix: 'webapp-'+String(decoded.sub).substring(0,8),\n    keepalive: 60\n  };\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token', detail:e.message};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 400,
+        "y": 200,
+        "wires": [
+            [
+                "respMqttCfg"
+            ]
+        ]
+    },
+    {
+        "id": "respMqttCfg",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 620,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "httpHealth",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /health",
+        "url": "/health",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 300,
+        "wires": [
+            [
+                "fnHealth"
+            ]
+        ]
+    },
+    {
+        "id": "fnHealth",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Health",
+        "func": "const pool = global.get('pgPool');\nlet pgOk = false;\ntry { if (pool) { const r = await pool.query('SELECT 1 as ok'); pgOk = r.rows[0].ok === 1; } } catch(e){}\nmsg.statusCode=200;\nmsg.payload={status:'ok', services:{postgres:pgOk, node_red:true}, ts:new Date().toISOString()};\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 360,
+        "y": 300,
+        "wires": [
+            [
+                "respHealth"
+            ]
+        ]
+    },
+    {
+        "id": "respHealth",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 540,
+        "y": 300,
+        "wires": []
+    },
+    {
+        "id": "httpRefresh",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /auth/refresh",
+        "url": "/auth/refresh",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 400,
+        "wires": [
+            [
+                "fnRefresh"
+            ]
+        ]
+    },
+    {
+        "id": "fnRefresh",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Validar refresh + emitir access",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst refreshToken = body.refresh_token;\nif (!refreshToken) { msg.statusCode=400; msg.payload={error:'missing refresh token'}; return msg; }\nconst secret = env.get('JWT_SECRET');\nlet decoded;\ntry { decoded = jwt.verify(refreshToken, secret); }\ncatch(e) { msg.statusCode=401; msg.payload={error:'invalid refresh token'}; return msg; }\nif (decoded.typ !== 'refresh') { msg.statusCode=401; msg.payload={error:'invalid refresh token'}; return msg; }\ntry {\n  const r = await pool.query('SELECT id,email,full_name,role,is_active FROM app_users WHERE id=$1',[decoded.sub]);\n  if (r.rowCount===0 || !r.rows[0].is_active) { msg.statusCode=401; msg.payload={error:'user inactive'}; return msg; }\n  const u = r.rows[0];\n  const access = jwt.sign({sub:u.id,email:u.email,role:u.role,name:u.full_name}, secret, {expiresIn:'15m'});\n  msg.statusCode=200;\n  msg.payload={access_token:access, expires_in:900};\n} catch(e) {\n  node.error('refresh: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 400,
+        "y": 400,
+        "wires": [
+            [
+                "respRefresh"
+            ]
+        ]
+    },
+    {
+        "id": "respRefresh",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 620,
+        "y": 400,
+        "wires": []
+    },
+    {
+        "id": "httpListDisp",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /dispositivos",
+        "url": "/dispositivos",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 500,
+        "wires": [
+            [
+                "fnAuthJWT"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthJWT",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT middleware",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 370,
+        "y": 500,
+        "wires": [
+            [
+                "fnListDisp"
+            ],
+            [
+                "respListDisp"
+            ]
+        ]
+    },
+    {
+        "id": "fnListDisp",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Listar dispositivos",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst isAdmin = msg.user && msg.user.role === 'admin';\nconst userId = msg.user && msg.user.id;\nconst sql = `\n  SELECT\n    d.id,\n    COALESCE(NULLIF(d.nome_amigavel, ''), d.name) AS nome,\n    d.device_id AS serial,\n    m.nome AS modelo,\n    uv.recebido_em AS ultimo_valor,\n    d.created_at AS criado_em,\n    d.is_online AS online,\n    d.last_seen AS last_seen_at,\n    d.telemetry_interval_s,\n    d.burst_rate_s\n  FROM devices d\n  LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n  LEFT JOIN LATERAL (\n    SELECT recebido_em FROM dispositivo_ultimo_valor\n    WHERE dispositivo_id = d.id\n    ORDER BY recebido_em DESC\n    LIMIT 1\n  ) uv ON TRUE\n  WHERE ($1::uuid IS NULL OR d.user_id = $1::uuid)\n  ORDER BY d.created_at DESC\n`;\ntry {\n  const r = await pool.query(sql, [isAdmin ? null : userId]);\n  msg.statusCode = 200;\n  msg.payload = r.rows;\n} catch(e) {\n  node.error('list dispositivos: '+e.message, msg);\n  msg.statusCode = 500; msg.payload = {error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 600,
+        "y": 500,
+        "wires": [
+            [
+                "respListDisp"
+            ]
+        ]
+    },
+    {
+        "id": "respListDisp",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 820,
+        "y": 500,
+        "wires": []
+    },
+    {
+        "id": "httpListModelos",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /modelos-dispositivo",
+        "url": "/modelos-dispositivo",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 620,
+        "wires": [
+            [
+                "fnAuthListMod"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthListMod",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 360,
+        "y": 620,
+        "wires": [
+            [
+                "fnListModelos"
+            ],
+            [
+                "respListModelos"
+            ]
+        ]
+    },
+    {
+        "id": "fnListModelos",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Listar modelos",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst sql = `\n  SELECT\n    m.id, m.nome, m.descricao, m.fabricante, m.criado_em,\n    (SELECT COUNT(*)::int FROM devices d WHERE d.modelo_id = m.id) AS total_dispositivos\n  FROM modelos_dispositivo m\n  WHERE m.ativo = TRUE\n  ORDER BY m.nome ASC\n`;\ntry {\n  const r = await pool.query(sql);\n  msg.statusCode = 200;\n  msg.payload = r.rows;\n} catch(e) {\n  node.error('list modelos: '+e.message, msg);\n  msg.statusCode = 500; msg.payload = {error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 600,
+        "y": 620,
+        "wires": [
+            [
+                "respListModelos"
+            ]
+        ]
+    },
+    {
+        "id": "respListModelos",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 820,
+        "y": 620,
+        "wires": []
+    },
+    {
+        "id": "httpGetModelo",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /modelos-dispositivo/:id",
+        "url": "/modelos-dispositivo/:id",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 720,
+        "wires": [
+            [
+                "fnAuthGetMod"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthGetMod",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 360,
+        "y": 720,
+        "wires": [
+            [
+                "fnAdminGetMod"
+            ],
+            [
+                "respGetModelo"
+            ]
+        ]
+    },
+    {
+        "id": "fnAdminGetMod",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Require admin",
+        "func": "if (!msg.user || msg.user.role !== 'admin') {\n  msg.statusCode=403; msg.payload={error:'forbidden'};\n  return [null, msg];\n}\nreturn [msg, null];",
+        "outputs": 2,
+        "libs": [],
+        "x": 540,
+        "y": 720,
+        "wires": [
+            [
+                "fnGetModelo"
+            ],
+            [
+                "respGetModelo"
+            ]
+        ]
+    },
+    {
+        "id": "fnGetModelo",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Get modelo",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst id = msg.req.params.id;\nif (!/^[0-9a-f-]{36}$/i.test(id)) { msg.statusCode=400; msg.payload={error:'invalid id'}; return msg; }\ntry {\n  const r = await pool.query('SELECT id,nome,descricao,fabricante,imagem_url,especificacoes,protocolos_suportados,retencao_historico_horas,ativo,criado_em,atualizado_em FROM modelos_dispositivo WHERE id=$1',[id]);\n  if (r.rowCount===0) { msg.statusCode=404; msg.payload={error:'not found'}; return msg; }\n  const modelo = r.rows[0];\n  const w = await pool.query(`\n    SELECT mw.id, mw.widget_id AS catalogo_widget_id, mw.titulo, mw.ordem,\n           mw.coluna, mw.linha, mw.largura, mw.altura,\n           mw.direcao, mw.json_path_leitura, mw.nome_comando,\n           mw.configuracao AS config_padrao, mw.ativo,\n           cw.nome AS widget_nome, cw.tipo AS widget_tipo, cw.icone AS widget_icone\n    FROM modelo_widgets mw\n    JOIN catalogo_widgets cw ON cw.id = mw.widget_id\n    WHERE mw.modelo_id = $1 AND mw.ativo = TRUE\n    ORDER BY mw.ordem ASC\n  `, [id]);\n  modelo.widgets = w.rows;\n  msg.statusCode = 200;\n  msg.payload = modelo;\n} catch(e) {\n  node.error('get modelo: '+e.message, msg);\n  msg.statusCode = 500; msg.payload = {error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 720,
+        "y": 720,
+        "wires": [
+            [
+                "respGetModelo"
+            ]
+        ]
+    },
+    {
+        "id": "respGetModelo",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 900,
+        "y": 720,
+        "wires": []
+    },
+    {
+        "id": "httpCreateMod",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /modelos-dispositivo",
+        "url": "/modelos-dispositivo",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 820,
+        "wires": [
+            [
+                "fnAuthCreateMod"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthCreateMod",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 360,
+        "y": 820,
+        "wires": [
+            [
+                "fnAdminCreateMod"
+            ],
+            [
+                "respCreateMod"
+            ]
+        ]
+    },
+    {
+        "id": "fnAdminCreateMod",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Require admin",
+        "func": "if (!msg.user || msg.user.role !== 'admin') {\n  msg.statusCode=403; msg.payload={error:'forbidden'};\n  return [null, msg];\n}\nreturn [msg, null];",
+        "outputs": 2,
+        "libs": [],
+        "x": 540,
+        "y": 820,
+        "wires": [
+            [
+                "fnCreateModelo"
+            ],
+            [
+                "respCreateMod"
+            ]
+        ]
+    },
+    {
+        "id": "fnCreateModelo",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Criar modelo",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst nome = (body.nome||'').trim();\nconst fabricante = (body.fabricante||'').trim();\nconst descricao = body.descricao || null;\nconst widgets = Array.isArray(body.widgets) ? body.widgets : [];\nif (!nome) { msg.statusCode=400; msg.payload={error:'nome obrigatorio'}; return msg; }\nif (!fabricante) { msg.statusCode=400; msg.payload={error:'fabricante obrigatorio'}; return msg; }\nconst ENVIAR = new Set(['botao','slider','campo_texto','switch_personalizado']);\nconst BIDIR = new Set(['switch']);\nasync function insertWidgets(client, modeloId, widgets) {\n  for (let i=0; i<widgets.length; i++) {\n    const w = widgets[i] || {};\n    const widgetId = w.catalogo_widget_id;\n    if (!widgetId) continue;\n    const cw = await client.query('SELECT nome, tipo, configuracao_padrao FROM catalogo_widgets WHERE id=$1',[widgetId]);\n    if (cw.rowCount===0) throw new Error('widget nao encontrado: '+widgetId);\n    const tipo = cw.rows[0].tipo;\n    let direcao = 'receber', jsonPath = tipo, nomeCmd = null;\n    if (ENVIAR.has(tipo)) { direcao='enviar'; jsonPath=null; nomeCmd=tipo; }\n    else if (BIDIR.has(tipo)) { direcao='bidirecional'; jsonPath=tipo; nomeCmd=tipo; }\n    const config = (w.config_padrao && typeof w.config_padrao === 'object') ? w.config_padrao : cw.rows[0].configuracao_padrao;\n    await client.query(\n      'INSERT INTO modelo_widgets (modelo_id,widget_id,titulo,ordem,direcao,json_path_leitura,nome_comando,configuracao) VALUES ($1,$2,$3,$4,$5::direcao_dado,$6,$7,$8::jsonb)',\n      [modeloId, widgetId, w.titulo || cw.rows[0].nome, (w.ordem != null ? w.ordem : i), direcao, jsonPath, nomeCmd, JSON.stringify(config)]\n    );\n  }\n}\nconst client = await pool.connect();\ntry {\n  await client.query('BEGIN');\n  const r = await client.query(\n    'INSERT INTO modelos_dispositivo (nome,fabricante,descricao,criado_por) VALUES ($1,$2,$3,$4) RETURNING id',\n    [nome, fabricante, descricao, msg.user.id]\n  );\n  const modeloId = r.rows[0].id;\n  await insertWidgets(client, modeloId, widgets);\n  await client.query('COMMIT');\n  msg.statusCode = 201;\n  msg.payload = { id: modeloId };\n} catch(e) {\n  try { await client.query('ROLLBACK'); } catch(_) {}\n  if (/unique/i.test(e.message) || /duplicate/i.test(e.message)) {\n    msg.statusCode=409; msg.payload={error:'nome ja existe'};\n  } else {\n    node.error('create modelo: '+e.message, msg);\n    msg.statusCode=500; msg.payload={error:'internal', detail: e.message};\n  }\n} finally {\n  client.release();\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 720,
+        "y": 820,
+        "wires": [
+            [
+                "respCreateMod"
+            ]
+        ]
+    },
+    {
+        "id": "respCreateMod",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 900,
+        "y": 820,
+        "wires": []
+    },
+    {
+        "id": "httpUpdateMod",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "PUT /modelos-dispositivo/:id",
+        "url": "/modelos-dispositivo/:id",
+        "method": "put",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 920,
+        "wires": [
+            [
+                "fnAuthUpdateMod"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthUpdateMod",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 360,
+        "y": 920,
+        "wires": [
+            [
+                "fnAdminUpdateMod"
+            ],
+            [
+                "respUpdateMod"
+            ]
+        ]
+    },
+    {
+        "id": "fnAdminUpdateMod",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Require admin",
+        "func": "if (!msg.user || msg.user.role !== 'admin') {\n  msg.statusCode=403; msg.payload={error:'forbidden'};\n  return [null, msg];\n}\nreturn [msg, null];",
+        "outputs": 2,
+        "libs": [],
+        "x": 540,
+        "y": 920,
+        "wires": [
+            [
+                "fnUpdateModelo"
+            ],
+            [
+                "respUpdateMod"
+            ]
+        ]
+    },
+    {
+        "id": "fnUpdateModelo",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Atualizar modelo",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst id = msg.req.params.id;\nif (!/^[0-9a-f-]{36}$/i.test(id)) { msg.statusCode=400; msg.payload={error:'invalid id'}; return msg; }\nconst body = msg.payload || {};\nconst nome = (body.nome||'').trim();\nconst fabricante = (body.fabricante||'').trim();\nconst descricao = body.descricao || null;\nconst widgets = Array.isArray(body.widgets) ? body.widgets : [];\nif (!nome) { msg.statusCode=400; msg.payload={error:'nome obrigatorio'}; return msg; }\nif (!fabricante) { msg.statusCode=400; msg.payload={error:'fabricante obrigatorio'}; return msg; }\nconst ENVIAR = new Set(['botao','slider','campo_texto','switch_personalizado']);\nconst BIDIR = new Set(['switch']);\nasync function insertWidgets(client, modeloId, widgets) {\n  for (let i=0; i<widgets.length; i++) {\n    const w = widgets[i] || {};\n    const widgetId = w.catalogo_widget_id;\n    if (!widgetId) continue;\n    const cw = await client.query('SELECT nome, tipo, configuracao_padrao FROM catalogo_widgets WHERE id=$1',[widgetId]);\n    if (cw.rowCount===0) throw new Error('widget nao encontrado: '+widgetId);\n    const tipo = cw.rows[0].tipo;\n    let direcao = 'receber', jsonPath = tipo, nomeCmd = null;\n    if (ENVIAR.has(tipo)) { direcao='enviar'; jsonPath=null; nomeCmd=tipo; }\n    else if (BIDIR.has(tipo)) { direcao='bidirecional'; jsonPath=tipo; nomeCmd=tipo; }\n    const config = (w.config_padrao && typeof w.config_padrao === 'object') ? w.config_padrao : cw.rows[0].configuracao_padrao;\n    await client.query(\n      'INSERT INTO modelo_widgets (modelo_id,widget_id,titulo,ordem,direcao,json_path_leitura,nome_comando,configuracao) VALUES ($1,$2,$3,$4,$5::direcao_dado,$6,$7,$8::jsonb)',\n      [modeloId, widgetId, w.titulo || cw.rows[0].nome, (w.ordem != null ? w.ordem : i), direcao, jsonPath, nomeCmd, JSON.stringify(config)]\n    );\n  }\n}\nconst client = await pool.connect();\ntry {\n  await client.query('BEGIN');\n  const r = await client.query('UPDATE modelos_dispositivo SET nome=$1,fabricante=$2,descricao=$3 WHERE id=$4 RETURNING id',\n    [nome, fabricante, descricao, id]);\n  if (r.rowCount===0) { await client.query('ROLLBACK'); msg.statusCode=404; msg.payload={error:'not found'}; return msg; }\n  await client.query('DELETE FROM modelo_widgets WHERE modelo_id=$1',[id]);\n  await insertWidgets(client, id, widgets);\n  await client.query('COMMIT');\n  msg.statusCode = 200;\n  msg.payload = { id };\n} catch(e) {\n  try { await client.query('ROLLBACK'); } catch(_) {}\n  if (/unique/i.test(e.message) || /duplicate/i.test(e.message)) {\n    msg.statusCode=409; msg.payload={error:'nome ja existe'};\n  } else {\n    node.error('update modelo: '+e.message, msg);\n    msg.statusCode=500; msg.payload={error:'internal', detail: e.message};\n  }\n} finally {\n  client.release();\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 720,
+        "y": 920,
+        "wires": [
+            [
+                "respUpdateMod"
+            ]
+        ]
+    },
+    {
+        "id": "respUpdateMod",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 900,
+        "y": 920,
+        "wires": []
+    },
+    {
+        "id": "httpDeleteMod",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "DELETE /modelos-dispositivo/:id",
+        "url": "/modelos-dispositivo/:id",
+        "method": "delete",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 1020,
+        "wires": [
+            [
+                "fnAuthDeleteMod"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthDeleteMod",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 360,
+        "y": 1020,
+        "wires": [
+            [
+                "fnAdminDeleteMod"
+            ],
+            [
+                "respDeleteMod"
+            ]
+        ]
+    },
+    {
+        "id": "fnAdminDeleteMod",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Require admin",
+        "func": "if (!msg.user || msg.user.role !== 'admin') {\n  msg.statusCode=403; msg.payload={error:'forbidden'};\n  return [null, msg];\n}\nreturn [msg, null];",
+        "outputs": 2,
+        "libs": [],
+        "x": 540,
+        "y": 1020,
+        "wires": [
+            [
+                "fnDeleteModelo"
+            ],
+            [
+                "respDeleteMod"
+            ]
+        ]
+    },
+    {
+        "id": "fnDeleteModelo",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Deletar modelo",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst id = msg.req.params.id;\nif (!/^[0-9a-f-]{36}$/i.test(id)) { msg.statusCode=400; msg.payload={error:'invalid id'}; return msg; }\ntry {\n  const cnt = await pool.query('SELECT COUNT(*)::int AS n FROM devices WHERE modelo_id=$1',[id]);\n  if (cnt.rows[0].n > 0) { msg.statusCode=409; msg.payload={error:'modelo em uso', total_dispositivos: cnt.rows[0].n}; return msg; }\n  const r = await pool.query('DELETE FROM modelos_dispositivo WHERE id=$1',[id]);\n  if (r.rowCount===0) { msg.statusCode=404; msg.payload={error:'not found'}; return msg; }\n  msg.statusCode=200; msg.payload={ok:true};\n} catch(e) {\n  node.error('delete modelo: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 720,
+        "y": 1020,
+        "wires": [
+            [
+                "respDeleteMod"
+            ]
+        ]
+    },
+    {
+        "id": "respDeleteMod",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 900,
+        "y": 1020,
+        "wires": []
+    },
+    {
+        "id": "httpListCat",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /catalogo-widgets",
+        "url": "/catalogo-widgets",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 1120,
+        "wires": [
+            [
+                "fnAuthListCat"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthListCat",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 360,
+        "y": 1120,
+        "wires": [
+            [
+                "fnListCatalogo"
+            ],
+            [
+                "respListCat"
+            ]
+        ]
+    },
+    {
+        "id": "fnListCatalogo",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Listar catalogo",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\ntry {\n  const r = await pool.query('SELECT id,nome,tipo,descricao,icone,configuracao_padrao FROM catalogo_widgets WHERE ativo=TRUE ORDER BY nome ASC');\n  msg.statusCode=200;\n  msg.payload=r.rows;\n} catch(e) {\n  node.error('list catalogo: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 600,
+        "y": 1120,
+        "wires": [
+            [
+                "respListCat"
+            ]
+        ]
+    },
+    {
+        "id": "respListCat",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 820,
+        "y": 1120,
+        "wires": []
+    },
+    {
+        "id": "httpCreateDisp",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /dispositivos",
+        "url": "/dispositivos",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 1080,
+        "wires": [
+            [
+                "fnAuthCreateDisp"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthCreateDisp",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 360,
+        "y": 1080,
+        "wires": [
+            [
+                "fnCreateDisp"
+            ],
+            [
+                "respCreateDisp"
+            ]
+        ]
+    },
+    {
+        "id": "fnCreateDisp",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Criar dispositivo",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst dynsecCall = global.get('dynsecCall');\nif (!dynsecCall) { msg.statusCode=503; msg.payload={error:'dynsec not ready'}; return msg; }\n\nconst body = msg.payload || {};\nconst nome = typeof body.nome === 'string' ? body.nome.trim() : '';\nconst serial = typeof body.serial === 'string' ? body.serial.trim() : '';\nconst modeloId = body.modelo_id ? String(body.modelo_id).trim() : null;\nconst localizacao = (typeof body.localizacao === 'string' && body.localizacao.trim()) ? body.localizacao.trim() : null;\n\nif (nome.length < 3) { msg.statusCode=400; msg.payload={error:'nome deve ter ao menos 3 caracteres'}; return msg; }\nif (serial.length < 3) { msg.statusCode=400; msg.payload={error:'serial deve ter ao menos 3 caracteres'}; return msg; }\nconst SERIAL_RE = /^[A-Za-z0-9._-]{3,64}$/;\nif (!SERIAL_RE.test(serial)) { msg.statusCode=400; msg.payload={error:'serial invalido (use A-Z,a-z,0-9,._-)'}; return msg; }\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (modeloId && !UUID_RE.test(modeloId)) { msg.statusCode=400; msg.payload={error:'modelo invalido'}; return msg; }\n\nlet createdId = null;\ntry {\n  const dup = await pool.query('SELECT id FROM devices WHERE device_id=$1 LIMIT 1', [serial]);\n  if (dup.rowCount > 0) { msg.statusCode=409; msg.payload={error:'serial ja cadastrado'}; return msg; }\n  if (modeloId) {\n    const mc = await pool.query('SELECT id FROM modelos_dispositivo WHERE id=$1 LIMIT 1', [modeloId]);\n    if (mc.rowCount === 0) { msg.statusCode=400; msg.payload={error:'modelo invalido'}; return msg; }\n  }\n\n  const ins = await pool.query(\n    `INSERT INTO devices (user_id, device_id, name, nome_amigavel, mqtt_username, mqtt_password_hash, modelo_id, location, localizacao)\n     VALUES ($1,$2,$3,$3,$2,'',$4,$5,$5)\n     RETURNING id, created_at`,\n    [msg.user.id, serial, nome, modeloId, localizacao]\n  );\n  createdId = ins.rows[0].id;\n  const createdAt = ins.rows[0].created_at;\n\n  const plaintext = crypto.randomBytes(16).toString('hex');\n  try {\n    await dynsecCall({ command: 'createClient', username: serial, password: plaintext });\n    await dynsecCall({ command: 'addClientRole', username: serial, rolename: 'device-publisher' });\n  } catch (dynErr) {\n    try { await dynsecCall({ command: 'deleteClient', username: serial }); } catch(_) {}\n    try { await pool.query('DELETE FROM devices WHERE id=$1', [createdId]); } catch(_) {}\n    node.error('create dispositivo dynsec: ' + dynErr.message, msg);\n    msg.statusCode = 500; msg.payload = { error: 'mqtt provisioning failed: ' + dynErr.message };\n    return msg;\n  }\n\n  let modeloNome = null;\n  if (modeloId) {\n    const mm = await pool.query('SELECT nome FROM modelos_dispositivo WHERE id=$1', [modeloId]);\n    if (mm.rowCount > 0) modeloNome = mm.rows[0].nome;\n  }\n\n  msg.statusCode = 201;\n  msg.payload = {\n    id: createdId,\n    nome,\n    serial,\n    modelo: modeloNome,\n    ultimo_valor: null,\n    criado_em: createdAt,\n    mqtt_credentials: {\n      username: serial,\n      password: plaintext,\n      broker: 'mqtts://hub.xtconect.online:8883'\n    }\n  };\n} catch (e) {\n  if (/unique/i.test(e.message) || /duplicate/i.test(e.message)) {\n    msg.statusCode = 409; msg.payload = { error: 'serial ja cadastrado' };\n  } else {\n    if (createdId) { try { await pool.query('DELETE FROM devices WHERE id=$1', [createdId]); } catch(_) {} }\n    node.error('create dispositivo: ' + e.message, msg);\n    msg.statusCode = 500; msg.payload = { error: 'internal' };\n  }\n}\nreturn msg;\n",
+        "outputs": 1,
+        "libs": [
+            {
+                "var": "crypto",
+                "module": "crypto"
+            }
+        ],
+        "x": 560,
+        "y": 1080,
+        "wires": [
+            [
+                "respCreateDisp"
+            ]
+        ]
+    },
+    {
+        "id": "respCreateDisp",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "x": 760,
+        "y": 1080,
+        "wires": []
+    },
+    {
+        "id": "httpDeleteDisp",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "DELETE /dispositivos/:id",
+        "url": "/dispositivos/:id",
+        "method": "delete",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 160,
+        "y": 1160,
+        "wires": [
+            [
+                "fnAuthDeleteDisp"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthDeleteDisp",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 360,
+        "y": 1160,
+        "wires": [
+            [
+                "fnDeleteDisp"
+            ],
+            [
+                "respDeleteDisp"
+            ]
+        ]
+    },
+    {
+        "id": "fnDeleteDisp",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Deletar dispositivo",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst dynsecCall = global.get('dynsecCall');\nif (!dynsecCall) { msg.statusCode=503; msg.payload={error:'dynsec not ready'}; return msg; }\n\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!id || !UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return msg; }\n\ntry {\n  const sel = await pool.query('SELECT id, user_id, device_id FROM devices WHERE id=$1 LIMIT 1', [id]);\n  if (sel.rowCount === 0) { msg.statusCode=404; msg.payload={error:'not found'}; return msg; }\n  const dev = sel.rows[0];\n  const isOwner = dev.user_id === msg.user.id;\n  const isAdmin = msg.user && msg.user.role === 'admin';\n  if (!isOwner && !isAdmin) { msg.statusCode=403; msg.payload={error:'forbidden'}; return msg; }\n\n  try {\n    await dynsecCall({ command: 'deleteClient', username: dev.device_id });\n  } catch (dynErr) {\n    if (/not found|does not exist|no such/i.test(dynErr.message)) {\n      // idempotente: segue com o DELETE no Postgres\n    } else {\n      node.error('delete dispositivo dynsec: ' + dynErr.message, msg);\n      msg.statusCode = 500; msg.payload = { error: 'mqtt deprovisioning failed: ' + dynErr.message };\n      return msg;\n    }\n  }\n\n  await pool.query('DELETE FROM devices WHERE id=$1', [id]);\n  msg.statusCode = 200;\n  msg.payload = { ok: true };\n} catch (e) {\n  node.error('delete dispositivo: ' + e.message, msg);\n  msg.statusCode = 500;\n  msg.payload = { error: 'internal' };\n}\nreturn msg;\n",
+        "outputs": 1,
+        "libs": [],
+        "x": 560,
+        "y": 1160,
+        "wires": [
+            [
+                "respDeleteDisp"
+            ]
+        ]
+    },
+    {
+        "id": "respDeleteDisp",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "x": 760,
+        "y": 1160,
+        "wires": []
+    },
+    {
+        "id": "injInitDynsec",
+        "type": "inject",
+        "z": "tabAuth",
+        "name": "init dynsec (on start)",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "2",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 180,
+        "y": 1240,
+        "wires": [
+            [
+                "fnInitDynsec"
+            ]
+        ]
+    },
+    {
+        "id": "fnInitDynsec",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "init dynsecCall helper",
+        "func": "if (global.get('dynsecCall')) {\n  node.status({fill:'green', shape:'dot', text:'dynsec ready'});\n  return null;\n}\n\nconst REQ_TOPIC  = '$CONTROL/dynamic-security/v1';\nconst RESP_TOPIC = '$CONTROL/dynamic-security/v1/response';\n\nconst client = mqtt.connect('mqtt://mosquitto:1883', {\n  clientId: 'nodered-dynsec-' + crypto.randomBytes(4).toString('hex'),\n  username: env.get('MQTT_BRIDGE_USER') || 'nodered',\n  password: env.get('MQTT_BRIDGE_PASSWORD'),\n  protocolVersion: 5,\n  clean: true,\n  reconnectPeriod: 2000,\n  connectTimeout: 5000\n});\n\nlet subscribed = false;\nlet currentInflight = null; // {resolve, reject, timer, commands}\nlet serialQueue = Promise.resolve();\n\nclient.on('connect', () => {\n  client.subscribe(RESP_TOPIC, {qos: 1}, (err) => {\n    if (err) { node.error('dynsec sub: ' + err.message); node.status({fill:'red',shape:'ring',text:'sub fail'}); }\n    else { subscribed = true; node.status({fill:'green', shape:'dot', text:'dynsec ready'}); }\n  });\n});\n\nclient.on('message', (topic, payload) => {\n  if (topic !== RESP_TOPIC) return;\n  if (!currentInflight) return;\n  const { resolve, reject, timer, commands } = currentInflight;\n  clearTimeout(timer);\n  currentInflight = null;\n  try {\n    const body = JSON.parse(payload.toString());\n    const responses = Array.isArray(body.responses) ? body.responses : [];\n    if (responses.length !== commands.length) {\n      return reject(new Error('dynsec: response count mismatch (expected ' + commands.length + ', got ' + responses.length + ')'));\n    }\n    for (let i = 0; i < commands.length; i++) {\n      const expected = commands[i].command;\n      const got = responses[i] && responses[i].command;\n      if (got !== expected) {\n        return reject(new Error('dynsec: command mismatch at ' + i + ' (expected ' + expected + ', got ' + got + ')'));\n      }\n      if (responses[i].error) {\n        return reject(new Error('dynsec ' + expected + ': ' + responses[i].error));\n      }\n    }\n    resolve(responses.map(r => r.data || {}));\n  } catch (e) { reject(new Error('dynsec parse: ' + e.message)); }\n});\n\nclient.on('error',     (e) => { node.warn('dynsec err: ' + e.message); node.status({fill:'red',shape:'ring',text:'err'}); });\nclient.on('reconnect', ()  => node.status({fill:'yellow',shape:'ring',text:'reconnecting...'}));\nclient.on('close',     ()  => node.status({fill:'yellow',shape:'ring',text:'disconnected'}));\n\nfunction runBatch(commands, timeoutMs) {\n  return new Promise((resolve, reject) => {\n    if (!client.connected) return reject(new Error('dynsec not connected'));\n    if (!subscribed)       return reject(new Error('dynsec not subscribed'));\n    if (currentInflight)   return reject(new Error('dynsec busy (internal queue bug)'));\n    const timer = setTimeout(() => {\n      currentInflight = null;\n      reject(new Error('dynsec timeout: ' + commands.map(c => c.command).join(',')));\n    }, timeoutMs || 5000);\n    currentInflight = { resolve, reject, timer, commands };\n    client.publish(REQ_TOPIC, JSON.stringify({ commands }), { qos: 1 }, (err) => {\n      if (err) {\n        clearTimeout(timer);\n        currentInflight = null;\n        reject(err);\n      }\n    });\n  });\n}\n\nglobal.set('dynsecClient', client);\n\n// dynsecBatch: executa N comandos atomicamente, retorna array de `data`s\nglobal.set('dynsecBatch', (commands, timeoutMs) => {\n  const task = () => runBatch(commands, timeoutMs);\n  const chained = serialQueue.then(task, task);\n  serialQueue = chained.catch(() => {});\n  return chained;\n});\n\n// dynsecCall: compatibilidade com chamadas single-command\nglobal.set('dynsecCall', async (cmd, timeoutMs) => {\n  const results = await global.get('dynsecBatch')([cmd], timeoutMs);\n  return results[0];\n});\n\nnode.status({fill:'yellow',shape:'ring',text:'connecting...'});\nreturn null;\n",
+        "outputs": 1,
+        "timeout": "30",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [
+            {
+                "var": "mqtt",
+                "module": "mqtt"
+            },
+            {
+                "var": "crypto",
+                "module": "crypto"
+            }
+        ],
+        "x": 420,
+        "y": 1240,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "httpRegenMqtt",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /dispositivos/:id/regenerar-mqtt",
+        "url": "/dispositivos/:id/regenerar-mqtt",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 1320,
+        "wires": [
+            [
+                "fnAuthRegenMqtt"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthRegenMqtt",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 460,
+        "y": 1320,
+        "wires": [
+            [
+                "fnRegenMqtt"
+            ],
+            [
+                "respRegenMqtt"
+            ]
+        ]
+    },
+    {
+        "id": "fnRegenMqtt",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Regenerar senha MQTT",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst dynsecCall = global.get('dynsecCall');\nif (!dynsecCall) { msg.statusCode=503; msg.payload={error:'dynsec not ready'}; return msg; }\n\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!id || !UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return msg; }\n\ntry {\n  const sel = await pool.query('SELECT id, user_id, device_id FROM devices WHERE id=$1 LIMIT 1', [id]);\n  if (sel.rowCount === 0) { msg.statusCode=404; msg.payload={error:'not found'}; return msg; }\n  const dev = sel.rows[0];\n  const isOwner = dev.user_id === msg.user.id;\n  const isAdmin = msg.user && msg.user.role === 'admin';\n  if (!isOwner && !isAdmin) { msg.statusCode=403; msg.payload={error:'forbidden'}; return msg; }\n\n  const plaintext = crypto.randomBytes(16).toString('hex');\n  await dynsecCall({ command: 'setClientPassword', username: dev.device_id, password: plaintext });\n\n  msg.statusCode = 200;\n  msg.payload = {\n    mqtt_credentials: {\n      username: dev.device_id,\n      password: plaintext,\n      broker: 'mqtts://hub.xtconect.online:8883'\n    }\n  };\n} catch (e) {\n  node.error('regenerar mqtt: ' + e.message, msg);\n  msg.statusCode = 500;\n  msg.payload = { error: 'internal: ' + e.message };\n}\nreturn msg;\n",
+        "outputs": 1,
+        "libs": [
+            {
+                "var": "crypto",
+                "module": "crypto"
+            }
+        ],
+        "x": 680,
+        "y": 1320,
+        "wires": [
+            [
+                "respRegenMqtt"
+            ]
+        ]
+    },
+    {
+        "id": "respRegenMqtt",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 900,
+        "y": 1320,
+        "wires": []
+    },
+    {
+        "id": "httpListClientes",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /admin/clientes",
+        "url": "/admin/clientes",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 1450,
+        "wires": [
+            [
+                "fnAuthListClientes"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthListClientes",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 400,
+        "y": 1450,
+        "wires": [
+            [
+                "fnAdminListClientes"
+            ],
+            [
+                "respListClientes"
+            ]
+        ]
+    },
+    {
+        "id": "fnAdminListClientes",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Require admin",
+        "func": "if (!msg.user || msg.user.role !== 'admin') {\n  msg.statusCode=403; msg.payload={error:'forbidden'};\n  return [null, msg];\n}\nreturn [msg, null];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 580,
+        "y": 1450,
+        "wires": [
+            [
+                "fnListClientes"
+            ],
+            [
+                "respListClientes"
+            ]
+        ]
+    },
+    {
+        "id": "fnListClientes",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Listar clientes",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n// Lista users com role='cliente', com contagem de devices que eles possuem (user_id é o owner).\nconst sql = `\n  SELECT\n    u.id, u.email, u.full_name AS nome, u.email_verified, u.is_active,\n    u.created_at AS criado_em,\n    COALESCE((SELECT COUNT(*)::int FROM devices d WHERE d.user_id = u.id), 0) AS total_dispositivos\n  FROM app_users u\n  WHERE u.role = 'cliente'\n  ORDER BY u.created_at DESC\n`;\ntry {\n  const r = await pool.query(sql);\n  msg.statusCode = 200;\n  msg.payload = r.rows;\n} catch(e) {\n  node.error('list clientes: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 760,
+        "y": 1450,
+        "wires": [
+            [
+                "respListClientes"
+            ]
+        ]
+    },
+    {
+        "id": "respListClientes",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 960,
+        "y": 1450,
+        "wires": []
+    },
+    {
+        "id": "httpGetCliente",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /admin/clientes/:id",
+        "url": "/admin/clientes/:id",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 1550,
+        "wires": [
+            [
+                "fnAuthGetCliente"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthGetCliente",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 400,
+        "y": 1550,
+        "wires": [
+            [
+                "fnAdminGetCliente"
+            ],
+            [
+                "respGetCliente"
+            ]
+        ]
+    },
+    {
+        "id": "fnAdminGetCliente",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Require admin",
+        "func": "if (!msg.user || msg.user.role !== 'admin') {\n  msg.statusCode=403; msg.payload={error:'forbidden'};\n  return [null, msg];\n}\nreturn [msg, null];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 580,
+        "y": 1550,
+        "wires": [
+            [
+                "fnGetCliente"
+            ],
+            [
+                "respGetCliente"
+            ]
+        ]
+    },
+    {
+        "id": "fnGetCliente",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Detalhe cliente",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'invalid id'}; return msg; }\ntry {\n  const r = await pool.query(\n    'SELECT id, email, full_name AS nome, role, email_verified, is_active, created_at AS criado_em FROM app_users WHERE id=$1 AND role=$2',\n    [id, 'cliente']\n  );\n  if (r.rowCount === 0) { msg.statusCode=404; msg.payload={error:'cliente nao encontrado'}; return msg; }\n  const cliente = r.rows[0];\n  const d = await pool.query(`\n    SELECT\n      d.id,\n      COALESCE(NULLIF(d.nome_amigavel,''), d.name) AS nome,\n      d.device_id AS serial,\n      m.nome AS modelo,\n      d.user_id AS owner_id,\n      d.admin_access_level,\n      d.created_at AS criado_em,\n      d.is_online AS online,\n      d.last_seen AS last_seen_at,\n      d.telemetry_interval_s,\n      d.burst_rate_s\n    FROM devices d\n    LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n    WHERE d.user_id = $1\n    ORDER BY d.created_at DESC\n  `, [id]);\n  cliente.dispositivos = d.rows;\n  msg.statusCode = 200;\n  msg.payload = cliente;\n} catch(e) {\n  node.error('get cliente: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 760,
+        "y": 1550,
+        "wires": [
+            [
+                "respGetCliente"
+            ]
+        ]
+    },
+    {
+        "id": "respGetCliente",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 960,
+        "y": 1550,
+        "wires": []
+    },
+    {
+        "id": "httpCreateCliente",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /admin/clientes",
+        "url": "/admin/clientes",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 1650,
+        "wires": [
+            [
+                "fnAuthCreateCliente"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthCreateCliente",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 400,
+        "y": 1650,
+        "wires": [
+            [
+                "fnAdminCreateCliente"
+            ],
+            [
+                "respCreateCliente"
+            ]
+        ]
+    },
+    {
+        "id": "fnAdminCreateCliente",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Require admin",
+        "func": "if (!msg.user || msg.user.role !== 'admin') {\n  msg.statusCode=403; msg.payload={error:'forbidden'};\n  return [null, msg];\n}\nreturn [msg, null];",
+        "outputs": 2,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 580,
+        "y": 1650,
+        "wires": [
+            [
+                "fnCreateCliente"
+            ],
+            [
+                "respCreateCliente"
+            ]
+        ]
+    },
+    {
+        "id": "fnCreateCliente",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Criar cliente",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nconst nome = (body.full_name||body.nome||'').trim();\nlet password = typeof body.senha_temporaria === 'string' ? body.senha_temporaria : '';\nif (!email) { msg.statusCode=400; msg.payload={error:'email obrigatorio'}; return msg; }\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!EMAIL_RE.test(email)) { msg.statusCode=400; msg.payload={error:'email invalido'}; return msg; }\nif (nome.length < 2) { msg.statusCode=400; msg.payload={error:'nome obrigatorio'}; return msg; }\nif (password && password.length < 8) { msg.statusCode=400; msg.payload={error:'senha deve ter ao menos 8 caracteres'}; return msg; }\n// Se senha não vier no body, geramos uma aleatória de 12 chars (hex).\nlet generated = false;\nif (!password) { password = crypto.randomBytes(9).toString('base64').replace(/[^A-Za-z0-9]/g,'').slice(0,12); generated = true; }\ntry {\n  const dup = await pool.query('SELECT id FROM app_users WHERE email=$1 LIMIT 1', [email]);\n  if (dup.rowCount > 0) { msg.statusCode=409; msg.payload={error:'email ja cadastrado'}; return msg; }\n  const hash = await bcrypt.hash(password, 10);\n  const ins = await pool.query(\n    `INSERT INTO app_users (email, password_hash, full_name, role, email_verified, is_active)\n     VALUES ($1,$2,$3,'cliente',TRUE,TRUE)\n     RETURNING id, email, full_name AS nome, role, email_verified, is_active, created_at AS criado_em`,\n    [email, hash, nome]\n  );\n  msg.statusCode = 201;\n  msg.payload = { user: ins.rows[0], senha_temporaria: password, senha_gerada: generated };\n  // Best-effort: enviar e-mail admin-created\n  try {\n    const sendMail = global.get('sendMail');\n    const baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\n    if (sendMail) {\n      await sendMail({to: email, subject: 'Sua conta XT Connect Hub foi criada', template: 'admin-created', vars: {nome, email, senha: password, link: baseUrl + '/login'}});\n    }\n  } catch(e) { node.warn('admin-created email failed: '+e.message); }\n} catch(e) {\n  if (/unique/i.test(e.message) || /duplicate/i.test(e.message)) {\n    msg.statusCode=409; msg.payload={error:'email ja cadastrado'};\n  } else {\n    node.error('create cliente: '+e.message, msg);\n    msg.statusCode=500; msg.payload={error:'internal'};\n  }\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [
+            {
+                "var": "bcrypt",
+                "module": "bcryptjs"
+            },
+            {
+                "var": "crypto",
+                "module": "crypto"
+            }
+        ],
+        "x": 760,
+        "y": 1650,
+        "wires": [
+            [
+                "respCreateCliente"
+            ]
+        ]
+    },
+    {
+        "id": "respCreateCliente",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 960,
+        "y": 1650,
+        "wires": []
+    },
+    {
+        "id": "injInitMail",
+        "type": "inject",
+        "z": "tabAuth",
+        "name": "init mail (on start)",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "2",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 180,
+        "y": 1750,
+        "wires": [
+            [
+                "fnInitMail"
+            ]
+        ]
+    },
+    {
+        "id": "fnInitMail",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Criar SMTP transport",
+        "func": "if (global.get('sendMail')) { node.status({fill:'green',shape:'dot',text:'mail ok'}); return null; }\nconst passFile = env.get('SMTP_PASSWORD_FILE') || '/data/env/smtp-password';\nlet pass = '';\ntry { pass = fs.readFileSync(passFile, 'utf8').trim(); } catch(e) { node.error('cannot read smtp password: '+e.message); node.status({fill:'red',shape:'ring',text:'pass missing'}); return null; }\nif (!pass) { node.error('smtp password is empty'); node.status({fill:'red',shape:'ring',text:'pass empty'}); return null; }\nconst transport = nodemailer.createTransport({\n  host: env.get('SMTP_HOST') || 'smtp.hostinger.com',\n  port: parseInt(env.get('SMTP_PORT') || '465'),\n  secure: (env.get('SMTP_SECURE') || 'true').toLowerCase() === 'true',\n  auth: { user: env.get('SMTP_USER'), pass: pass }\n});\nconst from = env.get('MAIL_FROM') || env.get('SMTP_USER');\nconst baseUrl = env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\nconst templatesDir = '/data/templates/email';\nconst templates = {};\nfor (const name of ['signup-verify','signup-welcome','admin-created','password-reset']) {\n  try { templates[name] = fs.readFileSync(templatesDir + '/' + name + '.html', 'utf8'); } catch(e) { node.warn('template missing: '+name); }\n}\nfunction render(tpl, vars) {\n  return Object.entries(vars||{}).reduce(function(s, kv){ return s.split('{{'+kv[0]+'}}').join(String(kv[1])); }, tpl);\n}\nconst sendMail = async function(opts) {\n  const html = templates[opts.template] ? render(templates[opts.template], opts.vars) : undefined;\n  return transport.sendMail({ from: from, to: opts.to, subject: opts.subject, html: html, text: opts.text });\n};\nglobal.set('sendMail', sendMail);\nglobal.set('mailBaseUrl', baseUrl);\nnode.status({fill:'green',shape:'dot',text:'smtp ready'});\nreturn null;",
+        "outputs": 1,
+        "timeout": "30",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [
+            {
+                "var": "nodemailer",
+                "module": "nodemailer"
+            },
+            {
+                "var": "fs",
+                "module": "fs"
+            }
+        ],
+        "x": 420,
+        "y": 1750,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "httpSignup",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /auth/signup",
+        "url": "/auth/signup",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 1850,
+        "wires": [
+            [
+                "fnSignup"
+            ]
+        ]
+    },
+    {
+        "id": "fnSignup",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Signup self-service",
+        "func": "const pool = global.get('pgPool');\nconst sendMail = global.get('sendMail');\nconst baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nconst password = body.password||'';\nconst nome = (body.full_name||body.nome||'').trim();\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!EMAIL_RE.test(email)) { msg.statusCode=400; msg.payload={error:'email invalido'}; return msg; }\nif (nome.length < 2) { msg.statusCode=400; msg.payload={error:'nome obrigatorio'}; return msg; }\nif (password.length < 8) { msg.statusCode=400; msg.payload={error:'senha deve ter ao menos 8 caracteres'}; return msg; }\ntry {\n  const dup = await pool.query('SELECT id FROM app_users WHERE email=$1 LIMIT 1',[email]);\n  if (dup.rowCount > 0) { msg.statusCode=409; msg.payload={error:'email ja cadastrado'}; return msg; }\n  const hash = await bcrypt.hash(password, 10);\n  const ins = await pool.query(\n    \"INSERT INTO app_users (email, password_hash, full_name, role, email_verified, is_active) VALUES ($1,$2,$3,'cliente',FALSE,TRUE) RETURNING id\",\n    [email, hash, nome]\n  );\n  const userId = ins.rows[0].id;\n  const tk = await pool.query(\n    \"INSERT INTO email_verification_tokens (user_id, purpose, expires_at) VALUES ($1,'signup', now() + interval '24 hours') RETURNING token\",\n    [userId]\n  );\n  const link = baseUrl + '/verify?token=' + tk.rows[0].token;\n  if (sendMail) {\n    try {\n      await sendMail({to: email, subject: 'Confirme seu e-mail — XT Connect Hub', template: 'signup-verify', vars: {nome: nome, link: link}});\n    } catch(e) { node.warn('signup email failed for '+email+': '+e.message); }\n  } else {\n    node.warn('signup: sendMail not initialized; usuario criado sem e-mail');\n  }\n  msg.statusCode = 201;\n  msg.payload = { message: 'Verifique seu e-mail para ativar a conta.' };\n} catch(e) {\n  if (/unique/i.test(e.message) || /duplicate/i.test(e.message)) {\n    msg.statusCode=409; msg.payload={error:'email ja cadastrado'};\n  } else {\n    node.error('signup: '+e.message, msg);\n    msg.statusCode = 500; msg.payload = {error:'internal'};\n  }\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [
+            {
+                "var": "bcrypt",
+                "module": "bcryptjs"
+            }
+        ],
+        "x": 420,
+        "y": 1850,
+        "wires": [
+            [
+                "respSignup"
+            ]
+        ]
+    },
+    {
+        "id": "respSignup",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 680,
+        "y": 1850,
+        "wires": []
+    },
+    {
+        "id": "httpVerify",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /auth/verify",
+        "url": "/auth/verify",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 1950,
+        "wires": [
+            [
+                "fnVerify"
+            ]
+        ]
+    },
+    {
+        "id": "fnVerify",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Verificar token",
+        "func": "const pool = global.get('pgPool');\nconst baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\nfunction redirect(suffix) {\n  msg.statusCode = 302;\n  msg.headers = { Location: baseUrl + '/login?verified=' + suffix };\n  msg.payload = '';\n  return msg;\n}\nif (!pool) return redirect('error');\nconst token = (msg.req.query && msg.req.query.token) || '';\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(token)) return redirect('invalid');\ntry {\n  const r = await pool.query(\n    \"SELECT user_id, used_at, expires_at FROM email_verification_tokens WHERE token=$1 AND purpose='signup'\",\n    [token]\n  );\n  if (r.rowCount === 0) return redirect('notfound');\n  const row = r.rows[0];\n  if (row.used_at) return redirect('used');\n  if (new Date(row.expires_at).getTime() < Date.now()) return redirect('expired');\n  await pool.query('UPDATE app_users SET email_verified=TRUE WHERE id=$1', [row.user_id]);\n  await pool.query('UPDATE email_verification_tokens SET used_at=now() WHERE token=$1', [token]);\n  return redirect('true');\n} catch(e) {\n  node.error('verify: '+e.message, msg);\n  return redirect('error');\n}",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 1950,
+        "wires": [
+            [
+                "respVerify"
+            ]
+        ]
+    },
+    {
+        "id": "respVerify",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 680,
+        "y": 1950,
+        "wires": []
+    },
+    {
+        "id": "httpResend",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /auth/resend",
+        "url": "/auth/resend",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 2050,
+        "wires": [
+            [
+                "fnResend"
+            ]
+        ]
+    },
+    {
+        "id": "fnResend",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Reenviar verificacao",
+        "func": "const pool = global.get('pgPool');\nconst sendMail = global.get('sendMail');\nconst baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\nconst okResp = { message: 'Se houver uma conta com este e-mail nao verificada, um novo link foi enviado.' };\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nif (!email) { msg.statusCode=200; msg.payload=okResp; return msg; }\ntry {\n  const r = await pool.query('SELECT id, email_verified, full_name FROM app_users WHERE email=$1 LIMIT 1', [email]);\n  if (r.rowCount === 0 || r.rows[0].email_verified) { msg.statusCode=200; msg.payload=okResp; return msg; }\n  const u = r.rows[0];\n  await pool.query(\"UPDATE email_verification_tokens SET used_at=now() WHERE user_id=$1 AND purpose='signup' AND used_at IS NULL\", [u.id]);\n  const tk = await pool.query(\n    \"INSERT INTO email_verification_tokens (user_id, purpose, expires_at) VALUES ($1,'signup', now()+interval '24 hours') RETURNING token\",\n    [u.id]\n  );\n  if (sendMail) {\n    try {\n      await sendMail({to: email, subject: 'Confirme seu e-mail — XT Connect Hub', template: 'signup-verify', vars: {nome: u.full_name || email, link: baseUrl + '/verify?token=' + tk.rows[0].token}});\n    } catch(e) { node.warn('resend mail failed: '+e.message); }\n  }\n  msg.statusCode = 200; msg.payload = okResp;\n} catch(e) {\n  node.error('resend: '+e.message, msg);\n  msg.statusCode = 200; msg.payload = okResp;\n}\nreturn msg;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 2050,
+        "wires": [
+            [
+                "respResend"
+            ]
+        ]
+    },
+    {
+        "id": "respResend",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 680,
+        "y": 2050,
+        "wires": []
+    },
+    {
+        "id": "httpReadings",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /dispositivos/:id/readings",
+        "url": "/dispositivos/:id/readings",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 1500,
+        "wires": [
+            [
+                "fnAuthReadings"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthReadings",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role };\n  return [msg, null];\n} catch (e) { msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg]; }\n",
+        "outputs": 2,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 400,
+        "y": 1500,
+        "wires": [
+            [
+                "fnGetReadings"
+            ],
+            [
+                "respReadings"
+            ]
+        ]
+    },
+    {
+        "id": "fnGetReadings",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Get readings",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!id || !UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return msg; }\n\nconst q = msg.req.query || {};\nlet limit = parseInt(q.limit || '500', 10);\nif (!Number.isFinite(limit) || limit <= 0) limit = 500;\nif (limit > 2000) limit = 2000;\n\nconst sinceParam = q.since ? new Date(q.since) : null;\nconst untilParam = q.until ? new Date(q.until) : null;\nconst since = (sinceParam && !isNaN(sinceParam)) ? sinceParam.toISOString() : null;\nconst until = (untilParam && !isNaN(untilParam)) ? untilParam.toISOString() : null;\n\ntry {\n  // 1) Lookup + AuthZ\n  const sel = await pool.query(\n    'SELECT id, user_id, admin_access_level FROM devices WHERE id=$1 LIMIT 1', [id]\n  );\n  if (sel.rowCount === 0) { msg.statusCode=404; msg.payload={error:'not found'}; return msg; }\n  const dev = sel.rows[0];\n  const isOwner = dev.user_id === msg.user.id;\n  const isAdminWithAccess = msg.user.role === 'admin' && dev.admin_access_level !== 'none';\n  if (!isOwner && !isAdminWithAccess) { msg.statusCode=403; msg.payload={error:'forbidden'}; return msg; }\n\n  // 2) Query\n  const r = await pool.query(`\n    SELECT ts, payload\n    FROM device_readings\n    WHERE device_id = $1\n      AND ts >= COALESCE($2::timestamptz, now() - interval '24 hours')\n      AND ts <= COALESCE($3::timestamptz, now())\n    ORDER BY ts DESC\n    LIMIT $4\n  `, [id, since, until, limit]);\n\n  msg.statusCode = 200;\n  msg.payload = { readings: r.rows.map(row => ({ ts: row.ts, payload: row.payload })) };\n} catch (e) {\n  node.error('get readings: ' + e.message, msg);\n  msg.statusCode = 500; msg.payload = { error: 'internal' };\n}\nreturn msg;\n",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 620,
+        "y": 1500,
+        "wires": [
+            [
+                "respReadings"
+            ]
+        ]
+    },
+    {
+        "id": "respReadings",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 840,
+        "y": 1500,
+        "wires": []
+    },
+    {
+        "id": "mqttOutPresence",
+        "type": "mqtt out",
+        "z": "tabIngest",
+        "name": "publish presence",
+        "topic": "",
+        "qos": "1",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "brokerMosq",
+        "x": 820,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "injSweeper",
+        "type": "inject",
+        "z": "tabIngest",
+        "name": "staleness 30s",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "30",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "15",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 180,
+        "y": 380,
+        "wires": [
+            [
+                "fnSweeper"
+            ]
+        ]
+    },
+    {
+        "id": "fnSweeper",
+        "type": "function",
+        "z": "tabIngest",
+        "name": "Flip stale → offline",
+        "func": "// E2.3 — flip stale devices to offline usando threshold per-device (#51)\n// Threshold efetivo = clamp(3 * telemetry_interval_s, 60, 900) segundos.\nconst pool = global.get('pgPool');\nif (!pool) { node.status({ fill:'yellow', shape:'ring', text:'sem pool' }); return null; }\ntry {\n  const r = await pool.query(\n    `UPDATE devices\n        SET is_online = FALSE\n      WHERE is_online = TRUE\n        AND last_seen IS NOT NULL\n        AND last_seen < NOW() - MAKE_INTERVAL(\n          secs => GREATEST(60, LEAST(900, telemetry_interval_s * 3))\n        )\n      RETURNING id, device_id AS serial, user_id, last_seen, telemetry_interval_s`\n  );\n  if (r.rowCount === 0) {\n    node.status({ fill:'grey', shape:'dot', text:'nothing stale '+new Date().toISOString().slice(11,19) });\n    return null;\n  }\n  const msgs = [];\n  for (const row of r.rows) {\n    const payload = {\n      type: 'device_status_changed',\n      online: false,\n      device_id: row.id,\n      serial: row.serial,\n      user_id: row.user_id,\n      last_seen_at: row.last_seen ? new Date(row.last_seen).toISOString() : null,\n      source: 'sweeper'\n    };\n    msgs.push({ topic: 'devices/' + row.serial + '/status', payload: JSON.stringify(payload) });\n  }\n  node.status({ fill:'orange', shape:'dot', text:'flipped '+r.rowCount+' @ '+new Date().toISOString().slice(11,19) });\n  for (const m of msgs) node.send(m);\n} catch (e) {\n  node.error('sweeper: '+e.message);\n  node.status({ fill:'red', shape:'ring', text:e.message.slice(0,40) });\n}\nreturn null;",
+        "outputs": 1,
+        "timeout": "",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 400,
+        "y": 380,
+        "wires": [
+            [
+                "mqttOutPresence"
+            ]
+        ]
+    },
+    {
+        "id": "mqttOutCommands",
+        "type": "mqtt out",
+        "z": "tabAuth",
+        "name": "publish command",
+        "topic": "",
+        "qos": "1",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "brokerMosq",
+        "x": 900,
+        "y": 1400,
+        "wires": []
+    },
+    {
+        "id": "httpSetRate",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /dispositivos/:id/rate",
+        "url": "/dispositivos/:id/rate",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 180,
+        "y": 1400,
+        "wires": [
+            [
+                "fnAuthSetRate"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthSetRate",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 420,
+        "y": 1400,
+        "wires": [
+            [
+                "fnSetRate"
+            ],
+            [
+                "respSetRate"
+            ]
+        ]
+    },
+    {
+        "id": "fnSetRate",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Set rate + publish",
+        "func": "// E2.3 — atualiza taxa (mode=default) ou só publica burst (mode=burst).\n// Permissão: owner ou admin.\nconst pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return [msg, null]; }\n\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!id || !UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return [msg, null]; }\n\nconst body = msg.payload || {};\nconst mode = (body.mode === 'burst') ? 'burst' : (body.mode === 'default' ? 'default' : null);\nif (!mode) { msg.statusCode=400; msg.payload={error:'mode deve ser default ou burst'}; return [msg, null]; }\n\nconst rate = Number(body.rate_s);\nif (!Number.isFinite(rate) || !Number.isInteger(rate) || rate < 1) {\n  msg.statusCode=400; msg.payload={error:'rate_s invalido'}; return [msg, null];\n}\nif (mode === 'default' && rate > 3600) {\n  msg.statusCode=400; msg.payload={error:'rate_s (default) deve ser <= 3600'}; return [msg, null];\n}\nif (mode === 'burst' && rate > 60) {\n  msg.statusCode=400; msg.payload={error:'rate_s (burst) deve ser <= 60'}; return [msg, null];\n}\n\nlet durationS = 0;\nif (mode === 'burst') {\n  durationS = Number(body.duration_s);\n  if (!Number.isFinite(durationS) || !Number.isInteger(durationS) || durationS < 5 || durationS > 1800) {\n    msg.statusCode=400; msg.payload={error:'duration_s invalido (5..1800)'}; return [msg, null];\n  }\n}\n\ntry {\n  const sel = await pool.query(\n    'SELECT id, user_id, device_id FROM devices WHERE id=$1 LIMIT 1',\n    [id]\n  );\n  if (sel.rowCount === 0) { msg.statusCode=404; msg.payload={error:'not found'}; return [msg, null]; }\n  const dev = sel.rows[0];\n  const isOwner = dev.user_id === msg.user.id;\n  const isAdmin = msg.user && msg.user.role === 'admin';\n  if (!isOwner && !isAdmin) { msg.statusCode=403; msg.payload={error:'forbidden'}; return [msg, null]; }\n\n  if (mode === 'default') {\n    await pool.query(\n      'UPDATE devices SET telemetry_interval_s=$1 WHERE id=$2',\n      [rate, id]\n    );\n  }\n\n  const requestId = crypto.randomUUID();\n  const cmd = {\n    cmd: 'set_rate',\n    rate_s: rate,\n    mode,\n    request_id: requestId\n  };\n  if (mode === 'burst') {\n    cmd.expires_at = new Date(Date.now() + durationS * 1000).toISOString();\n  }\n\n  const pubMsg = {\n    topic: 'devices/' + dev.device_id + '/commands',\n    payload: JSON.stringify(cmd)\n  };\n\n  msg.statusCode = 200;\n  msg.payload = { ok: true, request_id: requestId, applied_rate_s: rate, mode };\n  return [msg, pubMsg];\n} catch (e) {\n  node.error('set rate: ' + e.message, msg);\n  msg.statusCode = 500;\n  msg.payload = { error: 'internal' };\n  return [msg, null];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "crypto",
+                "module": "crypto"
+            }
+        ],
+        "x": 660,
+        "y": 1400,
+        "wires": [
+            [
+                "respSetRate"
+            ],
+            [
+                "mqttOutCommands"
+            ]
+        ]
+    },
+    {
+        "id": "respSetRate",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 900,
+        "y": 1340,
+        "wires": []
+    }
+]
