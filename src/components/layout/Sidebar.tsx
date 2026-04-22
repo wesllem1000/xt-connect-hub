@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { Cpu, LogOut, Mail, Settings } from 'lucide-react'
+import { Cpu, LogOut, Mail, Package, Settings } from 'lucide-react'
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -20,6 +20,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { to: '/dispositivos', label: 'Dispositivos', icon: Cpu },
   { to: '/convites', label: 'Convites', icon: Mail, badgeKey: 'invites' },
+  { to: '/admin/produtos', label: 'Produtos', icon: Package, adminOnly: true },
   { to: '/admin', label: 'Admin', icon: Settings, adminOnly: true },
 ]
 

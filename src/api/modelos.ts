@@ -7,6 +7,10 @@ export type Modelo = {
   fabricante: string
   criado_em: string
   total_dispositivos: number
+  prefixo: string | null
+  major_version: string | null
+  rate_default_segundos?: number
+  ativo?: boolean
 }
 
 export type WidgetNoModelo = {

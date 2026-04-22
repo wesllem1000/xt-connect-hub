@@ -11,6 +11,8 @@ import { AceitarConvitePage } from '@/features/convites/AceitarConvitePage'
 import { ConvitesPage } from '@/features/convites/ConvitesPage'
 import { DispositivoDetailPage } from '@/features/dispositivos/DispositivoDetailPage'
 import { DispositivosPage } from '@/features/dispositivos/DispositivosPage'
+import { ProdutoFichaPage } from '@/features/admin-produtos/pages/ProdutoFichaPage'
+import { ProdutosListPage } from '@/features/admin-produtos/pages/ProdutosListPage'
 import { useAuthStore } from '@/stores/auth'
 import type { ReactNode } from 'react'
 
@@ -65,6 +67,22 @@ export const router = createBrowserRouter([
         element: (
           <RequireAdmin>
             <ClienteDetailPage />
+          </RequireAdmin>
+        ),
+      },
+      {
+        path: '/admin/produtos',
+        element: (
+          <RequireAdmin>
+            <ProdutosListPage />
+          </RequireAdmin>
+        ),
+      },
+      {
+        path: '/admin/produtos/:id',
+        element: (
+          <RequireAdmin>
+            <ProdutoFichaPage />
           </RequireAdmin>
         ),
       },
