@@ -2346,5 +2346,75 @@
         "x": 940,
         "y": 2600,
         "wires": []
+    },
+    {
+        "id": "httpUpdateShare",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "PATCH /dispositivos/:id/compartilhamentos/:shareId",
+        "url": "/dispositivos/:id/compartilhamentos/:shareId",
+        "method": "patch",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 2700,
+        "wires": [
+            [
+                "fnAuthUpdateShare"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthUpdateShare",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 2700,
+        "wires": [
+            [
+                "fnUpdateShare"
+            ],
+            [
+                "respUpdateShare"
+            ]
+        ]
+    },
+    {
+        "id": "fnUpdateShare",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Update share permissao",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n\nconst id = msg.req.params.id;\nconst shareId = msg.req.params.shareId;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(id) || !UUID_RE.test(shareId)) {\n  msg.statusCode=400; msg.payload={error:'id invalido'}; return msg;\n}\n\nconst body = msg.payload || {};\nconst permRaw = body.permissao || body.permission || '';\nlet permissao;\nif (permRaw === 'leitura' || permRaw === 'viewer') permissao = 'leitura';\nelse if (permRaw === 'controle' || permRaw === 'operator') permissao = 'controle';\nelse { msg.statusCode=400; msg.payload={error:'permissao deve ser leitura ou controle (ou viewer/operator)'}; return msg; }\n\ntry {\n  const dev = await pool.query('SELECT user_id FROM devices WHERE id=$1 LIMIT 1', [id]);\n  if (dev.rowCount === 0) { msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado'}; return msg; }\n  const isAdmin = msg.user && msg.user.role === 'admin';\n  if (dev.rows[0].user_id !== msg.user.id && !isAdmin) {\n    msg.statusCode=403; msg.payload={error:'apenas o dono pode editar'}; return msg;\n  }\n\n  const sel = await pool.query(\n    `SELECT id, status, permissao::text AS permissao\n       FROM dispositivo_compartilhado\n      WHERE id=$1 AND dispositivo_id=$2 LIMIT 1`,\n    [shareId, id]\n  );\n  if (sel.rowCount === 0) {\n    msg.statusCode=404; msg.payload={error:'compartilhamento nao encontrado'}; return msg;\n  }\n  const cur = sel.rows[0];\n  if (cur.status !== 'ativo') {\n    msg.statusCode=409;\n    msg.payload={error:'nao e possivel editar permissao de convite '+cur.status};\n    return msg;\n  }\n\n  // Idempotente: se ja tá com a permissão nova, retorna row atual sem UPDATE.\n  let row;\n  if (cur.permissao === permissao) {\n    const r = await pool.query(`\n      SELECT s.id, s.email_convidado, s.permissao::text AS permissao, s.status,\n             s.criado_em, s.aceito_em, s.revogado_em,\n             s.com_usuario_id AS user_id, u.full_name AS user_nome\n      FROM dispositivo_compartilhado s\n      LEFT JOIN app_users u ON u.id = s.com_usuario_id\n      WHERE s.id=$1\n    `, [shareId]);\n    row = r.rows[0];\n  } else {\n    const r = await pool.query(`\n      UPDATE dispositivo_compartilhado AS s\n         SET permissao=$1::permissao_compartilhamento\n       WHERE s.id=$2 AND s.dispositivo_id=$3 AND s.status='ativo'\n       RETURNING s.id, s.email_convidado, s.permissao::text AS permissao, s.status,\n                 s.criado_em, s.aceito_em, s.revogado_em,\n                 s.com_usuario_id AS user_id,\n                 (SELECT full_name FROM app_users WHERE id = s.com_usuario_id) AS user_nome\n    `, [permissao, shareId, id]);\n    if (r.rowCount === 0) {\n      msg.statusCode=409; msg.payload={error:'compartilhamento mudou de estado, tente novamente'}; return msg;\n    }\n    row = r.rows[0];\n  }\n\n  msg.statusCode=200;\n  msg.payload = { compartilhamento: row };\n} catch(e) {\n  node.error('update share: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 700,
+        "y": 2700,
+        "wires": [
+            [
+                "respUpdateShare"
+            ]
+        ]
+    },
+    {
+        "id": "respUpdateShare",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 2700,
+        "wires": []
     }
 ]
