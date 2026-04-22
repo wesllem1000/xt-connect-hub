@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
   Eye,
-  KeyRound,
   MoreVertical,
   Plus,
   QrCode,
@@ -17,9 +16,7 @@ import { toast } from 'sonner'
 import {
   deleteDispositivo,
   listDispositivos,
-  regenerarMqtt,
   type Dispositivo,
-  type MqttCredentials,
 } from '@/api/dispositivos'
 import {
   AlertDialog,
@@ -39,13 +36,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Skeleton } from '@/components/ui/skeleton'
 import { extractApiError } from '@/lib/api'
 import { useDeviceStatus } from '@/hooks/useDeviceStatus'
-import { MqttCredentialsDialog } from './MqttCredentialsDialog'
 
 const dateFormatter = new Intl.DateTimeFormat('pt-BR', {
   dateStyle: 'short',
@@ -90,11 +85,9 @@ function ShareChip({ permissao }: { permissao: Dispositivo['permissao'] }) {
 
 function DispositivoCard({
   dispositivo,
-  onRegenerate,
   onDelete,
 }: {
   dispositivo: Dispositivo
-  onRegenerate: (d: Dispositivo) => void
   onDelete: (d: Dispositivo) => void
 }) {
   const navigate = useNavigate()
@@ -162,11 +155,6 @@ function DispositivoCard({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onSelect={() => onRegenerate(dispositivo)}>
-                    <KeyRound className="h-4 w-4 mr-2" />
-                    Regenerar credenciais MQTT
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
                   <DropdownMenuItem
                     className="text-destructive focus:text-destructive"
                     onSelect={() => onDelete(dispositivo)}
@@ -257,18 +245,10 @@ function ErrorMessage({ error }: { error: unknown }) {
   return <>{message}</>
 }
 
-type CredentialsDialogState = {
-  credentials: MqttCredentials
-  contexto: 'criado' | 'regenerado'
-} | null
-
 export function DispositivosPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [toDelete, setToDelete] = useState<Dispositivo | null>(null)
-  const [toRegenerate, setToRegenerate] = useState<Dispositivo | null>(null)
-  const [credentialsDialog, setCredentialsDialog] =
-    useState<CredentialsDialogState>(null)
 
   const query = useQuery({
     queryKey: ['dispositivos'],
@@ -296,22 +276,6 @@ export function DispositivosPage() {
       const msg = await extractApiError(err, 'Falha ao excluir dispositivo.')
       toast.error(msg)
       setToDelete(null)
-    },
-  })
-
-  const regenerateMutation = useMutation({
-    mutationFn: (id: string) => regenerarMqtt(id),
-    onSuccess: (data) => {
-      setToRegenerate(null)
-      setCredentialsDialog({
-        credentials: data.mqtt_credentials,
-        contexto: 'regenerado',
-      })
-    },
-    onError: async (err) => {
-      const msg = await extractApiError(err, 'Falha ao regenerar credenciais.')
-      toast.error(msg)
-      setToRegenerate(null)
     },
   })
 
@@ -352,21 +316,11 @@ export function DispositivosPage() {
             <DispositivoCard
               key={d.id}
               dispositivo={d}
-              onRegenerate={(dev) => setToRegenerate(dev)}
               onDelete={(dev) => setToDelete(dev)}
             />
           ))}
         </div>
       )}
-
-      <MqttCredentialsDialog
-        open={credentialsDialog !== null}
-        onOpenChange={(open) => {
-          if (!open) setCredentialsDialog(null)
-        }}
-        credentials={credentialsDialog?.credentials ?? null}
-        contexto={credentialsDialog?.contexto}
-      />
 
       <AlertDialog
         open={toDelete !== null}
@@ -401,37 +355,6 @@ export function DispositivosPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Excluir
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={toRegenerate !== null}
-        onOpenChange={(open) => {
-          if (!open && !regenerateMutation.isPending) setToRegenerate(null)
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Regenerar credenciais MQTT?</AlertDialogTitle>
-            <AlertDialogDescription>
-              A senha atual do dispositivo deixará de funcionar imediatamente. O
-              dispositivo precisará ser reconfigurado com a nova senha.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={regenerateMutation.isPending}>
-              Cancelar
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={regenerateMutation.isPending}
-              onClick={(e) => {
-                e.preventDefault()
-                if (toRegenerate) regenerateMutation.mutate(toRegenerate.id)
-              }}
-            >
-              Regenerar
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

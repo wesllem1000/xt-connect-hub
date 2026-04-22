@@ -1,11 +1,5 @@
 import { api } from '@/lib/api'
 
-export type MqttCredentials = {
-  username: string
-  password: string
-  broker: string
-}
-
 export type AccessType = 'owner' | 'shared'
 export type SharePermissao = 'leitura' | 'controle'
 
@@ -23,7 +17,6 @@ export type Dispositivo = {
   access_type: AccessType
   permissao: SharePermissao
   share_id: string | null
-  mqtt_credentials?: MqttCredentials
 }
 
 export type SetRateInput =
@@ -43,14 +36,6 @@ export async function listDispositivos(): Promise<Dispositivo[]> {
 
 export async function deleteDispositivo(id: string): Promise<void> {
   await api.delete(`dispositivos/${id}`).json<{ ok: true }>()
-}
-
-export async function regenerarMqtt(
-  id: string,
-): Promise<{ mqtt_credentials: MqttCredentials }> {
-  return api
-    .post(`dispositivos/${id}/regenerar-mqtt`)
-    .json<{ mqtt_credentials: MqttCredentials }>()
 }
 
 export async function setDispositivoRate(
