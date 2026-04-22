@@ -20,6 +20,7 @@ DECLARE
   v_config_created BOOLEAN := FALSE;
   v_sectors_created INT := 0;
   v_existing_sectors INT;
+  v_rc INT;
   v_gpio_map INT[] := ARRAY[16,17,18,19,21,22,23,25];  -- placeholder; firmware é autoridade do pinout real
   i INT;
 BEGIN
@@ -62,7 +63,11 @@ BEGIN
   )
   ON CONFLICT (device_id) DO NOTHING;
 
-  GET DIAGNOSTICS v_config_created = ROW_COUNT;
+  -- GET DIAGNOSTICS ROW_COUNT retorna INTEGER; atribuir direto a BOOLEAN
+  -- funciona em PG 16.x via cast implícito, mas é não-idiomático e frágil
+  -- entre versões. Caminho defensivo com variável intermediária.
+  GET DIAGNOSTICS v_rc = ROW_COUNT;
+  v_config_created := (v_rc > 0);
 
   -- 2) 8 setores — todos habilitado=FALSE; só a bomba fica on por default (R1)
   SELECT COUNT(*) INTO v_existing_sectors
