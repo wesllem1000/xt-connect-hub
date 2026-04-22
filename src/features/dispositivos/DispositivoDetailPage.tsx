@@ -42,6 +42,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { extractApiError } from '@/lib/api'
+import { IrrigacaoDashboardPage } from '@/features/irrigacao/pages/IrrigacaoDashboardPage'
 import { ShareDialog } from './ShareDialog'
 
 const BURST_DURATION_S = 120
@@ -264,6 +265,17 @@ export function DispositivoDetailPage() {
           </AlertDescription>
         </Alert>
       </div>
+    )
+  }
+
+  // E4.1 — IRR-V1 tem ficha dedicada. Dispatcher por modelo.
+  if (dispositivo && (dispositivo.modelo === 'Irrigação v1' ||
+      dispositivo.serial.startsWith('IRR-V1-'))) {
+    return (
+      <IrrigacaoDashboardPage
+        deviceId={dispositivo.id}
+        nomeAmigavel={dispositivo.apelido}
+      />
     )
   }
 
