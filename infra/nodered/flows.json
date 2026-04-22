@@ -454,7 +454,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Listar dispositivos",
-        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst isAdmin = msg.user && msg.user.role === 'admin';\nconst userId = msg.user && msg.user.id;\nconst sql = `\n  SELECT\n    d.id,\n    COALESCE(NULLIF(d.nome_amigavel, ''), d.name) AS nome,\n    d.device_id AS serial,\n    m.nome AS modelo,\n    uv.recebido_em AS ultimo_valor,\n    d.created_at AS criado_em,\n    d.is_online AS online,\n    d.last_seen AS last_seen_at,\n    d.telemetry_interval_s,\n    d.burst_rate_s\n  FROM devices d\n  LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n  LEFT JOIN LATERAL (\n    SELECT recebido_em FROM dispositivo_ultimo_valor\n    WHERE dispositivo_id = d.id\n    ORDER BY recebido_em DESC\n    LIMIT 1\n  ) uv ON TRUE\n  WHERE ($1::uuid IS NULL OR d.user_id = $1::uuid)\n  ORDER BY d.created_at DESC\n`;\ntry {\n  const r = await pool.query(sql, [isAdmin ? null : userId]);\n  msg.statusCode = 200;\n  msg.payload = r.rows;\n} catch(e) {\n  node.error('list dispositivos: '+e.message, msg);\n  msg.statusCode = 500; msg.payload = {error:'internal'};\n}\nreturn msg;",
+        "func": "// E2.4 — devolve devices próprios + compartilhamentos ativos (view dispositivos_visiveis)\nconst pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst isAdmin = msg.user && msg.user.role === 'admin';\nconst userId = msg.user && msg.user.id;\ntry {\n  let r;\n  if (isAdmin) {\n    // Admin: vê todos os dispositivos como owner (sem coluna access_type='shared').\n    r = await pool.query(`\n      SELECT\n        d.id,\n        COALESCE(NULLIF(d.nome_amigavel, ''), d.name) AS nome,\n        d.device_id AS serial,\n        m.nome AS modelo,\n        uv.recebido_em AS ultimo_valor,\n        d.created_at AS criado_em,\n        d.is_online AS online,\n        d.last_seen AS last_seen_at,\n        d.telemetry_interval_s,\n        d.burst_rate_s,\n        'owner'::text AS access_type,\n        'controle'::text AS permissao,\n        NULL::uuid AS share_id\n      FROM devices d\n      LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n      LEFT JOIN LATERAL (\n        SELECT recebido_em FROM dispositivo_ultimo_valor\n        WHERE dispositivo_id = d.id ORDER BY recebido_em DESC LIMIT 1\n      ) uv ON TRUE\n      ORDER BY d.created_at DESC\n    `);\n  } else {\n    r = await pool.query(`\n      SELECT\n        v.id,\n        COALESCE(NULLIF(v.nome_amigavel, ''), v.name) AS nome,\n        v.device_id AS serial,\n        m.nome AS modelo,\n        uv.recebido_em AS ultimo_valor,\n        v.created_at AS criado_em,\n        v.is_online AS online,\n        v.last_seen AS last_seen_at,\n        v.telemetry_interval_s,\n        v.burst_rate_s,\n        v.access_type,\n        v.permissao::text AS permissao,\n        v.share_id\n      FROM dispositivos_visiveis v\n      LEFT JOIN modelos_dispositivo m ON m.id = v.modelo_id\n      LEFT JOIN LATERAL (\n        SELECT recebido_em FROM dispositivo_ultimo_valor\n        WHERE dispositivo_id = v.id ORDER BY recebido_em DESC LIMIT 1\n      ) uv ON TRUE\n      WHERE v.viewer_id = $1::uuid\n      ORDER BY v.created_at DESC\n    `, [userId]);\n  }\n  msg.statusCode = 200;\n  msg.payload = r.rows;\n} catch(e) {\n  node.error('list dispositivos: '+e.message, msg);\n  msg.statusCode = 500; msg.payload = {error:'internal'};\n}\nreturn msg;",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -1628,7 +1628,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Signup self-service",
-        "func": "const pool = global.get('pgPool');\nconst sendMail = global.get('sendMail');\nconst baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nconst password = body.password||'';\nconst nome = (body.full_name||body.nome||'').trim();\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!EMAIL_RE.test(email)) { msg.statusCode=400; msg.payload={error:'email invalido'}; return msg; }\nif (nome.length < 2) { msg.statusCode=400; msg.payload={error:'nome obrigatorio'}; return msg; }\nif (password.length < 8) { msg.statusCode=400; msg.payload={error:'senha deve ter ao menos 8 caracteres'}; return msg; }\ntry {\n  const dup = await pool.query('SELECT id FROM app_users WHERE email=$1 LIMIT 1',[email]);\n  if (dup.rowCount > 0) { msg.statusCode=409; msg.payload={error:'email ja cadastrado'}; return msg; }\n  const hash = await bcrypt.hash(password, 10);\n  const ins = await pool.query(\n    \"INSERT INTO app_users (email, password_hash, full_name, role, email_verified, is_active) VALUES ($1,$2,$3,'cliente',FALSE,TRUE) RETURNING id\",\n    [email, hash, nome]\n  );\n  const userId = ins.rows[0].id;\n  const tk = await pool.query(\n    \"INSERT INTO email_verification_tokens (user_id, purpose, expires_at) VALUES ($1,'signup', now() + interval '24 hours') RETURNING token\",\n    [userId]\n  );\n  const link = baseUrl + '/verify?token=' + tk.rows[0].token;\n  if (sendMail) {\n    try {\n      await sendMail({to: email, subject: 'Confirme seu e-mail — XT Connect Hub', template: 'signup-verify', vars: {nome: nome, link: link}});\n    } catch(e) { node.warn('signup email failed for '+email+': '+e.message); }\n  } else {\n    node.warn('signup: sendMail not initialized; usuario criado sem e-mail');\n  }\n  msg.statusCode = 201;\n  msg.payload = { message: 'Verifique seu e-mail para ativar a conta.' };\n} catch(e) {\n  if (/unique/i.test(e.message) || /duplicate/i.test(e.message)) {\n    msg.statusCode=409; msg.payload={error:'email ja cadastrado'};\n  } else {\n    node.error('signup: '+e.message, msg);\n    msg.statusCode = 500; msg.payload = {error:'internal'};\n  }\n}\nreturn msg;",
+        "func": "const pool = global.get('pgPool');\nconst sendMail = global.get('sendMail');\nconst baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nconst password = body.password||'';\nconst nome = (body.full_name||body.nome||'').trim();\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!EMAIL_RE.test(email)) { msg.statusCode=400; msg.payload={error:'email invalido'}; return msg; }\nif (nome.length < 2) { msg.statusCode=400; msg.payload={error:'nome obrigatorio'}; return msg; }\nif (password.length < 8) { msg.statusCode=400; msg.payload={error:'senha deve ter ao menos 8 caracteres'}; return msg; }\ntry {\n  const dup = await pool.query('SELECT id FROM app_users WHERE email=$1 LIMIT 1',[email]);\n  if (dup.rowCount > 0) { msg.statusCode=409; msg.payload={error:'email ja cadastrado'}; return msg; }\n  const hash = await bcrypt.hash(password, 10);\n  const ins = await pool.query(\n    \"INSERT INTO app_users (email, password_hash, full_name, role, email_verified, is_active) VALUES ($1,$2,$3,'cliente',FALSE,TRUE) RETURNING id\",\n    [email, hash, nome]\n  );\n  const userId = ins.rows[0].id;\n  // E2.4 — ativa qualquer compartilhamento pendente pra esse email\n  try {\n    const linked = await pool.query(\n      `UPDATE dispositivo_compartilhado\n          SET status='ativo', com_usuario_id=$1, aceito_em=NOW(), token_convite=NULL\n        WHERE email_convidado=$2 AND status='pendente'\n        RETURNING id`,\n      [userId, email]\n    );\n    if (linked.rowCount > 0) node.log('signup: '+linked.rowCount+' compartilhamento(s) ativado(s) pra '+email);\n  } catch(e) { node.warn('signup share-link failed: '+e.message); }\n  const tk = await pool.query(\n    \"INSERT INTO email_verification_tokens (user_id, purpose, expires_at) VALUES ($1,'signup', now() + interval '24 hours') RETURNING token\",\n    [userId]\n  );\n  const link = baseUrl + '/verify?token=' + tk.rows[0].token;\n  if (sendMail) {\n    try {\n      await sendMail({to: email, subject: 'Confirme seu e-mail — XT Connect Hub', template: 'signup-verify', vars: {nome: nome, link: link}});\n    } catch(e) { node.warn('signup email failed for '+email+': '+e.message); }\n  } else {\n    node.warn('signup: sendMail not initialized; usuario criado sem e-mail');\n  }\n  msg.statusCode = 201;\n  msg.payload = { message: 'Verifique seu e-mail para ativar a conta.' };\n} catch(e) {\n  if (/unique/i.test(e.message) || /duplicate/i.test(e.message)) {\n    msg.statusCode=409; msg.payload={error:'email ja cadastrado'};\n  } else {\n    node.error('signup: '+e.message, msg);\n    msg.statusCode = 500; msg.payload = {error:'internal'};\n  }\n}\nreturn msg;",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -1960,7 +1960,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Set rate + publish",
-        "func": "// E2.3 — atualiza taxa (mode=default) ou só publica burst (mode=burst).\n// Permissão: owner ou admin.\nconst pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return [msg, null]; }\n\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!id || !UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return [msg, null]; }\n\nconst body = msg.payload || {};\nconst mode = (body.mode === 'burst') ? 'burst' : (body.mode === 'default' ? 'default' : null);\nif (!mode) { msg.statusCode=400; msg.payload={error:'mode deve ser default ou burst'}; return [msg, null]; }\n\nconst rate = Number(body.rate_s);\nif (!Number.isFinite(rate) || !Number.isInteger(rate) || rate < 1) {\n  msg.statusCode=400; msg.payload={error:'rate_s invalido'}; return [msg, null];\n}\nif (mode === 'default' && rate > 3600) {\n  msg.statusCode=400; msg.payload={error:'rate_s (default) deve ser <= 3600'}; return [msg, null];\n}\nif (mode === 'burst' && rate > 60) {\n  msg.statusCode=400; msg.payload={error:'rate_s (burst) deve ser <= 60'}; return [msg, null];\n}\n\nlet durationS = 0;\nif (mode === 'burst') {\n  durationS = Number(body.duration_s);\n  if (!Number.isFinite(durationS) || !Number.isInteger(durationS) || durationS < 5 || durationS > 1800) {\n    msg.statusCode=400; msg.payload={error:'duration_s invalido (5..1800)'}; return [msg, null];\n  }\n}\n\ntry {\n  const sel = await pool.query(\n    'SELECT id, user_id, device_id FROM devices WHERE id=$1 LIMIT 1',\n    [id]\n  );\n  if (sel.rowCount === 0) { msg.statusCode=404; msg.payload={error:'not found'}; return [msg, null]; }\n  const dev = sel.rows[0];\n  const isOwner = dev.user_id === msg.user.id;\n  const isAdmin = msg.user && msg.user.role === 'admin';\n  if (!isOwner && !isAdmin) { msg.statusCode=403; msg.payload={error:'forbidden'}; return [msg, null]; }\n\n  if (mode === 'default') {\n    await pool.query(\n      'UPDATE devices SET telemetry_interval_s=$1 WHERE id=$2',\n      [rate, id]\n    );\n  }\n\n  const requestId = crypto.randomUUID();\n  const cmd = {\n    cmd: 'set_rate',\n    rate_s: rate,\n    mode,\n    request_id: requestId\n  };\n  if (mode === 'burst') {\n    cmd.expires_at = new Date(Date.now() + durationS * 1000).toISOString();\n  }\n\n  const pubMsg = {\n    topic: 'devices/' + dev.device_id + '/commands',\n    payload: JSON.stringify(cmd)\n  };\n\n  msg.statusCode = 200;\n  msg.payload = { ok: true, request_id: requestId, applied_rate_s: rate, mode };\n  return [msg, pubMsg];\n} catch (e) {\n  node.error('set rate: ' + e.message, msg);\n  msg.statusCode = 500;\n  msg.payload = { error: 'internal' };\n  return [msg, null];\n}",
+        "func": "// E2.3 + E2.4 — atualiza taxa (mode=default) ou só publica burst.\n// Permissão: owner, admin, ou compartilhamento ativo com permissao=controle.\nconst pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return [msg, null]; }\n\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!id || !UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return [msg, null]; }\n\nconst body = msg.payload || {};\nconst mode = (body.mode === 'burst') ? 'burst' : (body.mode === 'default' ? 'default' : null);\nif (!mode) { msg.statusCode=400; msg.payload={error:'mode deve ser default ou burst'}; return [msg, null]; }\n\nconst rate = Number(body.rate_s);\nif (!Number.isFinite(rate) || !Number.isInteger(rate) || rate < 1) {\n  msg.statusCode=400; msg.payload={error:'rate_s invalido'}; return [msg, null];\n}\nif (mode === 'default' && rate > 3600) {\n  msg.statusCode=400; msg.payload={error:'rate_s (default) deve ser <= 3600'}; return [msg, null];\n}\nif (mode === 'burst' && rate > 60) {\n  msg.statusCode=400; msg.payload={error:'rate_s (burst) deve ser <= 60'}; return [msg, null];\n}\n\nlet durationS = 0;\nif (mode === 'burst') {\n  durationS = Number(body.duration_s);\n  if (!Number.isFinite(durationS) || !Number.isInteger(durationS) || durationS < 5 || durationS > 1800) {\n    msg.statusCode=400; msg.payload={error:'duration_s invalido (5..1800)'}; return [msg, null];\n  }\n}\n\ntry {\n  const isAdmin = msg.user && msg.user.role === 'admin';\n\n  // Acesso via dispositivos_visiveis: pega permissão efetiva e device serial em uma query.\n  let dev, permEff;\n  if (isAdmin) {\n    const sel = await pool.query(\n      'SELECT id, user_id, device_id FROM devices WHERE id=$1 LIMIT 1',\n      [id]\n    );\n    if (sel.rowCount === 0) { msg.statusCode=404; msg.payload={error:'not found'}; return [msg, null]; }\n    dev = sel.rows[0];\n    permEff = 'controle';\n  } else {\n    const sel = await pool.query(\n      `SELECT id, owner_id AS user_id, device_id, permissao::text AS permissao\n         FROM dispositivos_visiveis\n         WHERE id = $1 AND viewer_id = $2 LIMIT 1`,\n      [id, msg.user.id]\n    );\n    if (sel.rowCount === 0) { msg.statusCode=404; msg.payload={error:'not found'}; return [msg, null]; }\n    dev = sel.rows[0];\n    permEff = dev.permissao;\n    if (permEff !== 'controle') {\n      msg.statusCode=403;\n      msg.payload={error:'sem permissao para comandar (acesso somente leitura)'};\n      return [msg, null];\n    }\n  }\n\n  if (mode === 'default') {\n    await pool.query(\n      'UPDATE devices SET telemetry_interval_s=$1 WHERE id=$2',\n      [rate, id]\n    );\n  }\n\n  const requestId = crypto.randomUUID();\n  const cmd = {\n    cmd: 'set_rate',\n    rate_s: rate,\n    mode,\n    request_id: requestId\n  };\n  if (mode === 'burst') {\n    cmd.expires_at = new Date(Date.now() + durationS * 1000).toISOString();\n  }\n\n  const pubMsg = {\n    topic: 'devices/' + dev.device_id + '/commands',\n    payload: JSON.stringify(cmd)\n  };\n\n  msg.statusCode = 200;\n  msg.payload = { ok: true, request_id: requestId, applied_rate_s: rate, mode };\n  return [msg, pubMsg];\n} catch (e) {\n  node.error('set rate: ' + e.message, msg);\n  msg.statusCode = 500;\n  msg.payload = { error: 'internal' };\n  return [msg, null];\n}",
         "outputs": 2,
         "libs": [
             {
@@ -1990,6 +1990,361 @@
         },
         "x": 900,
         "y": 1340,
+        "wires": []
+    },
+    {
+        "id": "httpCreateShare",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /dispositivos/:id/compartilhamentos",
+        "url": "/dispositivos/:id/compartilhamentos",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 2200,
+        "wires": [
+            [
+                "fnAuthCreateShare"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthCreateShare",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 2200,
+        "wires": [
+            [
+                "fnCreateShare"
+            ],
+            [
+                "respCreateShare"
+            ]
+        ]
+    },
+    {
+        "id": "fnCreateShare",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Create share",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return msg; }\n\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nconst permRaw = body.permissao || body.permission || '';\nlet permissao;\nif (permRaw === 'leitura' || permRaw === 'viewer') permissao = 'leitura';\nelse if (permRaw === 'controle' || permRaw === 'operator') permissao = 'controle';\nelse { msg.statusCode=400; msg.payload={error:'permissao deve ser leitura ou controle (ou viewer/operator)'}; return msg; }\n\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!EMAIL_RE.test(email)) { msg.statusCode=400; msg.payload={error:'email invalido'}; return msg; }\nif (msg.user.email && email === String(msg.user.email).toLowerCase()) {\n  msg.statusCode=400; msg.payload={error:'nao pode compartilhar consigo mesmo'}; return msg;\n}\n\ntry {\n  const dev = await pool.query('SELECT id, user_id FROM devices WHERE id=$1 LIMIT 1', [id]);\n  if (dev.rowCount === 0) { msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado'}; return msg; }\n  if (dev.rows[0].user_id !== msg.user.id) {\n    msg.statusCode=403; msg.payload={error:'apenas o dono pode compartilhar'}; return msg;\n  }\n\n  const u = await pool.query('SELECT id FROM app_users WHERE email=$1 LIMIT 1', [email]);\n  const targetUserId = u.rowCount > 0 ? u.rows[0].id : null;\n  const status = targetUserId ? 'ativo' : 'pendente';\n  const token = targetUserId ? null : crypto.randomBytes(32).toString('base64url');\n  const aceitoEm = targetUserId ? new Date() : null;\n\n  let r;\n  try {\n    r = await pool.query(\n      `INSERT INTO dispositivo_compartilhado\n         (dispositivo_id, com_usuario_id, criado_por, permissao, email_convidado, status, token_convite, aceito_em)\n       VALUES ($1, $2, $3, $4::permissao_compartilhamento, $5, $6, $7, $8)\n       RETURNING id, dispositivo_id, com_usuario_id, permissao::text AS permissao,\n                 email_convidado, status, token_convite, criado_em, aceito_em`,\n      [id, targetUserId, msg.user.id, permissao, email, status, token, aceitoEm]\n    );\n  } catch(e) {\n    if (/uq_compart_email_ativo/i.test(e.message) || /duplicate/i.test(e.message) || e.code === '23505') {\n      msg.statusCode=409; msg.payload={error:'ja compartilhado com esse email'}; return msg;\n    }\n    throw e;\n  }\n\n  msg.statusCode = 201;\n  msg.payload = { compartilhamento: r.rows[0] };\n} catch(e) {\n  node.error('create share: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [
+            {
+                "var": "crypto",
+                "module": "crypto"
+            }
+        ],
+        "x": 700,
+        "y": 2200,
+        "wires": [
+            [
+                "respCreateShare"
+            ]
+        ]
+    },
+    {
+        "id": "respCreateShare",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 2200,
+        "wires": []
+    },
+    {
+        "id": "httpListShares",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /dispositivos/:id/compartilhamentos",
+        "url": "/dispositivos/:id/compartilhamentos",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 2300,
+        "wires": [
+            [
+                "fnAuthListShares"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthListShares",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 2300,
+        "wires": [
+            [
+                "fnListShares"
+            ],
+            [
+                "respListShares"
+            ]
+        ]
+    },
+    {
+        "id": "fnListShares",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "List shares",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return msg; }\ntry {\n  const dev = await pool.query('SELECT user_id FROM devices WHERE id=$1 LIMIT 1', [id]);\n  if (dev.rowCount === 0) { msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado'}; return msg; }\n  const isAdmin = msg.user && msg.user.role === 'admin';\n  if (dev.rows[0].user_id !== msg.user.id && !isAdmin) {\n    msg.statusCode=403; msg.payload={error:'apenas o dono pode listar compartilhamentos'}; return msg;\n  }\n  const r = await pool.query(`\n    SELECT s.id, s.email_convidado, s.permissao::text AS permissao, s.status,\n           s.criado_em, s.aceito_em, s.revogado_em,\n           s.com_usuario_id AS user_id, u.full_name AS user_nome\n    FROM dispositivo_compartilhado s\n    LEFT JOIN app_users u ON u.id = s.com_usuario_id\n    WHERE s.dispositivo_id = $1\n    ORDER BY s.criado_em DESC\n  `, [id]);\n  msg.statusCode=200;\n  msg.payload = { compartilhamentos: r.rows };\n} catch(e) {\n  node.error('list shares: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 700,
+        "y": 2300,
+        "wires": [
+            [
+                "respListShares"
+            ]
+        ]
+    },
+    {
+        "id": "respListShares",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 2300,
+        "wires": []
+    },
+    {
+        "id": "httpRevokeShare",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "DELETE /dispositivos/:id/compartilhamentos/:shareId",
+        "url": "/dispositivos/:id/compartilhamentos/:shareId",
+        "method": "delete",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 2400,
+        "wires": [
+            [
+                "fnAuthRevokeShare"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthRevokeShare",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 2400,
+        "wires": [
+            [
+                "fnRevokeShare"
+            ],
+            [
+                "respRevokeShare"
+            ]
+        ]
+    },
+    {
+        "id": "fnRevokeShare",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Revoke share",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst id = msg.req.params.id;\nconst shareId = msg.req.params.shareId;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(id) || !UUID_RE.test(shareId)) {\n  msg.statusCode=400; msg.payload={error:'id invalido'}; return msg;\n}\ntry {\n  const dev = await pool.query('SELECT user_id FROM devices WHERE id=$1 LIMIT 1', [id]);\n  if (dev.rowCount === 0) { msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado'}; return msg; }\n  const isAdmin = msg.user && msg.user.role === 'admin';\n  if (dev.rows[0].user_id !== msg.user.id && !isAdmin) {\n    msg.statusCode=403; msg.payload={error:'apenas o dono pode revogar'}; return msg;\n  }\n  const r = await pool.query(\n    `UPDATE dispositivo_compartilhado\n        SET status='revogado', revogado_em=NOW(), token_convite=NULL\n      WHERE id=$1 AND dispositivo_id=$2 AND status<>'revogado'\n      RETURNING id`,\n    [shareId, id]\n  );\n  if (r.rowCount === 0) { msg.statusCode=404; msg.payload={error:'compartilhamento nao encontrado ou ja revogado'}; return msg; }\n  msg.statusCode=200;\n  msg.payload = { ok: true, id: r.rows[0].id };\n} catch(e) {\n  node.error('revoke share: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 700,
+        "y": 2400,
+        "wires": [
+            [
+                "respRevokeShare"
+            ]
+        ]
+    },
+    {
+        "id": "respRevokeShare",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 2400,
+        "wires": []
+    },
+    {
+        "id": "httpInbox",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /compartilhamentos/inbox",
+        "url": "/compartilhamentos/inbox",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 2500,
+        "wires": [
+            [
+                "fnAuthInbox"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthInbox",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 2500,
+        "wires": [
+            [
+                "fnInbox"
+            ],
+            [
+                "respInbox"
+            ]
+        ]
+    },
+    {
+        "id": "fnInbox",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Shares inbox",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst userEmail = (msg.user.email||'').toLowerCase();\nconst userId = msg.user.id;\ntry {\n  const pend = await pool.query(`\n    SELECT s.id, s.token_convite AS token, s.permissao::text AS permissao,\n           s.email_convidado, s.criado_em,\n           d.id AS dispositivo_id,\n           COALESCE(NULLIF(d.nome_amigavel,''), d.name) AS dispositivo_nome,\n           d.device_id AS serial,\n           u.email AS dono_email, u.full_name AS dono_nome\n    FROM dispositivo_compartilhado s\n    JOIN devices d ON d.id = s.dispositivo_id\n    JOIN app_users u ON u.id = s.criado_por\n    WHERE s.status = 'pendente' AND s.email_convidado = $1\n    ORDER BY s.criado_em DESC\n  `, [userEmail]);\n\n  const ativ = await pool.query(`\n    SELECT s.id, s.permissao::text AS permissao, s.aceito_em, s.criado_em,\n           d.id AS dispositivo_id,\n           COALESCE(NULLIF(d.nome_amigavel,''), d.name) AS dispositivo_nome,\n           d.device_id AS serial,\n           u.email AS dono_email, u.full_name AS dono_nome\n    FROM dispositivo_compartilhado s\n    JOIN devices d ON d.id = s.dispositivo_id\n    JOIN app_users u ON u.id = s.criado_por\n    WHERE s.status = 'ativo' AND s.com_usuario_id = $1\n    ORDER BY s.aceito_em DESC NULLS LAST\n  `, [userId]);\n\n  msg.statusCode=200;\n  msg.payload = { pendentes: pend.rows, ativos: ativ.rows };\n} catch(e) {\n  node.error('inbox: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 700,
+        "y": 2500,
+        "wires": [
+            [
+                "respInbox"
+            ]
+        ]
+    },
+    {
+        "id": "respInbox",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 2500,
+        "wires": []
+    },
+    {
+        "id": "httpAcceptShare",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /compartilhamentos/aceitar",
+        "url": "/compartilhamentos/aceitar",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 2600,
+        "wires": [
+            [
+                "fnAuthAcceptShare"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthAcceptShare",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 2600,
+        "wires": [
+            [
+                "fnAcceptShare"
+            ],
+            [
+                "respAcceptShare"
+            ]
+        ]
+    },
+    {
+        "id": "fnAcceptShare",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Accept share",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst token = (body.token||'').trim();\nif (!token) { msg.statusCode=400; msg.payload={error:'token obrigatorio'}; return msg; }\ntry {\n  const sel = await pool.query(\n    `SELECT id, dispositivo_id, email_convidado, status\n       FROM dispositivo_compartilhado WHERE token_convite=$1 LIMIT 1`,\n    [token]\n  );\n  if (sel.rowCount === 0 || sel.rows[0].status !== 'pendente') {\n    msg.statusCode=404; msg.payload={error:'convite nao encontrado ou ja usado'}; return msg;\n  }\n  const share = sel.rows[0];\n  const userEmail = (msg.user.email||'').toLowerCase();\n  if (String(share.email_convidado).toLowerCase() !== userEmail) {\n    msg.statusCode=403; msg.payload={error:'convite e para outro email'}; return msg;\n  }\n  const upd = await pool.query(\n    `UPDATE dispositivo_compartilhado\n        SET status='ativo', aceito_em=NOW(), com_usuario_id=$1, token_convite=NULL\n      WHERE id=$2\n      RETURNING id, dispositivo_id, com_usuario_id, permissao::text AS permissao,\n                email_convidado, status, criado_em, aceito_em`,\n    [msg.user.id, share.id]\n  );\n  const dev = await pool.query(\n    `SELECT id, COALESCE(NULLIF(nome_amigavel,''), name) AS nome,\n            device_id AS serial\n       FROM devices WHERE id=$1`,\n    [share.dispositivo_id]\n  );\n  msg.statusCode=200;\n  msg.payload = { compartilhamento: upd.rows[0], dispositivo: dev.rows[0] };\n} catch(e) {\n  node.error('accept share: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 700,
+        "y": 2600,
+        "wires": [
+            [
+                "respAcceptShare"
+            ]
+        ]
+    },
+    {
+        "id": "respAcceptShare",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 2600,
         "wires": []
     }
 ]
