@@ -7,6 +7,8 @@ import { LoginPage } from '@/features/auth/LoginPage'
 import { ProtectedRoute } from '@/features/auth/ProtectedRoute'
 import { SignupPage } from '@/features/auth/SignupPage'
 import { VerifyPage } from '@/features/auth/VerifyPage'
+import { AdicionarDispositivoPage } from '@/features/claim/pages/AdicionarDispositivoPage'
+import { ClaimLandingPage } from '@/features/claim/pages/ClaimLandingPage'
 import { AceitarConvitePage } from '@/features/convites/AceitarConvitePage'
 import { ConvitesPage } from '@/features/convites/ConvitesPage'
 import { DispositivoDetailPage } from '@/features/dispositivos/DispositivoDetailPage'
@@ -43,6 +45,7 @@ export const router = createBrowserRouter([
   { path: '/signup', element: <SignupPage /> },
   { path: '/verify', element: <VerifyPage /> },
   { path: '/convites/aceitar', element: <AceitarConvitePage /> },
+  { path: '/claim', element: <ClaimLandingPage /> },
   {
     element: (
       <ProtectedRoute>
@@ -52,6 +55,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/dispositivos" replace /> },
       { path: '/dispositivos', element: <DispositivosPage /> },
+      { path: '/dispositivos/adicionar', element: <AdicionarDispositivoPage /> },
       { path: '/dispositivos/:id', element: <DispositivoDetailPage /> },
       { path: '/convites', element: <ConvitesPage /> },
       {

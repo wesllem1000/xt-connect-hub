@@ -3,11 +3,11 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
-  Cpu,
   Eye,
   KeyRound,
   MoreVertical,
   Plus,
+  QrCode,
   Radio,
   Sliders,
   Trash2,
@@ -45,7 +45,6 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { extractApiError } from '@/lib/api'
 import { useDeviceStatus } from '@/hooks/useDeviceStatus'
-import { DispositivoFormDialog } from './DispositivoFormDialog'
 import { MqttCredentialsDialog } from './MqttCredentialsDialog'
 
 const dateFormatter = new Intl.DateTimeFormat('pt-BR', {
@@ -227,15 +226,15 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
     <Card className="max-w-md mx-auto text-center">
       <CardHeader>
         <div className="mx-auto rounded-full bg-primary/10 p-3 w-fit">
-          <Cpu className="h-6 w-6 text-primary" />
+          <QrCode className="h-6 w-6 text-primary" />
         </div>
         <CardTitle className="mt-3">Nenhum dispositivo cadastrado</CardTitle>
       </CardHeader>
       <CardContent>
         <p className="text-sm text-muted-foreground mb-4">
-          Cadastre um dispositivo para começar a receber telemetria.
+          Escaneie o QR code da etiqueta do seu produto ou digite o código pra começar.
         </p>
-        <Button onClick={onAdd}>
+        <Button onClick={onAdd} size="lg" className="h-12">
           <Plus className="h-4 w-4 mr-2" />
           Adicionar dispositivo
         </Button>
@@ -265,7 +264,7 @@ type CredentialsDialogState = {
 
 export function DispositivosPage() {
   const qc = useQueryClient()
-  const [dialogOpen, setDialogOpen] = useState(false)
+  const navigate = useNavigate()
   const [toDelete, setToDelete] = useState<Dispositivo | null>(null)
   const [toRegenerate, setToRegenerate] = useState<Dispositivo | null>(null)
   const [credentialsDialog, setCredentialsDialog] =
@@ -325,7 +324,7 @@ export function DispositivosPage() {
             Seus dispositivos conectados ao hub.
           </p>
         </div>
-        <Button onClick={() => setDialogOpen(true)}>
+        <Button onClick={() => navigate('/dispositivos/adicionar')}>
           <Plus className="h-4 w-4 mr-2" />
           Adicionar
         </Button>
@@ -344,7 +343,7 @@ export function DispositivosPage() {
       )}
 
       {query.isSuccess && query.data.length === 0 && (
-        <EmptyState onAdd={() => setDialogOpen(true)} />
+        <EmptyState onAdd={() => navigate('/dispositivos/adicionar')} />
       )}
 
       {query.isSuccess && dispositivos.length > 0 && (
@@ -359,14 +358,6 @@ export function DispositivosPage() {
           ))}
         </div>
       )}
-
-      <DispositivoFormDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        onCreated={(credentials) =>
-          setCredentialsDialog({ credentials, contexto: 'criado' })
-        }
-      />
 
       <MqttCredentialsDialog
         open={credentialsDialog !== null}

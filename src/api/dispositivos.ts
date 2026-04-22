@@ -37,29 +37,8 @@ export type SetRateResponse = {
   mode: 'default' | 'burst'
 }
 
-export type CreateDispositivoInput = {
-  nome: string
-  serial: string
-  modelo_id?: string | null
-  localizacao?: string
-}
-
 export async function listDispositivos(): Promise<Dispositivo[]> {
   return api.get('dispositivos').json<Dispositivo[]>()
-}
-
-export async function createDispositivo(
-  data: CreateDispositivoInput,
-): Promise<Dispositivo> {
-  const payload: Record<string, unknown> = {
-    nome: data.nome,
-    serial: data.serial,
-  }
-  if (data.modelo_id) payload.modelo_id = data.modelo_id
-  if (data.localizacao && data.localizacao.trim()) {
-    payload.localizacao = data.localizacao.trim()
-  }
-  return api.post('dispositivos', { json: payload }).json<Dispositivo>()
 }
 
 export async function deleteDispositivo(id: string): Promise<void> {
