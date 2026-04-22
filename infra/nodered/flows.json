@@ -10,7 +10,7 @@
     {
         "id": "tabIngest",
         "type": "tab",
-        "label": "Ingest\u00e3o MQTT",
+        "label": "Ingestão MQTT",
         "disabled": false,
         "info": ""
     },
@@ -130,7 +130,7 @@
         "type": "function",
         "z": "tabIngest",
         "name": "Gravar leitura",
-        "func": "// E2.2 + E2.2.1 + E3.x \u2014 valida\u00e7\u00e3o do envelope (com fallback flat) + presence event\nconst MAX = parseInt(env.get('MQTT_MAX_PAYLOAD_BYTES') || '4096');\nconst pool = global.get('pgPool');\nconst writeApi = global.get('influxWrite');\nconst Point = global.get('influxPoint');\nif (!pool) { node.status({ fill:'red', shape:'ring', text:'sem pool' }); return null; }\n\nconst topic = msg.topic || '';\nconst parts = topic.split('/');\nif (parts.length !== 3 || parts[0] !== 'devices' || parts[2] !== 'data') {\n  node.warn('topic invalido: ' + topic); return null;\n}\nconst mqttUser = parts[1];\nif (!mqttUser || mqttUser.length > 64) { node.warn('serial invalido'); return null; }\n\nlet raw = msg.payload;\nlet str;\nif (Buffer.isBuffer(raw)) str = raw.toString('utf8');\nelse if (typeof raw === 'string') str = raw;\nelse if (raw && typeof raw === 'object') str = JSON.stringify(raw);\nelse { node.warn('payload type inesperado: ' + typeof raw); return null; }\nif (str.length > MAX) { node.warn('payload > ' + MAX + 'B'); return null; }\n\nlet env_;\ntry { env_ = JSON.parse(str); } catch (e) { node.warn('JSON invalido: ' + e.message); return null; }\nif (!env_ || typeof env_ !== 'object' || Array.isArray(env_)) { node.warn('envelope nao e objeto'); return null; }\n\n// E3.x \u2014 aceita envelope { ts, readings } OU payload flat. Firmware novo do\n// INT-V2 publica flat ({umidade_solo:62.9, uptime_s:371, ...}); ingest\n// deve aceitar ambos pra n\u00e3o quebrar devices legitimamente associados.\nlet tsNum;\nlet readings;\nif (typeof env_.ts === 'number' && Number.isFinite(env_.ts) && env_.ts > 0 &&\n    env_.readings && typeof env_.readings === 'object' && !Array.isArray(env_.readings)) {\n  tsNum = env_.ts;\n  readings = env_.readings;\n} else {\n  tsNum = Date.now();\n  readings = {};\n  for (const k of Object.keys(env_)) {\n    const v = env_[k];\n    if (typeof v === 'number' && Number.isFinite(v)) readings[k] = v;\n  }\n}\n\nconst keys = Object.keys(readings);\nif (keys.length === 0) { node.warn('nenhum campo numerico no payload'); return null; }\nfor (const k of keys) {\n  if (typeof k !== 'string' || k.length === 0 || k.length > 32) { node.warn('key invalida: ' + k); return null; }\n  const v = readings[k];\n  if (typeof v !== 'number' || !Number.isFinite(v)) { node.warn('valor nao numerico em ' + k); return null; }\n}\n\nconst tsMs = tsNum < 1e12 ? tsNum * 1000 : tsNum;\nconst tsIso = new Date(tsMs).toISOString();\n\ntry {\n  const r = await pool.query(\n    'SELECT id, user_id, status, is_online FROM devices WHERE mqtt_username=$1 LIMIT 1',\n    [mqttUser]\n  );\n  if (r.rowCount === 0) {\n    await pool.query('INSERT INTO mqtt_events(topic,client_id,payload) VALUES($1,$2,$3)',\n      [topic, mqttUser, JSON.stringify(env_)]);\n    node.status({ fill:'yellow', shape:'ring', text: mqttUser + ' nao cadastrado' });\n    return null;\n  }\n  const dev = r.rows[0];\n  // E3.1: 'associado' \u00e9 o novo 'active'. Aceita ambos por retrocompatibilidade.\n  if (dev.status !== 'associado' && dev.status !== 'active') {\n    node.status({ fill:'yellow', shape:'ring', text: mqttUser + ' status=' + dev.status });\n    return null;\n  }\n  const devId = dev.id;\n  const wasOnline = dev.is_online === true;\n  const readingsJson = JSON.stringify(readings);\n\n  await pool.query(\n    'INSERT INTO device_readings(device_id, ts, topic, payload) VALUES($1,$2,$3,$4::jsonb)',\n    [devId, tsIso, topic, readingsJson]\n  );\n  await pool.query(\n    'UPDATE devices SET last_reading=$1::jsonb, last_reading_at=$2, last_seen=NOW(), is_online=TRUE WHERE id=$3',\n    [readingsJson, tsIso, devId]\n  );\n\n  let fieldCount = 0;\n  if (writeApi && Point) {\n    const p = new Point('readings').tag('device_id', devId).tag('mqtt_user', mqttUser).timestamp(new Date(tsMs));\n    for (const k of keys) { p.floatField(k, readings[k]); fieldCount++; }\n    if (fieldCount > 0) writeApi.writePoint(p);\n  }\n\n  node.status({ fill:'green', shape:'dot', text: mqttUser + ' pg+ifx('+fieldCount+'f) '+new Date().toISOString().slice(11,19) });\n  msg.saved = { device_id: devId, ts: tsIso, readings: readings, influx_fields: fieldCount };\n\n  let presenceMsg = null;\n  if (!wasOnline) {\n    presenceMsg = {\n      topic: 'devices/' + mqttUser + '/status',\n      payload: JSON.stringify({\n        type: 'device_status_changed',\n        online: true,\n        device_id: devId,\n        serial: mqttUser,\n        user_id: dev.user_id,\n        last_seen_at: new Date().toISOString(),\n        source: 'ingest'\n      })\n    };\n  }\n  return [msg, presenceMsg];\n} catch (e) {\n  node.error('ingest: ' + e.message, msg);\n  return null;\n}",
+        "func": "// E2.2 + E2.2.1 + E3.x — validação do envelope (com fallback flat) + presence event\nconst MAX = parseInt(env.get('MQTT_MAX_PAYLOAD_BYTES') || '4096');\nconst pool = global.get('pgPool');\nconst writeApi = global.get('influxWrite');\nconst Point = global.get('influxPoint');\nif (!pool) { node.status({ fill:'red', shape:'ring', text:'sem pool' }); return null; }\n\nconst topic = msg.topic || '';\nconst parts = topic.split('/');\nif (parts.length !== 3 || parts[0] !== 'devices' || parts[2] !== 'data') {\n  node.warn('topic invalido: ' + topic); return null;\n}\nconst mqttUser = parts[1];\nif (!mqttUser || mqttUser.length > 64) { node.warn('serial invalido'); return null; }\n\nlet raw = msg.payload;\nlet str;\nif (Buffer.isBuffer(raw)) str = raw.toString('utf8');\nelse if (typeof raw === 'string') str = raw;\nelse if (raw && typeof raw === 'object') str = JSON.stringify(raw);\nelse { node.warn('payload type inesperado: ' + typeof raw); return null; }\nif (str.length > MAX) { node.warn('payload > ' + MAX + 'B'); return null; }\n\nlet env_;\ntry { env_ = JSON.parse(str); } catch (e) { node.warn('JSON invalido: ' + e.message); return null; }\nif (!env_ || typeof env_ !== 'object' || Array.isArray(env_)) { node.warn('envelope nao e objeto'); return null; }\n\n// E3.x — aceita envelope { ts, readings } OU payload flat. Firmware novo do\n// INT-V2 publica flat ({umidade_solo:62.9, uptime_s:371, ...}); ingest\n// deve aceitar ambos pra não quebrar devices legitimamente associados.\nlet tsNum;\nlet readings;\nif (typeof env_.ts === 'number' && Number.isFinite(env_.ts) && env_.ts > 0 &&\n    env_.readings && typeof env_.readings === 'object' && !Array.isArray(env_.readings)) {\n  tsNum = env_.ts;\n  readings = env_.readings;\n} else {\n  tsNum = Date.now();\n  readings = {};\n  for (const k of Object.keys(env_)) {\n    const v = env_[k];\n    if (typeof v === 'number' && Number.isFinite(v)) readings[k] = v;\n  }\n}\n\nconst keys = Object.keys(readings);\nif (keys.length === 0) { node.warn('nenhum campo numerico no payload'); return null; }\nfor (const k of keys) {\n  if (typeof k !== 'string' || k.length === 0 || k.length > 32) { node.warn('key invalida: ' + k); return null; }\n  const v = readings[k];\n  if (typeof v !== 'number' || !Number.isFinite(v)) { node.warn('valor nao numerico em ' + k); return null; }\n}\n\nconst tsMs = tsNum < 1e12 ? tsNum * 1000 : tsNum;\nconst tsIso = new Date(tsMs).toISOString();\n\ntry {\n  const r = await pool.query(\n    'SELECT id, user_id, status, is_online FROM devices WHERE mqtt_username=$1 LIMIT 1',\n    [mqttUser]\n  );\n  if (r.rowCount === 0) {\n    await pool.query('INSERT INTO mqtt_events(topic,client_id,payload) VALUES($1,$2,$3)',\n      [topic, mqttUser, JSON.stringify(env_)]);\n    node.status({ fill:'yellow', shape:'ring', text: mqttUser + ' nao cadastrado' });\n    return null;\n  }\n  const dev = r.rows[0];\n  // E3.1: 'associado' é o novo 'active'. Aceita ambos por retrocompatibilidade.\n  if (dev.status !== 'associado' && dev.status !== 'active') {\n    node.status({ fill:'yellow', shape:'ring', text: mqttUser + ' status=' + dev.status });\n    return null;\n  }\n  const devId = dev.id;\n  const wasOnline = dev.is_online === true;\n  const readingsJson = JSON.stringify(readings);\n\n  await pool.query(\n    'INSERT INTO device_readings(device_id, ts, topic, payload) VALUES($1,$2,$3,$4::jsonb)',\n    [devId, tsIso, topic, readingsJson]\n  );\n  await pool.query(\n    'UPDATE devices SET last_reading=$1::jsonb, last_reading_at=$2, last_seen=NOW(), is_online=TRUE WHERE id=$3',\n    [readingsJson, tsIso, devId]\n  );\n\n  let fieldCount = 0;\n  if (writeApi && Point) {\n    const p = new Point('readings').tag('device_id', devId).tag('mqtt_user', mqttUser).timestamp(new Date(tsMs));\n    for (const k of keys) { p.floatField(k, readings[k]); fieldCount++; }\n    if (fieldCount > 0) writeApi.writePoint(p);\n  }\n\n  node.status({ fill:'green', shape:'dot', text: mqttUser + ' pg+ifx('+fieldCount+'f) '+new Date().toISOString().slice(11,19) });\n  msg.saved = { device_id: devId, ts: tsIso, readings: readings, influx_fields: fieldCount };\n\n  let presenceMsg = null;\n  if (!wasOnline) {\n    presenceMsg = {\n      topic: 'devices/' + mqttUser + '/status',\n      payload: JSON.stringify({\n        type: 'device_status_changed',\n        online: true,\n        device_id: devId,\n        serial: mqttUser,\n        user_id: dev.user_id,\n        last_seen_at: new Date().toISOString(),\n        source: 'ingest'\n      })\n    };\n  }\n  return [msg, presenceMsg];\n} catch (e) {\n  node.error('ingest: ' + e.message, msg);\n  return null;\n}",
         "outputs": 2,
         "timeout": "",
         "noerr": 0,
@@ -185,7 +185,7 @@
         "type": "function",
         "z": "tabIngest",
         "name": "Atualizar status",
-        "func": "// E2.2.1 \u2014 status estrito: 'online' -> true, qq outra coisa -> false.\n// Ignora payloads que sejam objetos/JSON (s\u00e3o eventos publicados pela\n// pr\u00f3pria plataforma \u2192 evita loop que flipa is_online=false logo ap\u00f3s o\n// ingest flipar pra true).\n// Publica device_status_changed apenas se houve transi\u00e7\u00e3o real.\nconst pool = global.get('pgPool');\nif (!pool) return null;\nconst parts = (msg.topic || '').split('/');\nif (parts.length !== 3) return null;\nconst mqttUser = parts[1];\nif (!mqttUser || mqttUser.length > 64) return null;\n// Skip self-published presence events. O mqtt in com datatype=auto-detect\n// parseia JSON \u2192 msg.payload vira objeto; String(obj) d\u00e1 '[object Object]',\n// ent\u00e3o n\u00e3o basta checar startsWith('{').\nif (msg.payload && typeof msg.payload === 'object') return null;\nconst raw = Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') : String(msg.payload || '');\nconst trimmed = raw.trim();\nif (trimmed.startsWith('{') || trimmed.startsWith('[')) return null;\nconst online = trimmed.toLowerCase() === 'online';\ntry {\n  const sel = await pool.query(\n    'SELECT id, user_id, is_online, last_seen FROM devices WHERE mqtt_username=$1 LIMIT 1',\n    [mqttUser]\n  );\n  if (sel.rowCount === 0) return null;\n  const dev = sel.rows[0];\n  const wasOnline = dev.is_online === true;\n  // Atualiza last_seen s\u00f3 quando online=true; offline preserva o timestamp\n  // da \u00faltima vez que realmente vimos dado (importante pro sweeper).\n  if (online) {\n    await pool.query(\n      'UPDATE devices SET is_online=TRUE, last_seen=NOW() WHERE mqtt_username=$1',\n      [mqttUser]\n    );\n  } else {\n    await pool.query(\n      'UPDATE devices SET is_online=FALSE WHERE mqtt_username=$1',\n      [mqttUser]\n    );\n  }\n  node.status({ fill: online ? 'green' : 'red', shape: 'dot', text: mqttUser + ' ' + (online ? 'on' : 'off') });\n  if (wasOnline === online) return null; // sem transi\u00e7\u00e3o\n  const presence = {\n    topic: 'devices/' + mqttUser + '/status',\n    payload: JSON.stringify({\n      type: 'device_status_changed',\n      online: online,\n      device_id: dev.id,\n      serial: mqttUser,\n      user_id: dev.user_id,\n      last_seen_at: online ? new Date().toISOString() : (dev.last_seen ? new Date(dev.last_seen).toISOString() : null),\n      source: 'status-mirror'\n    })\n  };\n  return [null, presence];\n} catch (e) { node.warn('status update: ' + e.message); }\nreturn null;\n",
+        "func": "// E2.2.1 — status estrito: 'online' -> true, qq outra coisa -> false.\n// Ignora payloads que sejam objetos/JSON (são eventos publicados pela\n// própria plataforma → evita loop que flipa is_online=false logo após o\n// ingest flipar pra true).\n// Publica device_status_changed apenas se houve transição real.\nconst pool = global.get('pgPool');\nif (!pool) return null;\nconst parts = (msg.topic || '').split('/');\nif (parts.length !== 3) return null;\nconst mqttUser = parts[1];\nif (!mqttUser || mqttUser.length > 64) return null;\n// Skip self-published presence events. O mqtt in com datatype=auto-detect\n// parseia JSON → msg.payload vira objeto; String(obj) dá '[object Object]',\n// então não basta checar startsWith('{').\nif (msg.payload && typeof msg.payload === 'object') return null;\nconst raw = Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') : String(msg.payload || '');\nconst trimmed = raw.trim();\nif (trimmed.startsWith('{') || trimmed.startsWith('[')) return null;\nconst online = trimmed.toLowerCase() === 'online';\ntry {\n  const sel = await pool.query(\n    'SELECT id, user_id, is_online, last_seen FROM devices WHERE mqtt_username=$1 LIMIT 1',\n    [mqttUser]\n  );\n  if (sel.rowCount === 0) return null;\n  const dev = sel.rows[0];\n  const wasOnline = dev.is_online === true;\n  // Atualiza last_seen só quando online=true; offline preserva o timestamp\n  // da última vez que realmente vimos dado (importante pro sweeper).\n  if (online) {\n    await pool.query(\n      'UPDATE devices SET is_online=TRUE, last_seen=NOW() WHERE mqtt_username=$1',\n      [mqttUser]\n    );\n  } else {\n    await pool.query(\n      'UPDATE devices SET is_online=FALSE WHERE mqtt_username=$1',\n      [mqttUser]\n    );\n  }\n  node.status({ fill: online ? 'green' : 'red', shape: 'dot', text: mqttUser + ' ' + (online ? 'on' : 'off') });\n  if (wasOnline === online) return null; // sem transição\n  const presence = {\n    topic: 'devices/' + mqttUser + '/status',\n    payload: JSON.stringify({\n      type: 'device_status_changed',\n      online: online,\n      device_id: dev.id,\n      serial: mqttUser,\n      user_id: dev.user_id,\n      last_seen_at: online ? new Date().toISOString() : (dev.last_seen ? new Date(dev.last_seen).toISOString() : null),\n      source: 'status-mirror'\n    })\n  };\n  return [null, presence];\n} catch (e) { node.warn('status update: ' + e.message); }\nreturn null;\n",
         "outputs": 2,
         "libs": [],
         "x": 390,
@@ -454,7 +454,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Listar dispositivos",
-        "func": "// E3.5 \u2014 lista do user logado, com apelido opcional.\nconst pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst userId = msg.user && msg.user.id;\nif (!userId) { msg.statusCode=401; msg.payload={error:'unauthenticated'}; return msg; }\ntry {\n  const r = await pool.query(`\n    SELECT\n      v.id,\n      COALESCE(NULLIF(v.nome_amigavel, ''), v.name) AS nome,\n      v.apelido,\n      v.device_id AS serial,\n      m.nome AS modelo,\n      uv.recebido_em AS ultimo_valor,\n      v.created_at AS criado_em,\n      v.is_online AS online,\n      v.last_seen AS last_seen_at,\n      v.telemetry_interval_s,\n      v.burst_rate_s,\n      v.access_type,\n      v.permissao::text AS permissao,\n      v.share_id\n    FROM dispositivos_visiveis v\n    LEFT JOIN modelos_dispositivo m ON m.id = v.modelo_id\n    LEFT JOIN LATERAL (\n      SELECT recebido_em FROM dispositivo_ultimo_valor\n      WHERE dispositivo_id = v.id ORDER BY recebido_em DESC LIMIT 1\n    ) uv ON TRUE\n    WHERE v.viewer_id = $1::uuid\n    ORDER BY v.created_at DESC\n  `, [userId]);\n  msg.statusCode = 200;\n  msg.payload = r.rows;\n} catch(e) {\n  node.error('list dispositivos: '+e.message, msg);\n  msg.statusCode = 500; msg.payload = {error:'internal'};\n}\nreturn msg;",
+        "func": "// E3.5 — lista do user logado, com apelido opcional.\nconst pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst userId = msg.user && msg.user.id;\nif (!userId) { msg.statusCode=401; msg.payload={error:'unauthenticated'}; return msg; }\ntry {\n  const r = await pool.query(`\n    SELECT\n      v.id,\n      COALESCE(NULLIF(v.nome_amigavel, ''), v.name) AS nome,\n      v.apelido,\n      v.device_id AS serial,\n      m.nome AS modelo,\n      uv.recebido_em AS ultimo_valor,\n      v.created_at AS criado_em,\n      v.is_online AS online,\n      v.last_seen AS last_seen_at,\n      v.telemetry_interval_s,\n      v.burst_rate_s,\n      v.access_type,\n      v.permissao::text AS permissao,\n      v.share_id\n    FROM dispositivos_visiveis v\n    LEFT JOIN modelos_dispositivo m ON m.id = v.modelo_id\n    LEFT JOIN LATERAL (\n      SELECT recebido_em FROM dispositivo_ultimo_valor\n      WHERE dispositivo_id = v.id ORDER BY recebido_em DESC LIMIT 1\n    ) uv ON TRUE\n    WHERE v.viewer_id = $1::uuid\n    ORDER BY v.created_at DESC\n  `, [userId]);\n  msg.statusCode = 200;\n  msg.payload = r.rows;\n} catch(e) {\n  node.error('list dispositivos: '+e.message, msg);\n  msg.statusCode = 500; msg.payload = {error:'internal'};\n}\nreturn msg;",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -1024,7 +1024,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Criar dispositivo",
-        "func": "// E3.1 \u2014 Fluxo direto de cria\u00e7\u00e3o de dispositivo descontinuado.\n// Admin provisiona via /admin/produtos/provisionar, cliente usa /dispositivos/claim.\nmsg.statusCode = 410;\nmsg.payload = {\n  error: 'Fluxo de criacao direta descontinuado. Use POST /api/dispositivos/claim com serial + pairing_code, ou peca ao admin pra provisionar um produto novo.'\n};\nreturn msg;",
+        "func": "// E3.1 — Fluxo direto de criação de dispositivo descontinuado.\n// Admin provisiona via /admin/produtos/provisionar, cliente usa /dispositivos/claim.\nmsg.statusCode = 410;\nmsg.payload = {\n  error: 'Fluxo de criacao direta descontinuado. Use POST /api/dispositivos/claim com serial + pairing_code, ou peca ao admin pra provisionar um produto novo.'\n};\nreturn msg;",
         "outputs": 1,
         "libs": [],
         "x": 560,
@@ -1310,7 +1310,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Listar clientes",
-        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n// Lista users com role='cliente', com contagem de devices que eles possuem (user_id \u00e9 o owner).\nconst sql = `\n  SELECT\n    u.id, u.email, u.full_name AS nome, u.email_verified, u.is_active,\n    u.created_at AS criado_em,\n    COALESCE((SELECT COUNT(*)::int FROM devices d WHERE d.user_id = u.id), 0) AS total_dispositivos\n  FROM app_users u\n  WHERE u.role = 'cliente'\n  ORDER BY u.created_at DESC\n`;\ntry {\n  const r = await pool.query(sql);\n  msg.statusCode = 200;\n  msg.payload = r.rows;\n} catch(e) {\n  node.error('list clientes: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n// Lista users com role='cliente', com contagem de devices que eles possuem (user_id é o owner).\nconst sql = `\n  SELECT\n    u.id, u.email, u.full_name AS nome, u.email_verified, u.is_active,\n    u.created_at AS criado_em,\n    COALESCE((SELECT COUNT(*)::int FROM devices d WHERE d.user_id = u.id), 0) AS total_dispositivos\n  FROM app_users u\n  WHERE u.role = 'cliente'\n  ORDER BY u.created_at DESC\n`;\ntry {\n  const r = await pool.query(sql);\n  msg.statusCode = 200;\n  msg.payload = r.rows;\n} catch(e) {\n  node.error('list clientes: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -1512,7 +1512,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Criar cliente",
-        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nconst nome = (body.full_name||body.nome||'').trim();\nlet password = typeof body.senha_temporaria === 'string' ? body.senha_temporaria : '';\nif (!email) { msg.statusCode=400; msg.payload={error:'email obrigatorio'}; return msg; }\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!EMAIL_RE.test(email)) { msg.statusCode=400; msg.payload={error:'email invalido'}; return msg; }\nif (nome.length < 2) { msg.statusCode=400; msg.payload={error:'nome obrigatorio'}; return msg; }\nif (password && password.length < 8) { msg.statusCode=400; msg.payload={error:'senha deve ter ao menos 8 caracteres'}; return msg; }\n// Se senha n\u00e3o vier no body, geramos uma aleat\u00f3ria de 12 chars (hex).\nlet generated = false;\nif (!password) { password = crypto.randomBytes(9).toString('base64').replace(/[^A-Za-z0-9]/g,'').slice(0,12); generated = true; }\ntry {\n  const dup = await pool.query('SELECT id FROM app_users WHERE email=$1 LIMIT 1', [email]);\n  if (dup.rowCount > 0) { msg.statusCode=409; msg.payload={error:'email ja cadastrado'}; return msg; }\n  const hash = await bcrypt.hash(password, 10);\n  const ins = await pool.query(\n    `INSERT INTO app_users (email, password_hash, full_name, role, email_verified, is_active)\n     VALUES ($1,$2,$3,'cliente',TRUE,TRUE)\n     RETURNING id, email, full_name AS nome, role, email_verified, is_active, created_at AS criado_em`,\n    [email, hash, nome]\n  );\n  msg.statusCode = 201;\n  msg.payload = { user: ins.rows[0], senha_temporaria: password, senha_gerada: generated };\n  // Best-effort: enviar e-mail admin-created\n  try {\n    const sendMail = global.get('sendMail');\n    const baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\n    if (sendMail) {\n      await sendMail({to: email, subject: 'Sua conta XT Connect Hub foi criada', template: 'admin-created', vars: {nome, email, senha: password, link: baseUrl + '/login'}});\n    }\n  } catch(e) { node.warn('admin-created email failed: '+e.message); }\n} catch(e) {\n  if (/unique/i.test(e.message) || /duplicate/i.test(e.message)) {\n    msg.statusCode=409; msg.payload={error:'email ja cadastrado'};\n  } else {\n    node.error('create cliente: '+e.message, msg);\n    msg.statusCode=500; msg.payload={error:'internal'};\n  }\n}\nreturn msg;",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nconst nome = (body.full_name||body.nome||'').trim();\nlet password = typeof body.senha_temporaria === 'string' ? body.senha_temporaria : '';\nif (!email) { msg.statusCode=400; msg.payload={error:'email obrigatorio'}; return msg; }\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!EMAIL_RE.test(email)) { msg.statusCode=400; msg.payload={error:'email invalido'}; return msg; }\nif (nome.length < 2) { msg.statusCode=400; msg.payload={error:'nome obrigatorio'}; return msg; }\nif (password && password.length < 8) { msg.statusCode=400; msg.payload={error:'senha deve ter ao menos 8 caracteres'}; return msg; }\n// Se senha não vier no body, geramos uma aleatória de 12 chars (hex).\nlet generated = false;\nif (!password) { password = crypto.randomBytes(9).toString('base64').replace(/[^A-Za-z0-9]/g,'').slice(0,12); generated = true; }\ntry {\n  const dup = await pool.query('SELECT id FROM app_users WHERE email=$1 LIMIT 1', [email]);\n  if (dup.rowCount > 0) { msg.statusCode=409; msg.payload={error:'email ja cadastrado'}; return msg; }\n  const hash = await bcrypt.hash(password, 10);\n  const ins = await pool.query(\n    `INSERT INTO app_users (email, password_hash, full_name, role, email_verified, is_active)\n     VALUES ($1,$2,$3,'cliente',TRUE,TRUE)\n     RETURNING id, email, full_name AS nome, role, email_verified, is_active, created_at AS criado_em`,\n    [email, hash, nome]\n  );\n  msg.statusCode = 201;\n  msg.payload = { user: ins.rows[0], senha_temporaria: password, senha_gerada: generated };\n  // Best-effort: enviar e-mail admin-created\n  try {\n    const sendMail = global.get('sendMail');\n    const baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\n    if (sendMail) {\n      await sendMail({to: email, subject: 'Sua conta XT Connect Hub foi criada', template: 'admin-created', vars: {nome, email, senha: password, link: baseUrl + '/login'}});\n    }\n  } catch(e) { node.warn('admin-created email failed: '+e.message); }\n} catch(e) {\n  if (/unique/i.test(e.message) || /duplicate/i.test(e.message)) {\n    msg.statusCode=409; msg.payload={error:'email ja cadastrado'};\n  } else {\n    node.error('create cliente: '+e.message, msg);\n    msg.statusCode=500; msg.payload={error:'internal'};\n  }\n}\nreturn msg;",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -1623,7 +1623,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Signup self-service",
-        "func": "const pool = global.get('pgPool');\nconst sendMail = global.get('sendMail');\nconst baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nconst password = body.password||'';\nconst nome = (body.full_name||body.nome||'').trim();\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!EMAIL_RE.test(email)) { msg.statusCode=400; msg.payload={error:'email invalido'}; return msg; }\nif (nome.length < 2) { msg.statusCode=400; msg.payload={error:'nome obrigatorio'}; return msg; }\nif (password.length < 8) { msg.statusCode=400; msg.payload={error:'senha deve ter ao menos 8 caracteres'}; return msg; }\ntry {\n  const dup = await pool.query('SELECT id FROM app_users WHERE email=$1 LIMIT 1',[email]);\n  if (dup.rowCount > 0) { msg.statusCode=409; msg.payload={error:'email ja cadastrado'}; return msg; }\n  const hash = await bcrypt.hash(password, 10);\n  const ins = await pool.query(\n    \"INSERT INTO app_users (email, password_hash, full_name, role, email_verified, is_active) VALUES ($1,$2,$3,'cliente',FALSE,TRUE) RETURNING id\",\n    [email, hash, nome]\n  );\n  const userId = ins.rows[0].id;\n  // E2.4 \u2014 ativa qualquer compartilhamento pendente pra esse email\n  try {\n    const linked = await pool.query(\n      `UPDATE dispositivo_compartilhado\n          SET status='ativo', com_usuario_id=$1, aceito_em=NOW(), token_convite=NULL\n        WHERE email_convidado=$2 AND status='pendente'\n        RETURNING id`,\n      [userId, email]\n    );\n    if (linked.rowCount > 0) node.log('signup: '+linked.rowCount+' compartilhamento(s) ativado(s) pra '+email);\n  } catch(e) { node.warn('signup share-link failed: '+e.message); }\n  // E2.4 \u2014 ativa qualquer compartilhamento pendente pra esse email\n  try {\n    const linked = await pool.query(\n      `UPDATE dispositivo_compartilhado\n          SET status='ativo', com_usuario_id=$1, aceito_em=NOW(), token_convite=NULL\n        WHERE email_convidado=$2 AND status='pendente'\n        RETURNING id`,\n      [userId, email]\n    );\n    if (linked.rowCount > 0) node.log('signup: '+linked.rowCount+' compartilhamento(s) ativado(s) pra '+email);\n  } catch(e) { node.warn('signup share-link failed: '+e.message); }\n  const tk = await pool.query(\n    \"INSERT INTO email_verification_tokens (user_id, purpose, expires_at) VALUES ($1,'signup', now() + interval '24 hours') RETURNING token\",\n    [userId]\n  );\n  const link = baseUrl + '/verify?token=' + tk.rows[0].token;\n  if (sendMail) {\n    try {\n      await sendMail({to: email, subject: 'Confirme seu e-mail \u2014 XT Connect Hub', template: 'signup-verify', vars: {nome: nome, link: link}});\n    } catch(e) { node.warn('signup email failed for '+email+': '+e.message); }\n  } else {\n    node.warn('signup: sendMail not initialized; usuario criado sem e-mail');\n  }\n  msg.statusCode = 201;\n  msg.payload = { message: 'Verifique seu e-mail para ativar a conta.' };\n} catch(e) {\n  if (/unique/i.test(e.message) || /duplicate/i.test(e.message)) {\n    msg.statusCode=409; msg.payload={error:'email ja cadastrado'};\n  } else {\n    node.error('signup: '+e.message, msg);\n    msg.statusCode = 500; msg.payload = {error:'internal'};\n  }\n}\nreturn msg;",
+        "func": "const pool = global.get('pgPool');\nconst sendMail = global.get('sendMail');\nconst baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nconst password = body.password||'';\nconst nome = (body.full_name||body.nome||'').trim();\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!EMAIL_RE.test(email)) { msg.statusCode=400; msg.payload={error:'email invalido'}; return msg; }\nif (nome.length < 2) { msg.statusCode=400; msg.payload={error:'nome obrigatorio'}; return msg; }\nif (password.length < 8) { msg.statusCode=400; msg.payload={error:'senha deve ter ao menos 8 caracteres'}; return msg; }\ntry {\n  const dup = await pool.query('SELECT id FROM app_users WHERE email=$1 LIMIT 1',[email]);\n  if (dup.rowCount > 0) { msg.statusCode=409; msg.payload={error:'email ja cadastrado'}; return msg; }\n  const hash = await bcrypt.hash(password, 10);\n  const ins = await pool.query(\n    \"INSERT INTO app_users (email, password_hash, full_name, role, email_verified, is_active) VALUES ($1,$2,$3,'cliente',FALSE,TRUE) RETURNING id\",\n    [email, hash, nome]\n  );\n  const userId = ins.rows[0].id;\n  // E2.4 — ativa qualquer compartilhamento pendente pra esse email\n  try {\n    const linked = await pool.query(\n      `UPDATE dispositivo_compartilhado\n          SET status='ativo', com_usuario_id=$1, aceito_em=NOW(), token_convite=NULL\n        WHERE email_convidado=$2 AND status='pendente'\n        RETURNING id`,\n      [userId, email]\n    );\n    if (linked.rowCount > 0) node.log('signup: '+linked.rowCount+' compartilhamento(s) ativado(s) pra '+email);\n  } catch(e) { node.warn('signup share-link failed: '+e.message); }\n  // E2.4 — ativa qualquer compartilhamento pendente pra esse email\n  try {\n    const linked = await pool.query(\n      `UPDATE dispositivo_compartilhado\n          SET status='ativo', com_usuario_id=$1, aceito_em=NOW(), token_convite=NULL\n        WHERE email_convidado=$2 AND status='pendente'\n        RETURNING id`,\n      [userId, email]\n    );\n    if (linked.rowCount > 0) node.log('signup: '+linked.rowCount+' compartilhamento(s) ativado(s) pra '+email);\n  } catch(e) { node.warn('signup share-link failed: '+e.message); }\n  const tk = await pool.query(\n    \"INSERT INTO email_verification_tokens (user_id, purpose, expires_at) VALUES ($1,'signup', now() + interval '24 hours') RETURNING token\",\n    [userId]\n  );\n  const link = baseUrl + '/verify?token=' + tk.rows[0].token;\n  if (sendMail) {\n    try {\n      await sendMail({to: email, subject: 'Confirme seu e-mail — XT Connect Hub', template: 'signup-verify', vars: {nome: nome, link: link}});\n    } catch(e) { node.warn('signup email failed for '+email+': '+e.message); }\n  } else {\n    node.warn('signup: sendMail not initialized; usuario criado sem e-mail');\n  }\n  msg.statusCode = 201;\n  msg.payload = { message: 'Verifique seu e-mail para ativar a conta.' };\n} catch(e) {\n  if (/unique/i.test(e.message) || /duplicate/i.test(e.message)) {\n    msg.statusCode=409; msg.payload={error:'email ja cadastrado'};\n  } else {\n    node.error('signup: '+e.message, msg);\n    msg.statusCode = 500; msg.payload = {error:'internal'};\n  }\n}\nreturn msg;",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -1726,7 +1726,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Reenviar verificacao",
-        "func": "const pool = global.get('pgPool');\nconst sendMail = global.get('sendMail');\nconst baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\nconst okResp = { message: 'Se houver uma conta com este e-mail nao verificada, um novo link foi enviado.' };\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nif (!email) { msg.statusCode=200; msg.payload=okResp; return msg; }\ntry {\n  const r = await pool.query('SELECT id, email_verified, full_name FROM app_users WHERE email=$1 LIMIT 1', [email]);\n  if (r.rowCount === 0 || r.rows[0].email_verified) { msg.statusCode=200; msg.payload=okResp; return msg; }\n  const u = r.rows[0];\n  await pool.query(\"UPDATE email_verification_tokens SET used_at=now() WHERE user_id=$1 AND purpose='signup' AND used_at IS NULL\", [u.id]);\n  const tk = await pool.query(\n    \"INSERT INTO email_verification_tokens (user_id, purpose, expires_at) VALUES ($1,'signup', now()+interval '24 hours') RETURNING token\",\n    [u.id]\n  );\n  if (sendMail) {\n    try {\n      await sendMail({to: email, subject: 'Confirme seu e-mail \u2014 XT Connect Hub', template: 'signup-verify', vars: {nome: u.full_name || email, link: baseUrl + '/verify?token=' + tk.rows[0].token}});\n    } catch(e) { node.warn('resend mail failed: '+e.message); }\n  }\n  msg.statusCode = 200; msg.payload = okResp;\n} catch(e) {\n  node.error('resend: '+e.message, msg);\n  msg.statusCode = 200; msg.payload = okResp;\n}\nreturn msg;",
+        "func": "const pool = global.get('pgPool');\nconst sendMail = global.get('sendMail');\nconst baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\nconst okResp = { message: 'Se houver uma conta com este e-mail nao verificada, um novo link foi enviado.' };\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nif (!email) { msg.statusCode=200; msg.payload=okResp; return msg; }\ntry {\n  const r = await pool.query('SELECT id, email_verified, full_name FROM app_users WHERE email=$1 LIMIT 1', [email]);\n  if (r.rowCount === 0 || r.rows[0].email_verified) { msg.statusCode=200; msg.payload=okResp; return msg; }\n  const u = r.rows[0];\n  await pool.query(\"UPDATE email_verification_tokens SET used_at=now() WHERE user_id=$1 AND purpose='signup' AND used_at IS NULL\", [u.id]);\n  const tk = await pool.query(\n    \"INSERT INTO email_verification_tokens (user_id, purpose, expires_at) VALUES ($1,'signup', now()+interval '24 hours') RETURNING token\",\n    [u.id]\n  );\n  if (sendMail) {\n    try {\n      await sendMail({to: email, subject: 'Confirme seu e-mail — XT Connect Hub', template: 'signup-verify', vars: {nome: u.full_name || email, link: baseUrl + '/verify?token=' + tk.rows[0].token}});\n    } catch(e) { node.warn('resend mail failed: '+e.message); }\n  }\n  msg.statusCode = 200; msg.payload = okResp;\n} catch(e) {\n  node.error('resend: '+e.message, msg);\n  msg.statusCode = 200; msg.payload = okResp;\n}\nreturn msg;",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -1875,8 +1875,8 @@
         "id": "fnSweeper",
         "type": "function",
         "z": "tabIngest",
-        "name": "Flip stale \u2192 offline",
-        "func": "// E2.3 \u2014 flip stale devices to offline usando threshold per-device (#51)\n// Threshold efetivo = clamp(3 * telemetry_interval_s, 60, 900) segundos.\nconst pool = global.get('pgPool');\nif (!pool) { node.status({ fill:'yellow', shape:'ring', text:'sem pool' }); return null; }\ntry {\n  const r = await pool.query(\n    `UPDATE devices\n        SET is_online = FALSE\n      WHERE is_online = TRUE\n        AND last_seen IS NOT NULL\n        AND last_seen < NOW() - MAKE_INTERVAL(\n          secs => GREATEST(60, LEAST(900, telemetry_interval_s * 3))\n        )\n      RETURNING id, device_id AS serial, user_id, last_seen, telemetry_interval_s`\n  );\n  if (r.rowCount === 0) {\n    node.status({ fill:'grey', shape:'dot', text:'nothing stale '+new Date().toISOString().slice(11,19) });\n    return null;\n  }\n  const msgs = [];\n  for (const row of r.rows) {\n    const payload = {\n      type: 'device_status_changed',\n      online: false,\n      device_id: row.id,\n      serial: row.serial,\n      user_id: row.user_id,\n      last_seen_at: row.last_seen ? new Date(row.last_seen).toISOString() : null,\n      source: 'sweeper'\n    };\n    msgs.push({ topic: 'devices/' + row.serial + '/status', payload: JSON.stringify(payload) });\n  }\n  node.status({ fill:'orange', shape:'dot', text:'flipped '+r.rowCount+' @ '+new Date().toISOString().slice(11,19) });\n  for (const m of msgs) node.send(m);\n} catch (e) {\n  node.error('sweeper: '+e.message);\n  node.status({ fill:'red', shape:'ring', text:e.message.slice(0,40) });\n}\nreturn null;",
+        "name": "Flip stale → offline",
+        "func": "// E2.3 — flip stale devices to offline usando threshold per-device (#51)\n// Threshold efetivo = clamp(3 * telemetry_interval_s, 60, 900) segundos.\nconst pool = global.get('pgPool');\nif (!pool) { node.status({ fill:'yellow', shape:'ring', text:'sem pool' }); return null; }\ntry {\n  const r = await pool.query(\n    `UPDATE devices\n        SET is_online = FALSE\n      WHERE is_online = TRUE\n        AND last_seen IS NOT NULL\n        AND last_seen < NOW() - MAKE_INTERVAL(\n          secs => GREATEST(60, LEAST(900, telemetry_interval_s * 3))\n        )\n      RETURNING id, device_id AS serial, user_id, last_seen, telemetry_interval_s`\n  );\n  if (r.rowCount === 0) {\n    node.status({ fill:'grey', shape:'dot', text:'nothing stale '+new Date().toISOString().slice(11,19) });\n    return null;\n  }\n  const msgs = [];\n  for (const row of r.rows) {\n    const payload = {\n      type: 'device_status_changed',\n      online: false,\n      device_id: row.id,\n      serial: row.serial,\n      user_id: row.user_id,\n      last_seen_at: row.last_seen ? new Date(row.last_seen).toISOString() : null,\n      source: 'sweeper'\n    };\n    msgs.push({ topic: 'devices/' + row.serial + '/status', payload: JSON.stringify(payload) });\n  }\n  node.status({ fill:'orange', shape:'dot', text:'flipped '+r.rowCount+' @ '+new Date().toISOString().slice(11,19) });\n  for (const m of msgs) node.send(m);\n} catch (e) {\n  node.error('sweeper: '+e.message);\n  node.status({ fill:'red', shape:'ring', text:e.message.slice(0,40) });\n}\nreturn null;",
         "outputs": 1,
         "timeout": "",
         "noerr": 0,
@@ -1955,7 +1955,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Set rate + publish",
-        "func": "// E2.3 + E2.4 \u2014 atualiza taxa (mode=default) ou s\u00f3 publica burst.\n// Permiss\u00e3o: owner, admin, ou compartilhamento ativo com permissao=controle.\nconst pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return [msg, null]; }\n\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!id || !UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return [msg, null]; }\n\nconst body = msg.payload || {};\nconst mode = (body.mode === 'burst') ? 'burst' : (body.mode === 'default' ? 'default' : null);\nif (!mode) { msg.statusCode=400; msg.payload={error:'mode deve ser default ou burst'}; return [msg, null]; }\n\nconst rate = Number(body.rate_s);\nif (!Number.isFinite(rate) || !Number.isInteger(rate) || rate < 1) {\n  msg.statusCode=400; msg.payload={error:'rate_s invalido'}; return [msg, null];\n}\nif (mode === 'default' && rate > 3600) {\n  msg.statusCode=400; msg.payload={error:'rate_s (default) deve ser <= 3600'}; return [msg, null];\n}\nif (mode === 'burst' && rate > 60) {\n  msg.statusCode=400; msg.payload={error:'rate_s (burst) deve ser <= 60'}; return [msg, null];\n}\n\nlet durationS = 0;\nif (mode === 'burst') {\n  durationS = Number(body.duration_s);\n  if (!Number.isFinite(durationS) || !Number.isInteger(durationS) || durationS < 5 || durationS > 1800) {\n    msg.statusCode=400; msg.payload={error:'duration_s invalido (5..1800)'}; return [msg, null];\n  }\n}\n\ntry {\n  const isAdmin = msg.user && msg.user.role === 'admin';\n\n  // Acesso via dispositivos_visiveis: pega permiss\u00e3o efetiva e device serial em uma query.\n  let dev, permEff;\n  if (isAdmin) {\n    const sel = await pool.query(\n      'SELECT id, user_id, device_id FROM devices WHERE id=$1 LIMIT 1',\n      [id]\n    );\n    if (sel.rowCount === 0) { msg.statusCode=404; msg.payload={error:'not found'}; return [msg, null]; }\n    dev = sel.rows[0];\n    permEff = 'controle';\n  } else {\n    const sel = await pool.query(\n      `SELECT id, owner_id AS user_id, device_id, permissao::text AS permissao\n         FROM dispositivos_visiveis\n         WHERE id = $1 AND viewer_id = $2 LIMIT 1`,\n      [id, msg.user.id]\n    );\n    if (sel.rowCount === 0) { msg.statusCode=404; msg.payload={error:'not found'}; return [msg, null]; }\n    dev = sel.rows[0];\n    permEff = dev.permissao;\n    if (permEff !== 'controle') {\n      msg.statusCode=403;\n      msg.payload={error:'sem permissao para comandar (acesso somente leitura)'};\n      return [msg, null];\n    }\n  }\n\n  if (mode === 'default') {\n    await pool.query(\n      'UPDATE devices SET telemetry_interval_s=$1 WHERE id=$2',\n      [rate, id]\n    );\n  }\n\n  const requestId = crypto.randomUUID();\n  const cmd = {\n    cmd: 'set_rate',\n    rate_s: rate,\n    mode,\n    request_id: requestId\n  };\n  if (mode === 'burst') {\n    cmd.expires_at = new Date(Date.now() + durationS * 1000).toISOString();\n  }\n\n  const pubMsg = {\n    topic: 'devices/' + dev.device_id + '/commands',\n    payload: JSON.stringify(cmd)\n  };\n\n  msg.statusCode = 200;\n  msg.payload = { ok: true, request_id: requestId, applied_rate_s: rate, mode };\n  return [msg, pubMsg];\n} catch (e) {\n  node.error('set rate: ' + e.message, msg);\n  msg.statusCode = 500;\n  msg.payload = { error: 'internal' };\n  return [msg, null];\n}",
+        "func": "// E2.3 + E2.4 — atualiza taxa (mode=default) ou só publica burst.\n// Permissão: owner, admin, ou compartilhamento ativo com permissao=controle.\nconst pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return [msg, null]; }\n\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!id || !UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return [msg, null]; }\n\nconst body = msg.payload || {};\nconst mode = (body.mode === 'burst') ? 'burst' : (body.mode === 'default' ? 'default' : null);\nif (!mode) { msg.statusCode=400; msg.payload={error:'mode deve ser default ou burst'}; return [msg, null]; }\n\nconst rate = Number(body.rate_s);\nif (!Number.isFinite(rate) || !Number.isInteger(rate) || rate < 1) {\n  msg.statusCode=400; msg.payload={error:'rate_s invalido'}; return [msg, null];\n}\nif (mode === 'default' && rate > 3600) {\n  msg.statusCode=400; msg.payload={error:'rate_s (default) deve ser <= 3600'}; return [msg, null];\n}\nif (mode === 'burst' && rate > 60) {\n  msg.statusCode=400; msg.payload={error:'rate_s (burst) deve ser <= 60'}; return [msg, null];\n}\n\nlet durationS = 0;\nif (mode === 'burst') {\n  durationS = Number(body.duration_s);\n  if (!Number.isFinite(durationS) || !Number.isInteger(durationS) || durationS < 5 || durationS > 1800) {\n    msg.statusCode=400; msg.payload={error:'duration_s invalido (5..1800)'}; return [msg, null];\n  }\n}\n\ntry {\n  const isAdmin = msg.user && msg.user.role === 'admin';\n\n  // Acesso via dispositivos_visiveis: pega permissão efetiva e device serial em uma query.\n  let dev, permEff;\n  if (isAdmin) {\n    const sel = await pool.query(\n      'SELECT id, user_id, device_id FROM devices WHERE id=$1 LIMIT 1',\n      [id]\n    );\n    if (sel.rowCount === 0) { msg.statusCode=404; msg.payload={error:'not found'}; return [msg, null]; }\n    dev = sel.rows[0];\n    permEff = 'controle';\n  } else {\n    const sel = await pool.query(\n      `SELECT id, owner_id AS user_id, device_id, permissao::text AS permissao\n         FROM dispositivos_visiveis\n         WHERE id = $1 AND viewer_id = $2 LIMIT 1`,\n      [id, msg.user.id]\n    );\n    if (sel.rowCount === 0) { msg.statusCode=404; msg.payload={error:'not found'}; return [msg, null]; }\n    dev = sel.rows[0];\n    permEff = dev.permissao;\n    if (permEff !== 'controle') {\n      msg.statusCode=403;\n      msg.payload={error:'sem permissao para comandar (acesso somente leitura)'};\n      return [msg, null];\n    }\n  }\n\n  if (mode === 'default') {\n    await pool.query(\n      'UPDATE devices SET telemetry_interval_s=$1 WHERE id=$2',\n      [rate, id]\n    );\n  }\n\n  const requestId = crypto.randomUUID();\n  const cmd = {\n    cmd: 'set_rate',\n    rate_s: rate,\n    mode,\n    request_id: requestId\n  };\n  if (mode === 'burst') {\n    cmd.expires_at = new Date(Date.now() + durationS * 1000).toISOString();\n  }\n\n  const pubMsg = {\n    topic: 'devices/' + dev.device_id + '/commands',\n    payload: JSON.stringify(cmd)\n  };\n\n  msg.statusCode = 200;\n  msg.payload = { ok: true, request_id: requestId, applied_rate_s: rate, mode };\n  return [msg, pubMsg];\n} catch (e) {\n  node.error('set rate: ' + e.message, msg);\n  msg.statusCode = 500;\n  msg.payload = { error: 'internal' };\n  return [msg, null];\n}",
         "outputs": 2,
         "libs": [
             {
@@ -2033,7 +2033,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Create share",
-        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return msg; }\n\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nconst permRaw = body.permissao || body.permission || '';\nlet permissao;\nif (permRaw === 'leitura' || permRaw === 'viewer') permissao = 'leitura';\nelse if (permRaw === 'controle' || permRaw === 'operator') permissao = 'controle';\nelse { msg.statusCode=400; msg.payload={error:'permissao deve ser leitura ou controle (ou viewer/operator)'}; return msg; }\n\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!EMAIL_RE.test(email)) { msg.statusCode=400; msg.payload={error:'email invalido'}; return msg; }\nif (msg.user.email && email === String(msg.user.email).toLowerCase()) {\n  msg.statusCode=400; msg.payload={error:'nao pode compartilhar consigo mesmo'}; return msg;\n}\n\ntry {\n  const dev = await pool.query('SELECT id, user_id FROM devices WHERE id=$1 LIMIT 1', [id]);\n  if (dev.rowCount === 0) { msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado'}; return msg; }\n  if (dev.rows[0].user_id !== msg.user.id) {\n    msg.statusCode=403; msg.payload={error:'apenas o dono pode compartilhar'}; return msg;\n  }\n\n  const u = await pool.query('SELECT id FROM app_users WHERE email=$1 LIMIT 1', [email]);\n  const targetUserId = u.rowCount > 0 ? u.rows[0].id : null;\n  const status = targetUserId ? 'ativo' : 'pendente';\n  const token = targetUserId ? null : crypto.randomBytes(32).toString('base64url');\n  const aceitoEm = targetUserId ? new Date() : null;\n\n  let r;\n  try {\n    r = await pool.query(\n      `INSERT INTO dispositivo_compartilhado\n         (dispositivo_id, com_usuario_id, criado_por, permissao, email_convidado, status, token_convite, aceito_em)\n       VALUES ($1, $2, $3, $4::permissao_compartilhamento, $5, $6, $7, $8)\n       RETURNING id, dispositivo_id, com_usuario_id, permissao::text AS permissao,\n                 email_convidado, status, token_convite, criado_em, aceito_em`,\n      [id, targetUserId, msg.user.id, permissao, email, status, token, aceitoEm]\n    );\n  } catch(e) {\n    if (/uq_compart_email_ativo/i.test(e.message) || /duplicate/i.test(e.message) || e.code === '23505') {\n      msg.statusCode=409; msg.payload={error:'ja compartilhado com esse email'}; return msg;\n    }\n    throw e;\n  }\n\n  const share = r.rows[0];\n\n  // Envio de email fire-and-forget (n\u00e3o trava o 201 se SMTP falhar)\n  let emailSent = false;\n  let emailWarning = null;\n  const sendMail = global.get('sendMail');\n  const baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\n  if (!sendMail) {\n    emailWarning = 'mailer nao inicializado';\n    node.warn('create share: sendMail not initialized');\n  } else {\n    try {\n      // Busca nome do owner + nome do device pra personalizar o template\n      const meta = await pool.query(\n        `SELECT COALESCE(NULLIF(u.full_name,''), u.email) AS owner_name,\n                COALESCE(NULLIF(d.nome_amigavel,''), d.name, d.device_id) AS device_name\n           FROM devices d JOIN app_users u ON u.id = d.user_id\n          WHERE d.id=$1 LIMIT 1`,\n        [id]\n      );\n      const ownerName = meta.rows[0] ? meta.rows[0].owner_name : (msg.user.name || msg.user.email);\n      const deviceName = meta.rows[0] ? meta.rows[0].device_name : 'seu dispositivo';\n      const permissionLabel = permissao === 'controle' ? 'Comandar (visualizar + ajustar taxa)' : 'Visualizar (somente leitura)';\n      const link = share.token_convite\n        ? (baseUrl + '/convites/aceitar?token=' + share.token_convite)\n        : (baseUrl + '/convites');\n      const subject = ownerName + ' te convidou pra acessar \"' + deviceName + '\" no XT Connect Hub';\n      await sendMail({\n        to: email,\n        subject: subject,\n        template: 'device-invite',\n        vars: {\n          owner_name: ownerName,\n          device_name: deviceName,\n          permission_label: permissionLabel,\n          link: link,\n          invite_token: share.token_convite || ''\n        }\n      });\n      emailSent = true;\n    } catch(e) {\n      emailWarning = 'falha ao enviar email: ' + e.message;\n      node.warn('device-invite email failed for '+email+': '+e.message);\n    }\n  }\n\n  msg.statusCode = 201;\n  msg.payload = { compartilhamento: share, email_sent: emailSent };\n  if (emailWarning) msg.payload.warning = emailWarning;\n} catch(e) {\n  node.error('create share: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return msg; }\n\nconst body = msg.payload || {};\nconst email = (body.email||'').toLowerCase().trim();\nconst permRaw = body.permissao || body.permission || '';\nlet permissao;\nif (permRaw === 'leitura' || permRaw === 'viewer') permissao = 'leitura';\nelse if (permRaw === 'controle' || permRaw === 'operator') permissao = 'controle';\nelse { msg.statusCode=400; msg.payload={error:'permissao deve ser leitura ou controle (ou viewer/operator)'}; return msg; }\n\nconst EMAIL_RE = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;\nif (!EMAIL_RE.test(email)) { msg.statusCode=400; msg.payload={error:'email invalido'}; return msg; }\nif (msg.user.email && email === String(msg.user.email).toLowerCase()) {\n  msg.statusCode=400; msg.payload={error:'nao pode compartilhar consigo mesmo'}; return msg;\n}\n\ntry {\n  const dev = await pool.query('SELECT id, user_id FROM devices WHERE id=$1 LIMIT 1', [id]);\n  if (dev.rowCount === 0) { msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado'}; return msg; }\n  if (dev.rows[0].user_id !== msg.user.id) {\n    msg.statusCode=403; msg.payload={error:'apenas o dono pode compartilhar'}; return msg;\n  }\n\n  const u = await pool.query('SELECT id FROM app_users WHERE email=$1 LIMIT 1', [email]);\n  const targetUserId = u.rowCount > 0 ? u.rows[0].id : null;\n  const status = targetUserId ? 'ativo' : 'pendente';\n  const token = targetUserId ? null : crypto.randomBytes(32).toString('base64url');\n  const aceitoEm = targetUserId ? new Date() : null;\n\n  let r;\n  try {\n    r = await pool.query(\n      `INSERT INTO dispositivo_compartilhado\n         (dispositivo_id, com_usuario_id, criado_por, permissao, email_convidado, status, token_convite, aceito_em)\n       VALUES ($1, $2, $3, $4::permissao_compartilhamento, $5, $6, $7, $8)\n       RETURNING id, dispositivo_id, com_usuario_id, permissao::text AS permissao,\n                 email_convidado, status, token_convite, criado_em, aceito_em`,\n      [id, targetUserId, msg.user.id, permissao, email, status, token, aceitoEm]\n    );\n  } catch(e) {\n    if (/uq_compart_email_ativo/i.test(e.message) || /duplicate/i.test(e.message) || e.code === '23505') {\n      msg.statusCode=409; msg.payload={error:'ja compartilhado com esse email'}; return msg;\n    }\n    throw e;\n  }\n\n  const share = r.rows[0];\n\n  // Envio de email fire-and-forget (não trava o 201 se SMTP falhar)\n  let emailSent = false;\n  let emailWarning = null;\n  const sendMail = global.get('sendMail');\n  const baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\n  if (!sendMail) {\n    emailWarning = 'mailer nao inicializado';\n    node.warn('create share: sendMail not initialized');\n  } else {\n    try {\n      // Busca nome do owner + nome do device pra personalizar o template\n      const meta = await pool.query(\n        `SELECT COALESCE(NULLIF(u.full_name,''), u.email) AS owner_name,\n                COALESCE(NULLIF(d.nome_amigavel,''), d.name, d.device_id) AS device_name\n           FROM devices d JOIN app_users u ON u.id = d.user_id\n          WHERE d.id=$1 LIMIT 1`,\n        [id]\n      );\n      const ownerName = meta.rows[0] ? meta.rows[0].owner_name : (msg.user.name || msg.user.email);\n      const deviceName = meta.rows[0] ? meta.rows[0].device_name : 'seu dispositivo';\n      const permissionLabel = permissao === 'controle' ? 'Comandar (visualizar + ajustar taxa)' : 'Visualizar (somente leitura)';\n      const link = share.token_convite\n        ? (baseUrl + '/convites/aceitar?token=' + share.token_convite)\n        : (baseUrl + '/convites');\n      const subject = ownerName + ' te convidou pra acessar \"' + deviceName + '\" no XT Connect Hub';\n      await sendMail({\n        to: email,\n        subject: subject,\n        template: 'device-invite',\n        vars: {\n          owner_name: ownerName,\n          device_name: deviceName,\n          permission_label: permissionLabel,\n          link: link,\n          invite_token: share.token_convite || ''\n        }\n      });\n      emailSent = true;\n    } catch(e) {\n      emailWarning = 'falha ao enviar email: ' + e.message;\n      node.warn('device-invite email failed for '+email+': '+e.message);\n    }\n  }\n\n  msg.statusCode = 201;\n  msg.payload = { compartilhamento: share, email_sent: emailSent };\n  if (emailWarning) msg.payload.warning = emailWarning;\n} catch(e) {\n  node.error('create share: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
         "outputs": 1,
         "libs": [
             {
@@ -2388,7 +2388,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Update share permissao",
-        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n\nconst id = msg.req.params.id;\nconst shareId = msg.req.params.shareId;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(id) || !UUID_RE.test(shareId)) {\n  msg.statusCode=400; msg.payload={error:'id invalido'}; return msg;\n}\n\nconst body = msg.payload || {};\nconst permRaw = body.permissao || body.permission || '';\nlet permissao;\nif (permRaw === 'leitura' || permRaw === 'viewer') permissao = 'leitura';\nelse if (permRaw === 'controle' || permRaw === 'operator') permissao = 'controle';\nelse { msg.statusCode=400; msg.payload={error:'permissao deve ser leitura ou controle (ou viewer/operator)'}; return msg; }\n\ntry {\n  const dev = await pool.query('SELECT user_id FROM devices WHERE id=$1 LIMIT 1', [id]);\n  if (dev.rowCount === 0) { msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado'}; return msg; }\n  const isAdmin = msg.user && msg.user.role === 'admin';\n  if (dev.rows[0].user_id !== msg.user.id && !isAdmin) {\n    msg.statusCode=403; msg.payload={error:'apenas o dono pode editar'}; return msg;\n  }\n\n  const sel = await pool.query(\n    `SELECT id, status, permissao::text AS permissao\n       FROM dispositivo_compartilhado\n      WHERE id=$1 AND dispositivo_id=$2 LIMIT 1`,\n    [shareId, id]\n  );\n  if (sel.rowCount === 0) {\n    msg.statusCode=404; msg.payload={error:'compartilhamento nao encontrado'}; return msg;\n  }\n  const cur = sel.rows[0];\n  if (cur.status !== 'ativo') {\n    msg.statusCode=409;\n    msg.payload={error:'nao e possivel editar permissao de convite '+cur.status};\n    return msg;\n  }\n\n  // Idempotente: se ja t\u00e1 com a permiss\u00e3o nova, retorna row atual sem UPDATE.\n  let row;\n  if (cur.permissao === permissao) {\n    const r = await pool.query(`\n      SELECT s.id, s.email_convidado, s.permissao::text AS permissao, s.status,\n             s.criado_em, s.aceito_em, s.revogado_em,\n             s.com_usuario_id AS user_id, u.full_name AS user_nome\n      FROM dispositivo_compartilhado s\n      LEFT JOIN app_users u ON u.id = s.com_usuario_id\n      WHERE s.id=$1\n    `, [shareId]);\n    row = r.rows[0];\n  } else {\n    const r = await pool.query(`\n      UPDATE dispositivo_compartilhado AS s\n         SET permissao=$1::permissao_compartilhamento\n       WHERE s.id=$2 AND s.dispositivo_id=$3 AND s.status='ativo'\n       RETURNING s.id, s.email_convidado, s.permissao::text AS permissao, s.status,\n                 s.criado_em, s.aceito_em, s.revogado_em,\n                 s.com_usuario_id AS user_id,\n                 (SELECT full_name FROM app_users WHERE id = s.com_usuario_id) AS user_nome\n    `, [permissao, shareId, id]);\n    if (r.rowCount === 0) {\n      msg.statusCode=409; msg.payload={error:'compartilhamento mudou de estado, tente novamente'}; return msg;\n    }\n    row = r.rows[0];\n  }\n\n  msg.statusCode=200;\n  msg.payload = { compartilhamento: row };\n} catch(e) {\n  node.error('update share: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n\nconst id = msg.req.params.id;\nconst shareId = msg.req.params.shareId;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(id) || !UUID_RE.test(shareId)) {\n  msg.statusCode=400; msg.payload={error:'id invalido'}; return msg;\n}\n\nconst body = msg.payload || {};\nconst permRaw = body.permissao || body.permission || '';\nlet permissao;\nif (permRaw === 'leitura' || permRaw === 'viewer') permissao = 'leitura';\nelse if (permRaw === 'controle' || permRaw === 'operator') permissao = 'controle';\nelse { msg.statusCode=400; msg.payload={error:'permissao deve ser leitura ou controle (ou viewer/operator)'}; return msg; }\n\ntry {\n  const dev = await pool.query('SELECT user_id FROM devices WHERE id=$1 LIMIT 1', [id]);\n  if (dev.rowCount === 0) { msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado'}; return msg; }\n  const isAdmin = msg.user && msg.user.role === 'admin';\n  if (dev.rows[0].user_id !== msg.user.id && !isAdmin) {\n    msg.statusCode=403; msg.payload={error:'apenas o dono pode editar'}; return msg;\n  }\n\n  const sel = await pool.query(\n    `SELECT id, status, permissao::text AS permissao\n       FROM dispositivo_compartilhado\n      WHERE id=$1 AND dispositivo_id=$2 LIMIT 1`,\n    [shareId, id]\n  );\n  if (sel.rowCount === 0) {\n    msg.statusCode=404; msg.payload={error:'compartilhamento nao encontrado'}; return msg;\n  }\n  const cur = sel.rows[0];\n  if (cur.status !== 'ativo') {\n    msg.statusCode=409;\n    msg.payload={error:'nao e possivel editar permissao de convite '+cur.status};\n    return msg;\n  }\n\n  // Idempotente: se ja tá com a permissão nova, retorna row atual sem UPDATE.\n  let row;\n  if (cur.permissao === permissao) {\n    const r = await pool.query(`\n      SELECT s.id, s.email_convidado, s.permissao::text AS permissao, s.status,\n             s.criado_em, s.aceito_em, s.revogado_em,\n             s.com_usuario_id AS user_id, u.full_name AS user_nome\n      FROM dispositivo_compartilhado s\n      LEFT JOIN app_users u ON u.id = s.com_usuario_id\n      WHERE s.id=$1\n    `, [shareId]);\n    row = r.rows[0];\n  } else {\n    const r = await pool.query(`\n      UPDATE dispositivo_compartilhado AS s\n         SET permissao=$1::permissao_compartilhamento\n       WHERE s.id=$2 AND s.dispositivo_id=$3 AND s.status='ativo'\n       RETURNING s.id, s.email_convidado, s.permissao::text AS permissao, s.status,\n                 s.criado_em, s.aceito_em, s.revogado_em,\n                 s.com_usuario_id AS user_id,\n                 (SELECT full_name FROM app_users WHERE id = s.com_usuario_id) AS user_nome\n    `, [permissao, shareId, id]);\n    if (r.rowCount === 0) {\n      msg.statusCode=409; msg.payload={error:'compartilhamento mudou de estado, tente novamente'}; return msg;\n    }\n    row = r.rows[0];\n  }\n\n  msg.statusCode=200;\n  msg.payload = { compartilhamento: row };\n} catch(e) {\n  node.error('update share: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
         "outputs": 1,
         "libs": [],
         "x": 700,
@@ -2458,7 +2458,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Provisionar produto",
-        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nif (!msg.user || msg.user.role !== 'admin') {\n  msg.statusCode=403; msg.payload={error:'apenas admin pode provisionar'}; return msg;\n}\nconst dynsecCall = global.get('dynsecCall');\nif (!dynsecCall) { msg.statusCode=503; msg.payload={error:'dynsec not ready'}; return msg; }\n\nconst body = msg.payload || {};\nconst modeloId = String(body.modelo_id || '').trim();\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(modeloId)) { msg.statusCode=400; msg.payload={error:'modelo_id invalido'}; return msg; }\n\nconst PAIRING_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';\nfunction pairing(len) {\n  const buf = crypto.randomBytes(len);\n  let s = '';\n  for (let i = 0; i < len; i++) s += PAIRING_ALPHABET[buf[i] % PAIRING_ALPHABET.length];\n  return s;\n}\n\ntry {\n  const mod = await pool.query(\n    'SELECT id, prefixo, major_version, nome FROM modelos_dispositivo WHERE id=$1 LIMIT 1',\n    [modeloId]\n  );\n  if (mod.rowCount === 0) { msg.statusCode=404; msg.payload={error:'modelo nao encontrado'}; return msg; }\n  const prefixo = mod.rows[0].prefixo;\n  const majorVersion = mod.rows[0].major_version;\n  if (!prefixo || !majorVersion) {\n    msg.statusCode=400; msg.payload={error:'modelo sem prefixo/major_version configurados'}; return msg;\n  }\n\n  const baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\n  const mqttHost = env.get('MQTT_EXTERNAL_HOST') || 'hub.xtconect.online';\n  const mqttPort = env.get('MQTT_EXTERNAL_TLS_PORT') || '8883';\n  const mqttWsPort = env.get('MQTT_EXTERNAL_WS_PORT') || '8884';\n\n  let createdId = null;\n  let serial = null;\n  let mqttPlaintext = null;\n  let claimToken = null;\n  let pairingCode = null;\n  let sequencial = null;\n\n  for (let attempt = 0; attempt < 5 && !createdId; attempt++) {\n    const seqRow = await pool.query(\n      'SELECT COALESCE(MAX(sequencial), 0) + 1 AS seq FROM devices WHERE modelo_id=$1',\n      [modeloId]\n    );\n    sequencial = seqRow.rows[0].seq;\n    serial = prefixo + '-' + majorVersion + '-' + String(sequencial).padStart(5, '0');\n    claimToken = crypto.randomBytes(24).toString('base64url');\n    pairingCode = pairing(6);\n    mqttPlaintext = crypto.randomBytes(16).toString('hex');\n    try {\n      const ins = await pool.query(\n        \"INSERT INTO devices (user_id, device_id, name, nome_amigavel, mqtt_username, mqtt_password_hash, modelo_id, sequencial, status, claim_token, pairing_code, provisionado_em) VALUES (NULL, $1, $1, $1, $1, NULL, $2, $3, 'ocioso', $4, $5, NOW()) RETURNING id\",\n        [serial, modeloId, sequencial, claimToken, pairingCode]\n      );\n      createdId = ins.rows[0].id;\n    } catch(e) {\n      if (/unique|duplicate/i.test(e.message) || e.code === '23505') { continue; }\n      throw e;\n    }\n  }\n  if (!createdId) {\n    msg.statusCode=500; msg.payload={error:'nao foi possivel alocar serial/token unicos em 5 tentativas'}; return msg;\n  }\n\n  try {\n    await dynsecCall({ command: 'createClient', username: serial, password: mqttPlaintext });\n    await dynsecCall({ command: 'addClientRole', username: serial, rolename: 'device-publisher' });\n  } catch (dynErr) {\n    try { await dynsecCall({ command: 'deleteClient', username: serial }); } catch(_) {}\n    try { await pool.query('DELETE FROM devices WHERE id=$1', [createdId]); } catch(_) {}\n    node.error('provisionar dynsec: ' + dynErr.message, msg);\n    msg.statusCode=500; msg.payload={error:'mqtt provisioning failed: '+dynErr.message};\n    return msg;\n  }\n\n  msg.statusCode = 200;\n  msg.payload = {\n    id: createdId,\n    serial: serial,\n    modelo_id: modeloId,\n    modelo_nome: mod.rows[0].nome,\n    sequencial: sequencial,\n    status: 'ocioso',\n    pairing_code: pairingCode,\n    claim_token: claimToken,\n    claim_url: baseUrl + '/claim?serial=' + encodeURIComponent(serial) + '&token=' + encodeURIComponent(claimToken),\n    mqtt: {\n      host: 'mqtts://' + mqttHost + ':' + mqttPort,\n      ws: 'wss://' + mqttHost + ':' + mqttWsPort + '/',\n      username: serial,\n      password: mqttPlaintext\n    }\n  };\n} catch(e) {\n  node.error('provisionar: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nif (!msg.user || msg.user.role !== 'admin') {\n  msg.statusCode=403; msg.payload={error:'apenas admin pode provisionar'}; return msg;\n}\nconst dynsecCall = global.get('dynsecCall');\nif (!dynsecCall) { msg.statusCode=503; msg.payload={error:'dynsec not ready'}; return msg; }\n\nconst body = msg.payload || {};\nconst modeloId = String(body.modelo_id || '').trim();\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(modeloId)) { msg.statusCode=400; msg.payload={error:'modelo_id invalido'}; return msg; }\n\nconst PAIRING_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';\nfunction pairing(len) {\n  const buf = crypto.randomBytes(len);\n  let s = '';\n  for (let i = 0; i < len; i++) s += PAIRING_ALPHABET[buf[i] % PAIRING_ALPHABET.length];\n  return s;\n}\n\ntry {\n  const mod = await pool.query(\n    'SELECT id, prefixo, major_version, nome FROM modelos_dispositivo WHERE id=$1 LIMIT 1',\n    [modeloId]\n  );\n  if (mod.rowCount === 0) { msg.statusCode=404; msg.payload={error:'modelo nao encontrado'}; return msg; }\n  const prefixo = mod.rows[0].prefixo;\n  const majorVersion = mod.rows[0].major_version;\n  if (!prefixo || !majorVersion) {\n    msg.statusCode=400; msg.payload={error:'modelo sem prefixo/major_version configurados'}; return msg;\n  }\n\n  const baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\n  const mqttHost = env.get('MQTT_EXTERNAL_HOST') || 'hub.xtconect.online';\n  const mqttPort = env.get('MQTT_EXTERNAL_TLS_PORT') || '8883';\n  const mqttWsPort = env.get('MQTT_EXTERNAL_WS_PORT') || '8884';\n\n  let createdId = null;\n  let serial = null;\n  let mqttPlaintext = null;\n  let claimToken = null;\n  let pairingCode = null;\n  let sequencial = null;\n\n  for (let attempt = 0; attempt < 5 && !createdId; attempt++) {\n    const seqRow = await pool.query(\n      'SELECT COALESCE(MAX(sequencial), 0) + 1 AS seq FROM devices WHERE modelo_id=$1',\n      [modeloId]\n    );\n    sequencial = seqRow.rows[0].seq;\n    serial = prefixo + '-' + majorVersion + '-' + String(sequencial).padStart(5, '0');\n    claimToken = crypto.randomBytes(24).toString('base64url');\n    pairingCode = pairing(6);\n    mqttPlaintext = crypto.randomBytes(16).toString('hex');\n    try {\n      const ins = await pool.query(\n        \"INSERT INTO devices (user_id, device_id, name, nome_amigavel, mqtt_username, mqtt_password_hash, modelo_id, sequencial, status, claim_token, pairing_code, provisionado_em) VALUES (NULL, $1, $1, $1, $1, NULL, $2, $3, 'ocioso', $4, $5, NOW()) RETURNING id\",\n        [serial, modeloId, sequencial, claimToken, pairingCode]\n      );\n      createdId = ins.rows[0].id;\n    } catch(e) {\n      if (/unique|duplicate/i.test(e.message) || e.code === '23505') { continue; }\n      throw e;\n    }\n  }\n  if (!createdId) {\n    msg.statusCode=500; msg.payload={error:'nao foi possivel alocar serial/token unicos em 5 tentativas'}; return msg;\n  }\n\n  try {\n    await dynsecCall({ command: 'createClient', username: serial, password: mqttPlaintext });\n    await dynsecCall({ command: 'addClientRole', username: serial, rolename: 'device-publisher' });\n  } catch (dynErr) {\n    try { await dynsecCall({ command: 'deleteClient', username: serial }); } catch(_) {}\n    try { await pool.query('DELETE FROM devices WHERE id=$1', [createdId]); } catch(_) {}\n    node.error('provisionar dynsec: ' + dynErr.message, msg);\n    msg.statusCode=500; msg.payload={error:'mqtt provisioning failed: '+dynErr.message};\n    return msg;\n  }\n\n  // E4.1 — se modelo requer template (IRR-V1), roda procedure de provisionamento.\n  try {\n    const flags = await pool.query(\n      \"SELECT especificacoes->'flags'->>'provisioning_procedure' AS proc FROM modelos_dispositivo WHERE id=$1\",\n      [modeloId]\n    );\n    const procName = flags.rows[0] && flags.rows[0].proc;\n    if (procName === 'provision_irr_v1_defaults') {\n      await pool.query('SELECT * FROM provision_irr_v1_defaults($1)', [createdId]);\n      node.log('IRR-V1 defaults provisionados pra ' + serial);\n    }\n  } catch(e) { node.warn('provisioning template falhou: ' + e.message); }\n\n  msg.statusCode = 200;\n  msg.payload = {\n    id: createdId,\n    serial: serial,\n    modelo_id: modeloId,\n    modelo_nome: mod.rows[0].nome,\n    sequencial: sequencial,\n    status: 'ocioso',\n    pairing_code: pairingCode,\n    claim_token: claimToken,\n    claim_url: baseUrl + '/claim?serial=' + encodeURIComponent(serial) + '&token=' + encodeURIComponent(claimToken),\n    mqtt: {\n      host: 'mqtts://' + mqttHost + ':' + mqttPort,\n      ws: 'wss://' + mqttHost + ':' + mqttWsPort + '/',\n      username: serial,\n      password: mqttPlaintext\n    }\n  };\n} catch(e) {\n  node.error('provisionar: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
         "outputs": 1,
         "libs": [
             {
@@ -2673,7 +2673,7 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Claim produto",
-        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n\nconst body = msg.payload || {};\nconst token = body.claim_token ? String(body.claim_token).trim() : '';\nconst serial = body.serial ? String(body.serial).trim() : '';\nconst pairing = body.pairing_code ? String(body.pairing_code).trim().toUpperCase() : '';\n\n// Apelido opcional: trim; vazio/s\u00f3 espa\u00e7o = NULL; 1..80 chars = aceita.\nlet apelido = null;\nif (body.apelido !== undefined && body.apelido !== null) {\n  const trimmed = String(body.apelido).trim();\n  if (trimmed.length > 80) {\n    msg.statusCode=400; msg.payload={error:'apelido deve ter no maximo 80 caracteres'}; return msg;\n  }\n  if (trimmed.length > 0) apelido = trimmed;\n}\n\nif (!token && !(serial && pairing)) {\n  msg.statusCode=400; msg.payload={error:'informe claim_token ou (serial + pairing_code)'}; return msg;\n}\n\ntry {\n  let sel;\n  if (token) {\n    sel = await pool.query(\n      'SELECT id, device_id, status FROM devices WHERE claim_token = $1 LIMIT 1',\n      [token]\n    );\n  } else {\n    sel = await pool.query(\n      'SELECT id, device_id, status FROM devices WHERE device_id = $1 AND pairing_code = $2 LIMIT 1',\n      [serial, pairing]\n    );\n  }\n  if (sel.rowCount === 0) {\n    msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado ou codigo invalido'}; return msg;\n  }\n  const cur = sel.rows[0];\n  if (cur.status !== 'ocioso') {\n    msg.statusCode=409; msg.payload={error:'dispositivo ja foi reivindicado'}; return msg;\n  }\n\n  const upd = await pool.query(\n    \"UPDATE devices SET status='associado', user_id=$1, claimed_em=NOW(), claim_token=NULL, pairing_code=NULL, apelido=$2 WHERE id=$3 AND status='ocioso' RETURNING id\",\n    [msg.user.id, apelido, cur.id]\n  );\n  if (upd.rowCount === 0) {\n    msg.statusCode=409; msg.payload={error:'estado mudou durante o claim, tente novamente'}; return msg;\n  }\n\n  // Retorna shape compat\u00edvel com lista (inclui apelido)\n  const r = await pool.query(\n    `SELECT d.id, d.device_id AS serial, d.status, d.apelido,\n            COALESCE(NULLIF(d.nome_amigavel, ''), d.name) AS nome,\n            d.user_id AS owner_id,\n            d.is_online AS online, d.last_seen AS last_seen_at,\n            d.telemetry_interval_s, d.burst_rate_s,\n            m.nome AS modelo_nome\n       FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n      WHERE d.id=$1 LIMIT 1`,\n    [cur.id]\n  );\n  msg.statusCode = 200;\n  msg.payload = { dispositivo: r.rows[0] };\n} catch(e) {\n  if (/apelido_length/i.test(e.message)) {\n    msg.statusCode=400; msg.payload={error:'apelido invalido (1 a 80 caracteres)'}; return msg;\n  }\n  node.error('claim: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n\nconst body = msg.payload || {};\nconst token = body.claim_token ? String(body.claim_token).trim() : '';\nconst serial = body.serial ? String(body.serial).trim() : '';\nconst pairing = body.pairing_code ? String(body.pairing_code).trim().toUpperCase() : '';\n\n// Apelido opcional: trim; vazio/só espaço = NULL; 1..80 chars = aceita.\nlet apelido = null;\nif (body.apelido !== undefined && body.apelido !== null) {\n  const trimmed = String(body.apelido).trim();\n  if (trimmed.length > 80) {\n    msg.statusCode=400; msg.payload={error:'apelido deve ter no maximo 80 caracteres'}; return msg;\n  }\n  if (trimmed.length > 0) apelido = trimmed;\n}\n\nif (!token && !(serial && pairing)) {\n  msg.statusCode=400; msg.payload={error:'informe claim_token ou (serial + pairing_code)'}; return msg;\n}\n\ntry {\n  let sel;\n  if (token) {\n    sel = await pool.query(\n      'SELECT id, device_id, status FROM devices WHERE claim_token = $1 LIMIT 1',\n      [token]\n    );\n  } else {\n    sel = await pool.query(\n      'SELECT id, device_id, status FROM devices WHERE device_id = $1 AND pairing_code = $2 LIMIT 1',\n      [serial, pairing]\n    );\n  }\n  if (sel.rowCount === 0) {\n    msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado ou codigo invalido'}; return msg;\n  }\n  const cur = sel.rows[0];\n  if (cur.status !== 'ocioso') {\n    msg.statusCode=409; msg.payload={error:'dispositivo ja foi reivindicado'}; return msg;\n  }\n\n  const upd = await pool.query(\n    \"UPDATE devices SET status='associado', user_id=$1, claimed_em=NOW(), claim_token=NULL, pairing_code=NULL, apelido=$2 WHERE id=$3 AND status='ocioso' RETURNING id\",\n    [msg.user.id, apelido, cur.id]\n  );\n  if (upd.rowCount === 0) {\n    msg.statusCode=409; msg.payload={error:'estado mudou durante o claim, tente novamente'}; return msg;\n  }\n\n  // Retorna shape compatível com lista (inclui apelido)\n  const r = await pool.query(\n    `SELECT d.id, d.device_id AS serial, d.status, d.apelido,\n            COALESCE(NULLIF(d.nome_amigavel, ''), d.name) AS nome,\n            d.user_id AS owner_id,\n            d.is_online AS online, d.last_seen AS last_seen_at,\n            d.telemetry_interval_s, d.burst_rate_s,\n            m.nome AS modelo_nome\n       FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n      WHERE d.id=$1 LIMIT 1`,\n    [cur.id]\n  );\n  // E4.1 — Defensivo: se IRR-V1 e ainda não tem config, provisiona.\n  try {\n    const mod = await pool.query(\n      `SELECT m.prefixo, m.major_version FROM devices d\n         LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n         WHERE d.id = $1 LIMIT 1`,\n      [cur.id]\n    );\n    if (mod.rowCount > 0 &&\n        mod.rows[0].prefixo === 'IRR' && mod.rows[0].major_version === 'V1') {\n      const existing = await pool.query('SELECT 1 FROM irrigation_configs WHERE device_id=$1', [cur.id]);\n      if (existing.rowCount === 0) {\n        await pool.query('SELECT * FROM provision_irr_v1_defaults($1)', [cur.id]);\n        node.log('IRR-V1 defaults defensivamente provisionados pra ' + cur.id);\n      }\n    }\n  } catch(e) { node.warn('claim defensive provisioning: ' + e.message); }\n\n  msg.statusCode = 200;\n  msg.payload = { dispositivo: r.rows[0] };\n} catch(e) {\n  if (/apelido_length/i.test(e.message)) {\n    msg.statusCode=400; msg.payload={error:'apelido invalido (1 a 80 caracteres)'}; return msg;\n  }\n  node.error('claim: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
         "outputs": 1,
         "libs": [],
         "x": 700,
@@ -2910,6 +2910,496 @@
         },
         "x": 940,
         "y": 3400,
+        "wires": []
+    },
+    {
+        "id": "httpIrrSnapshot",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /dispositivos/:id/irrigacao/snapshot",
+        "url": "/dispositivos/:id/irrigacao/snapshot",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 3500,
+        "wires": [
+            [
+                "fnAuthIrrSnapshot"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthIrrSnapshot",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 3500,
+        "wires": [
+            [
+                "fnIrrSnapshot"
+            ],
+            [
+                "respIrrSnapshot"
+            ]
+        ]
+    },
+    {
+        "id": "fnIrrSnapshot",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "IrrSnapshot",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nasync function checkDeviceAccess(pool, deviceId, user) {\n  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n  if (!UUID_RE.test(deviceId)) return { err: 400, msg: 'id invalido' };\n  const isAdmin = user && user.role === 'admin';\n  const r = await pool.query(\n    `SELECT d.id, d.device_id AS serial, d.user_id AS owner_id, d.status, d.modelo_id,\n            m.prefixo, m.major_version\n       FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n      WHERE d.id = $1 LIMIT 1`,\n    [deviceId]\n  );\n  if (r.rowCount === 0) return { err: 404, msg: 'dispositivo nao encontrado' };\n  const dev = r.rows[0];\n  if (isAdmin) return { device: dev, access: 'admin' };\n  if (dev.owner_id === user.id) return { device: dev, access: 'owner' };\n  const s = await pool.query(\n    `SELECT permissao::text AS permissao FROM dispositivo_compartilhado\n       WHERE dispositivo_id = $1 AND com_usuario_id = $2 AND status = 'ativo' LIMIT 1`,\n    [deviceId, user.id]\n  );\n  if (s.rowCount > 0) return { device: dev, access: 'share', permissao: s.rows[0].permissao };\n  return { err: 403, msg: 'sem acesso a este dispositivo' };\n}\ntry {\n  const chk = await checkDeviceAccess(pool, msg.req.params.id, msg.user);\n  if (chk.err) { msg.statusCode=chk.err; msg.payload={error:chk.msg}; return msg; }\n  const device = chk.device;\n  // Verifica modelo IRR-V1\n  if (device.prefixo !== 'IRR' || device.major_version !== 'V1') {\n    msg.statusCode=400; msg.payload={error:'device nao e IRR-V1'}; return msg;\n  }\n  const devId = device.id;\n  const [config, sectors, timers, sensors, alarms] = await Promise.all([\n    pool.query('SELECT * FROM irrigation_configs WHERE device_id=$1', [devId]),\n    pool.query('SELECT id, numero, nome, habilitado, pausado, gpio_rele, nivel_ativo_rele, tipo_botao_fisico, gpio_botao, debounce_ms, ultimo_acionamento_em, ultima_duracao_s, proxima_execucao_em FROM irrigation_sectors WHERE device_id=$1 ORDER BY numero', [devId]),\n    pool.query('SELECT * FROM irrigation_timers WHERE device_id=$1 ORDER BY criado_em DESC', [devId]),\n    pool.query('SELECT * FROM irrigation_temperature_sensors WHERE device_id=$1 ORDER BY criado_em', [devId]),\n    pool.query('SELECT * FROM irrigation_alarms WHERE device_id=$1 AND resolved_at IS NULL ORDER BY triggered_at DESC', [devId]),\n  ]);\n  msg.statusCode = 200;\n  msg.payload = {\n    device: { id: device.id, serial: device.serial, modelo: device.prefixo + '-' + device.major_version },\n    config: config.rows[0] || null,\n    sectors: sectors.rows,\n    timers: timers.rows,\n    sensors: sensors.rows,\n    active_alarms: alarms.rows\n  };\n} catch(e) {\n  node.error('IrrSnapshot: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 680,
+        "y": 3500,
+        "wires": [
+            [
+                "respIrrSnapshot"
+            ]
+        ]
+    },
+    {
+        "id": "respIrrSnapshot",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 920,
+        "y": 3500,
+        "wires": []
+    },
+    {
+        "id": "httpIrrGetConfig",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /dispositivos/:id/irrigacao/config",
+        "url": "/dispositivos/:id/irrigacao/config",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 3600,
+        "wires": [
+            [
+                "fnAuthIrrGetConfig"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthIrrGetConfig",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 3600,
+        "wires": [
+            [
+                "fnIrrGetConfig"
+            ],
+            [
+                "respIrrGetConfig"
+            ]
+        ]
+    },
+    {
+        "id": "fnIrrGetConfig",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "IrrGetConfig",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nasync function checkDeviceAccess(pool, deviceId, user) {\n  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n  if (!UUID_RE.test(deviceId)) return { err: 400, msg: 'id invalido' };\n  const isAdmin = user && user.role === 'admin';\n  const r = await pool.query(\n    `SELECT d.id, d.device_id AS serial, d.user_id AS owner_id, d.status, d.modelo_id,\n            m.prefixo, m.major_version\n       FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n      WHERE d.id = $1 LIMIT 1`,\n    [deviceId]\n  );\n  if (r.rowCount === 0) return { err: 404, msg: 'dispositivo nao encontrado' };\n  const dev = r.rows[0];\n  if (isAdmin) return { device: dev, access: 'admin' };\n  if (dev.owner_id === user.id) return { device: dev, access: 'owner' };\n  const s = await pool.query(\n    `SELECT permissao::text AS permissao FROM dispositivo_compartilhado\n       WHERE dispositivo_id = $1 AND com_usuario_id = $2 AND status = 'ativo' LIMIT 1`,\n    [deviceId, user.id]\n  );\n  if (s.rowCount > 0) return { device: dev, access: 'share', permissao: s.rows[0].permissao };\n  return { err: 403, msg: 'sem acesso a este dispositivo' };\n}\ntry {\n  const chk = await checkDeviceAccess(pool, msg.req.params.id, msg.user);\n  if (chk.err) { msg.statusCode=chk.err; msg.payload={error:chk.msg}; return msg; }\n  const device = chk.device;\n  // Verifica modelo IRR-V1\n  if (device.prefixo !== 'IRR' || device.major_version !== 'V1') {\n    msg.statusCode=400; msg.payload={error:'device nao e IRR-V1'}; return msg;\n  }\n  const r = await pool.query('SELECT * FROM irrigation_configs WHERE device_id=$1', [device.id]);\n  if (r.rowCount === 0) { msg.statusCode=404; msg.payload={error:'config nao provisionada'}; return msg; }\n  msg.statusCode=200; msg.payload={ config: r.rows[0] };\n} catch(e) {\n  node.error('IrrGetConfig: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 680,
+        "y": 3600,
+        "wires": [
+            [
+                "respIrrGetConfig"
+            ]
+        ]
+    },
+    {
+        "id": "respIrrGetConfig",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 920,
+        "y": 3600,
+        "wires": []
+    },
+    {
+        "id": "httpIrrGetSectors",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /dispositivos/:id/irrigacao/setores",
+        "url": "/dispositivos/:id/irrigacao/setores",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 3700,
+        "wires": [
+            [
+                "fnAuthIrrGetSectors"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthIrrGetSectors",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 3700,
+        "wires": [
+            [
+                "fnIrrGetSectors"
+            ],
+            [
+                "respIrrGetSectors"
+            ]
+        ]
+    },
+    {
+        "id": "fnIrrGetSectors",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "IrrGetSectors",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nasync function checkDeviceAccess(pool, deviceId, user) {\n  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n  if (!UUID_RE.test(deviceId)) return { err: 400, msg: 'id invalido' };\n  const isAdmin = user && user.role === 'admin';\n  const r = await pool.query(\n    `SELECT d.id, d.device_id AS serial, d.user_id AS owner_id, d.status, d.modelo_id,\n            m.prefixo, m.major_version\n       FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n      WHERE d.id = $1 LIMIT 1`,\n    [deviceId]\n  );\n  if (r.rowCount === 0) return { err: 404, msg: 'dispositivo nao encontrado' };\n  const dev = r.rows[0];\n  if (isAdmin) return { device: dev, access: 'admin' };\n  if (dev.owner_id === user.id) return { device: dev, access: 'owner' };\n  const s = await pool.query(\n    `SELECT permissao::text AS permissao FROM dispositivo_compartilhado\n       WHERE dispositivo_id = $1 AND com_usuario_id = $2 AND status = 'ativo' LIMIT 1`,\n    [deviceId, user.id]\n  );\n  if (s.rowCount > 0) return { device: dev, access: 'share', permissao: s.rows[0].permissao };\n  return { err: 403, msg: 'sem acesso a este dispositivo' };\n}\ntry {\n  const chk = await checkDeviceAccess(pool, msg.req.params.id, msg.user);\n  if (chk.err) { msg.statusCode=chk.err; msg.payload={error:chk.msg}; return msg; }\n  const device = chk.device;\n  // Verifica modelo IRR-V1\n  if (device.prefixo !== 'IRR' || device.major_version !== 'V1') {\n    msg.statusCode=400; msg.payload={error:'device nao e IRR-V1'}; return msg;\n  }\n  const r = await pool.query(\n    `SELECT id, numero, nome, habilitado, pausado, gpio_rele, nivel_ativo_rele,\n            tipo_botao_fisico, gpio_botao, debounce_ms,\n            ultimo_acionamento_em, ultima_duracao_s, proxima_execucao_em\n       FROM irrigation_sectors WHERE device_id=$1 ORDER BY numero`,\n    [device.id]\n  );\n  msg.statusCode=200; msg.payload={ setores: r.rows };\n} catch(e) {\n  node.error('IrrGetSectors: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 680,
+        "y": 3700,
+        "wires": [
+            [
+                "respIrrGetSectors"
+            ]
+        ]
+    },
+    {
+        "id": "respIrrGetSectors",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 920,
+        "y": 3700,
+        "wires": []
+    },
+    {
+        "id": "httpIrrGetTimers",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /dispositivos/:id/irrigacao/timers",
+        "url": "/dispositivos/:id/irrigacao/timers",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 3800,
+        "wires": [
+            [
+                "fnAuthIrrGetTimers"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthIrrGetTimers",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 3800,
+        "wires": [
+            [
+                "fnIrrGetTimers"
+            ],
+            [
+                "respIrrGetTimers"
+            ]
+        ]
+    },
+    {
+        "id": "fnIrrGetTimers",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "IrrGetTimers",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nasync function checkDeviceAccess(pool, deviceId, user) {\n  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n  if (!UUID_RE.test(deviceId)) return { err: 400, msg: 'id invalido' };\n  const isAdmin = user && user.role === 'admin';\n  const r = await pool.query(\n    `SELECT d.id, d.device_id AS serial, d.user_id AS owner_id, d.status, d.modelo_id,\n            m.prefixo, m.major_version\n       FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n      WHERE d.id = $1 LIMIT 1`,\n    [deviceId]\n  );\n  if (r.rowCount === 0) return { err: 404, msg: 'dispositivo nao encontrado' };\n  const dev = r.rows[0];\n  if (isAdmin) return { device: dev, access: 'admin' };\n  if (dev.owner_id === user.id) return { device: dev, access: 'owner' };\n  const s = await pool.query(\n    `SELECT permissao::text AS permissao FROM dispositivo_compartilhado\n       WHERE dispositivo_id = $1 AND com_usuario_id = $2 AND status = 'ativo' LIMIT 1`,\n    [deviceId, user.id]\n  );\n  if (s.rowCount > 0) return { device: dev, access: 'share', permissao: s.rows[0].permissao };\n  return { err: 403, msg: 'sem acesso a este dispositivo' };\n}\ntry {\n  const chk = await checkDeviceAccess(pool, msg.req.params.id, msg.user);\n  if (chk.err) { msg.statusCode=chk.err; msg.payload={error:chk.msg}; return msg; }\n  const device = chk.device;\n  // Verifica modelo IRR-V1\n  if (device.prefixo !== 'IRR' || device.major_version !== 'V1') {\n    msg.statusCode=400; msg.payload={error:'device nao e IRR-V1'}; return msg;\n  }\n  const q = msg.req.query || {};\n  const wheres = ['device_id=$1'];\n  const params = [device.id];\n  if (q.alvo_tipo && (q.alvo_tipo === 'pump' || q.alvo_tipo === 'sector')) {\n    params.push(q.alvo_tipo); wheres.push('alvo_tipo=$' + params.length);\n  }\n  if (q.alvo_id) { params.push(q.alvo_id); wheres.push('alvo_id=$' + params.length); }\n  const sql = 'SELECT * FROM irrigation_timers WHERE ' + wheres.join(' AND ') + ' ORDER BY criado_em DESC';\n  const r = await pool.query(sql, params);\n  msg.statusCode=200; msg.payload={ timers: r.rows };\n} catch(e) {\n  node.error('IrrGetTimers: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 680,
+        "y": 3800,
+        "wires": [
+            [
+                "respIrrGetTimers"
+            ]
+        ]
+    },
+    {
+        "id": "respIrrGetTimers",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 920,
+        "y": 3800,
+        "wires": []
+    },
+    {
+        "id": "httpIrrGetSensors",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /dispositivos/:id/irrigacao/sensores-temperatura",
+        "url": "/dispositivos/:id/irrigacao/sensores-temperatura",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 3900,
+        "wires": [
+            [
+                "fnAuthIrrGetSensors"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthIrrGetSensors",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 3900,
+        "wires": [
+            [
+                "fnIrrGetSensors"
+            ],
+            [
+                "respIrrGetSensors"
+            ]
+        ]
+    },
+    {
+        "id": "fnIrrGetSensors",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "IrrGetSensors",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nasync function checkDeviceAccess(pool, deviceId, user) {\n  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n  if (!UUID_RE.test(deviceId)) return { err: 400, msg: 'id invalido' };\n  const isAdmin = user && user.role === 'admin';\n  const r = await pool.query(\n    `SELECT d.id, d.device_id AS serial, d.user_id AS owner_id, d.status, d.modelo_id,\n            m.prefixo, m.major_version\n       FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n      WHERE d.id = $1 LIMIT 1`,\n    [deviceId]\n  );\n  if (r.rowCount === 0) return { err: 404, msg: 'dispositivo nao encontrado' };\n  const dev = r.rows[0];\n  if (isAdmin) return { device: dev, access: 'admin' };\n  if (dev.owner_id === user.id) return { device: dev, access: 'owner' };\n  const s = await pool.query(\n    `SELECT permissao::text AS permissao FROM dispositivo_compartilhado\n       WHERE dispositivo_id = $1 AND com_usuario_id = $2 AND status = 'ativo' LIMIT 1`,\n    [deviceId, user.id]\n  );\n  if (s.rowCount > 0) return { device: dev, access: 'share', permissao: s.rows[0].permissao };\n  return { err: 403, msg: 'sem acesso a este dispositivo' };\n}\ntry {\n  const chk = await checkDeviceAccess(pool, msg.req.params.id, msg.user);\n  if (chk.err) { msg.statusCode=chk.err; msg.payload={error:chk.msg}; return msg; }\n  const device = chk.device;\n  // Verifica modelo IRR-V1\n  if (device.prefixo !== 'IRR' || device.major_version !== 'V1') {\n    msg.statusCode=400; msg.payload={error:'device nao e IRR-V1'}; return msg;\n  }\n  const r = await pool.query(\n    'SELECT * FROM irrigation_temperature_sensors WHERE device_id=$1 ORDER BY criado_em',\n    [device.id]\n  );\n  msg.statusCode=200; msg.payload={ sensores: r.rows };\n} catch(e) {\n  node.error('IrrGetSensors: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 680,
+        "y": 3900,
+        "wires": [
+            [
+                "respIrrGetSensors"
+            ]
+        ]
+    },
+    {
+        "id": "respIrrGetSensors",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 920,
+        "y": 3900,
+        "wires": []
+    },
+    {
+        "id": "httpIrrGetEvents",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /dispositivos/:id/irrigacao/eventos",
+        "url": "/dispositivos/:id/irrigacao/eventos",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 4000,
+        "wires": [
+            [
+                "fnAuthIrrGetEvents"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthIrrGetEvents",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 4000,
+        "wires": [
+            [
+                "fnIrrGetEvents"
+            ],
+            [
+                "respIrrGetEvents"
+            ]
+        ]
+    },
+    {
+        "id": "fnIrrGetEvents",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "IrrGetEvents",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nasync function checkDeviceAccess(pool, deviceId, user) {\n  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n  if (!UUID_RE.test(deviceId)) return { err: 400, msg: 'id invalido' };\n  const isAdmin = user && user.role === 'admin';\n  const r = await pool.query(\n    `SELECT d.id, d.device_id AS serial, d.user_id AS owner_id, d.status, d.modelo_id,\n            m.prefixo, m.major_version\n       FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n      WHERE d.id = $1 LIMIT 1`,\n    [deviceId]\n  );\n  if (r.rowCount === 0) return { err: 404, msg: 'dispositivo nao encontrado' };\n  const dev = r.rows[0];\n  if (isAdmin) return { device: dev, access: 'admin' };\n  if (dev.owner_id === user.id) return { device: dev, access: 'owner' };\n  const s = await pool.query(\n    `SELECT permissao::text AS permissao FROM dispositivo_compartilhado\n       WHERE dispositivo_id = $1 AND com_usuario_id = $2 AND status = 'ativo' LIMIT 1`,\n    [deviceId, user.id]\n  );\n  if (s.rowCount > 0) return { device: dev, access: 'share', permissao: s.rows[0].permissao };\n  return { err: 403, msg: 'sem acesso a este dispositivo' };\n}\ntry {\n  const chk = await checkDeviceAccess(pool, msg.req.params.id, msg.user);\n  if (chk.err) { msg.statusCode=chk.err; msg.payload={error:chk.msg}; return msg; }\n  const device = chk.device;\n  // Verifica modelo IRR-V1\n  if (device.prefixo !== 'IRR' || device.major_version !== 'V1') {\n    msg.statusCode=400; msg.payload={error:'device nao e IRR-V1'}; return msg;\n  }\n  const q = msg.req.query || {};\n  let limit = parseInt(q.limit || '100', 10); if (!Number.isFinite(limit) || limit < 1 || limit > 500) limit = 100;\n  let offset = parseInt(q.offset || '0', 10); if (!Number.isFinite(offset) || offset < 0) offset = 0;\n  const wheres = ['device_id=$1']; const params = [device.id];\n  if (q.tipo) { params.push(q.tipo); wheres.push('event_type=$' + params.length); }\n  if (q.from) { params.push(q.from); wheres.push('ts >= $' + params.length); }\n  if (q.to)   { params.push(q.to);   wheres.push('ts <= $' + params.length); }\n  if (q.alvo_tipo) { params.push(q.alvo_tipo); wheres.push('alvo_tipo=$' + params.length); }\n  params.push(limit); params.push(offset);\n  const limIdx = params.length - 1; const offIdx = params.length;\n  const sql = 'SELECT * FROM irrigation_events WHERE ' + wheres.join(' AND ') +\n              ' ORDER BY ts DESC LIMIT $' + limIdx + ' OFFSET $' + offIdx;\n  const r = await pool.query(sql, params);\n  // count sem paginação\n  const countParams = params.slice(0, params.length - 2);\n  const countSql = 'SELECT COUNT(*)::int AS n FROM irrigation_events WHERE ' + wheres.join(' AND ');\n  const c = await pool.query(countSql, countParams);\n  msg.statusCode=200;\n  msg.payload = { eventos: r.rows, paginacao: { limit: limit, offset: offset, total: c.rows[0].n } };\n} catch(e) {\n  node.error('IrrGetEvents: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 680,
+        "y": 4000,
+        "wires": [
+            [
+                "respIrrGetEvents"
+            ]
+        ]
+    },
+    {
+        "id": "respIrrGetEvents",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 920,
+        "y": 4000,
+        "wires": []
+    },
+    {
+        "id": "httpIrrGetActiveAlarms",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /dispositivos/:id/irrigacao/alarmes/ativos",
+        "url": "/dispositivos/:id/irrigacao/alarmes/ativos",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 4100,
+        "wires": [
+            [
+                "fnAuthIrrGetActiveAlarms"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthIrrGetActiveAlarms",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 4100,
+        "wires": [
+            [
+                "fnIrrGetActiveAlarms"
+            ],
+            [
+                "respIrrGetActiveAlarms"
+            ]
+        ]
+    },
+    {
+        "id": "fnIrrGetActiveAlarms",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "IrrGetActiveAlarms",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nasync function checkDeviceAccess(pool, deviceId, user) {\n  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n  if (!UUID_RE.test(deviceId)) return { err: 400, msg: 'id invalido' };\n  const isAdmin = user && user.role === 'admin';\n  const r = await pool.query(\n    `SELECT d.id, d.device_id AS serial, d.user_id AS owner_id, d.status, d.modelo_id,\n            m.prefixo, m.major_version\n       FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n      WHERE d.id = $1 LIMIT 1`,\n    [deviceId]\n  );\n  if (r.rowCount === 0) return { err: 404, msg: 'dispositivo nao encontrado' };\n  const dev = r.rows[0];\n  if (isAdmin) return { device: dev, access: 'admin' };\n  if (dev.owner_id === user.id) return { device: dev, access: 'owner' };\n  const s = await pool.query(\n    `SELECT permissao::text AS permissao FROM dispositivo_compartilhado\n       WHERE dispositivo_id = $1 AND com_usuario_id = $2 AND status = 'ativo' LIMIT 1`,\n    [deviceId, user.id]\n  );\n  if (s.rowCount > 0) return { device: dev, access: 'share', permissao: s.rows[0].permissao };\n  return { err: 403, msg: 'sem acesso a este dispositivo' };\n}\ntry {\n  const chk = await checkDeviceAccess(pool, msg.req.params.id, msg.user);\n  if (chk.err) { msg.statusCode=chk.err; msg.payload={error:chk.msg}; return msg; }\n  const device = chk.device;\n  // Verifica modelo IRR-V1\n  if (device.prefixo !== 'IRR' || device.major_version !== 'V1') {\n    msg.statusCode=400; msg.payload={error:'device nao e IRR-V1'}; return msg;\n  }\n  const r = await pool.query(\n    'SELECT * FROM irrigation_alarms WHERE device_id=$1 AND resolved_at IS NULL ORDER BY triggered_at DESC',\n    [device.id]\n  );\n  msg.statusCode=200; msg.payload={ alarmes: r.rows };\n} catch(e) {\n  node.error('IrrGetActiveAlarms: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 680,
+        "y": 4100,
+        "wires": [
+            [
+                "respIrrGetActiveAlarms"
+            ]
+        ]
+    },
+    {
+        "id": "respIrrGetActiveAlarms",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 920,
+        "y": 4100,
         "wires": []
     }
 ]
