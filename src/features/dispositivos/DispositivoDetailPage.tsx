@@ -265,8 +265,8 @@ export function DispositivoDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-2">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div className="space-y-2 min-w-0">
           <Button
             variant="ghost"
             size="sm"
@@ -310,7 +310,7 @@ export function DispositivoDetailPage() {
           </div>
           <p className="font-mono text-xs text-muted-foreground">serial: {dispositivo!.serial}</p>
         </div>
-        <div className="flex flex-col items-end gap-2">
+        <div className="flex items-center justify-between sm:flex-col sm:items-end sm:justify-normal gap-2 sm:gap-2">
           {isOwner && (
             <Button
               variant="outline"
@@ -378,7 +378,7 @@ export function DispositivoDetailPage() {
         <CardHeader>
           <CardTitle className="text-base">Histórico em tempo real</CardTitle>
         </CardHeader>
-        <CardContent className="h-72">
+        <CardContent className="h-60 sm:h-72">
           {readingsQuery.isPending ? (
             <Skeleton className="h-full w-full" />
           ) : buffer.length === 0 ? (
