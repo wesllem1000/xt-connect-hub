@@ -1024,14 +1024,9 @@
         "type": "function",
         "z": "tabAuth",
         "name": "Criar dispositivo",
-        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nconst dynsecCall = global.get('dynsecCall');\nif (!dynsecCall) { msg.statusCode=503; msg.payload={error:'dynsec not ready'}; return msg; }\n\nconst body = msg.payload || {};\nconst nome = typeof body.nome === 'string' ? body.nome.trim() : '';\nconst serial = typeof body.serial === 'string' ? body.serial.trim() : '';\nconst modeloId = body.modelo_id ? String(body.modelo_id).trim() : null;\nconst localizacao = (typeof body.localizacao === 'string' && body.localizacao.trim()) ? body.localizacao.trim() : null;\n\nif (nome.length < 3) { msg.statusCode=400; msg.payload={error:'nome deve ter ao menos 3 caracteres'}; return msg; }\nif (serial.length < 3) { msg.statusCode=400; msg.payload={error:'serial deve ter ao menos 3 caracteres'}; return msg; }\nconst SERIAL_RE = /^[A-Za-z0-9._-]{3,64}$/;\nif (!SERIAL_RE.test(serial)) { msg.statusCode=400; msg.payload={error:'serial invalido (use A-Z,a-z,0-9,._-)'}; return msg; }\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (modeloId && !UUID_RE.test(modeloId)) { msg.statusCode=400; msg.payload={error:'modelo invalido'}; return msg; }\n\nlet createdId = null;\ntry {\n  const dup = await pool.query('SELECT id FROM devices WHERE device_id=$1 LIMIT 1', [serial]);\n  if (dup.rowCount > 0) { msg.statusCode=409; msg.payload={error:'serial ja cadastrado'}; return msg; }\n  if (modeloId) {\n    const mc = await pool.query('SELECT id FROM modelos_dispositivo WHERE id=$1 LIMIT 1', [modeloId]);\n    if (mc.rowCount === 0) { msg.statusCode=400; msg.payload={error:'modelo invalido'}; return msg; }\n  }\n\n  const ins = await pool.query(\n    `INSERT INTO devices (user_id, device_id, name, nome_amigavel, mqtt_username, mqtt_password_hash, modelo_id, location, localizacao)\n     VALUES ($1,$2,$3,$3,$2,'',$4,$5,$5)\n     RETURNING id, created_at`,\n    [msg.user.id, serial, nome, modeloId, localizacao]\n  );\n  createdId = ins.rows[0].id;\n  const createdAt = ins.rows[0].created_at;\n\n  const plaintext = crypto.randomBytes(16).toString('hex');\n  try {\n    await dynsecCall({ command: 'createClient', username: serial, password: plaintext });\n    await dynsecCall({ command: 'addClientRole', username: serial, rolename: 'device-publisher' });\n  } catch (dynErr) {\n    try { await dynsecCall({ command: 'deleteClient', username: serial }); } catch(_) {}\n    try { await pool.query('DELETE FROM devices WHERE id=$1', [createdId]); } catch(_) {}\n    node.error('create dispositivo dynsec: ' + dynErr.message, msg);\n    msg.statusCode = 500; msg.payload = { error: 'mqtt provisioning failed: ' + dynErr.message };\n    return msg;\n  }\n\n  let modeloNome = null;\n  if (modeloId) {\n    const mm = await pool.query('SELECT nome FROM modelos_dispositivo WHERE id=$1', [modeloId]);\n    if (mm.rowCount > 0) modeloNome = mm.rows[0].nome;\n  }\n\n  msg.statusCode = 201;\n  msg.payload = {\n    id: createdId,\n    nome,\n    serial,\n    modelo: modeloNome,\n    ultimo_valor: null,\n    criado_em: createdAt,\n    mqtt_credentials: {\n      username: serial,\n      password: plaintext,\n      broker: 'mqtts://hub.xtconect.online:8883'\n    }\n  };\n} catch (e) {\n  if (/unique/i.test(e.message) || /duplicate/i.test(e.message)) {\n    msg.statusCode = 409; msg.payload = { error: 'serial ja cadastrado' };\n  } else {\n    if (createdId) { try { await pool.query('DELETE FROM devices WHERE id=$1', [createdId]); } catch(_) {} }\n    node.error('create dispositivo: ' + e.message, msg);\n    msg.statusCode = 500; msg.payload = { error: 'internal' };\n  }\n}\nreturn msg;\n",
+        "func": "// E3.1 — Fluxo direto de criação de dispositivo descontinuado.\n// Admin provisiona via /admin/produtos/provisionar, cliente usa /dispositivos/claim.\nmsg.statusCode = 410;\nmsg.payload = {\n  error: 'Fluxo de criacao direta descontinuado. Use POST /api/dispositivos/claim com serial + pairing_code, ou peca ao admin pra provisionar um produto novo.'\n};\nreturn msg;",
         "outputs": 1,
-        "libs": [
-            {
-                "var": "crypto",
-                "module": "crypto"
-            }
-        ],
+        "libs": [],
         "x": 560,
         "y": 1080,
         "wires": [
@@ -2415,6 +2410,366 @@
         },
         "x": 940,
         "y": 2700,
+        "wires": []
+    },
+    {
+        "id": "httpProvisionar",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /admin/produtos/provisionar",
+        "url": "/admin/produtos/provisionar",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 2800,
+        "wires": [
+            [
+                "fnAuthProvisionar"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthProvisionar",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 2800,
+        "wires": [
+            [
+                "fnProvisionar"
+            ],
+            [
+                "respProvisionar"
+            ]
+        ]
+    },
+    {
+        "id": "fnProvisionar",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Provisionar produto",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nif (!msg.user || msg.user.role !== 'admin') {\n  msg.statusCode=403; msg.payload={error:'apenas admin pode provisionar'}; return msg;\n}\nconst dynsecCall = global.get('dynsecCall');\nif (!dynsecCall) { msg.statusCode=503; msg.payload={error:'dynsec not ready'}; return msg; }\n\nconst body = msg.payload || {};\nconst modeloId = String(body.modelo_id || '').trim();\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(modeloId)) { msg.statusCode=400; msg.payload={error:'modelo_id invalido'}; return msg; }\n\nconst PAIRING_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';\nfunction pairing(len) {\n  const buf = crypto.randomBytes(len);\n  let s = '';\n  for (let i = 0; i < len; i++) s += PAIRING_ALPHABET[buf[i] % PAIRING_ALPHABET.length];\n  return s;\n}\n\ntry {\n  const mod = await pool.query(\n    'SELECT id, prefixo, major_version, nome FROM modelos_dispositivo WHERE id=$1 LIMIT 1',\n    [modeloId]\n  );\n  if (mod.rowCount === 0) { msg.statusCode=404; msg.payload={error:'modelo nao encontrado'}; return msg; }\n  const prefixo = mod.rows[0].prefixo;\n  const majorVersion = mod.rows[0].major_version;\n  if (!prefixo || !majorVersion) {\n    msg.statusCode=400; msg.payload={error:'modelo sem prefixo/major_version configurados'}; return msg;\n  }\n\n  const baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\n  const mqttHost = env.get('MQTT_EXTERNAL_HOST') || 'hub.xtconect.online';\n  const mqttPort = env.get('MQTT_EXTERNAL_TLS_PORT') || '8883';\n  const mqttWsPort = env.get('MQTT_EXTERNAL_WS_PORT') || '8884';\n\n  let createdId = null;\n  let serial = null;\n  let mqttPlaintext = null;\n  let claimToken = null;\n  let pairingCode = null;\n  let sequencial = null;\n\n  for (let attempt = 0; attempt < 5 && !createdId; attempt++) {\n    const seqRow = await pool.query(\n      'SELECT COALESCE(MAX(sequencial), 0) + 1 AS seq FROM devices WHERE modelo_id=$1',\n      [modeloId]\n    );\n    sequencial = seqRow.rows[0].seq;\n    serial = prefixo + '-' + majorVersion + '-' + String(sequencial).padStart(5, '0');\n    claimToken = crypto.randomBytes(24).toString('base64url');\n    pairingCode = pairing(6);\n    mqttPlaintext = crypto.randomBytes(16).toString('hex');\n    try {\n      const ins = await pool.query(\n        \"INSERT INTO devices (user_id, device_id, name, nome_amigavel, mqtt_username, mqtt_password_hash, modelo_id, sequencial, status, claim_token, pairing_code, provisionado_em) VALUES (NULL, $1, $1, $1, $1, NULL, $2, $3, 'ocioso', $4, $5, NOW()) RETURNING id\",\n        [serial, modeloId, sequencial, claimToken, pairingCode]\n      );\n      createdId = ins.rows[0].id;\n    } catch(e) {\n      if (/unique|duplicate/i.test(e.message) || e.code === '23505') { continue; }\n      throw e;\n    }\n  }\n  if (!createdId) {\n    msg.statusCode=500; msg.payload={error:'nao foi possivel alocar serial/token unicos em 5 tentativas'}; return msg;\n  }\n\n  try {\n    await dynsecCall({ command: 'createClient', username: serial, password: mqttPlaintext });\n    await dynsecCall({ command: 'addClientRole', username: serial, rolename: 'device-publisher' });\n  } catch (dynErr) {\n    try { await dynsecCall({ command: 'deleteClient', username: serial }); } catch(_) {}\n    try { await pool.query('DELETE FROM devices WHERE id=$1', [createdId]); } catch(_) {}\n    node.error('provisionar dynsec: ' + dynErr.message, msg);\n    msg.statusCode=500; msg.payload={error:'mqtt provisioning failed: '+dynErr.message};\n    return msg;\n  }\n\n  msg.statusCode = 200;\n  msg.payload = {\n    id: createdId,\n    serial: serial,\n    modelo_id: modeloId,\n    modelo_nome: mod.rows[0].nome,\n    sequencial: sequencial,\n    status: 'ocioso',\n    pairing_code: pairingCode,\n    claim_token: claimToken,\n    claim_url: baseUrl + '/claim?serial=' + encodeURIComponent(serial) + '&token=' + encodeURIComponent(claimToken),\n    mqtt: {\n      host: 'mqtts://' + mqttHost + ':' + mqttPort,\n      ws: 'wss://' + mqttHost + ':' + mqttWsPort + '/',\n      username: serial,\n      password: mqttPlaintext\n    }\n  };\n} catch(e) {\n  node.error('provisionar: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [
+            {
+                "var": "crypto",
+                "module": "crypto"
+            }
+        ],
+        "x": 700,
+        "y": 2800,
+        "wires": [
+            [
+                "respProvisionar"
+            ]
+        ]
+    },
+    {
+        "id": "respProvisionar",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 2800,
+        "wires": []
+    },
+    {
+        "id": "httpListProdutos",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /admin/produtos",
+        "url": "/admin/produtos",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 2900,
+        "wires": [
+            [
+                "fnAuthListProdutos"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthListProdutos",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 2900,
+        "wires": [
+            [
+                "fnListProdutos"
+            ],
+            [
+                "respListProdutos"
+            ]
+        ]
+    },
+    {
+        "id": "fnListProdutos",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "List produtos",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nif (!msg.user || msg.user.role !== 'admin') {\n  msg.statusCode=403; msg.payload={error:'apenas admin'}; return msg;\n}\nconst q = msg.req.query || {};\nconst status = q.status && ['ocioso','associado','defeito','retornado'].includes(q.status) ? q.status : null;\nconst modeloId = q.modelo_id || null;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (modeloId && !UUID_RE.test(modeloId)) { msg.statusCode=400; msg.payload={error:'modelo_id invalido'}; return msg; }\nlet page = parseInt(q.page || '1', 10); if (!Number.isFinite(page) || page < 1) page = 1;\nlet limit = parseInt(q.limit || '50', 10); if (!Number.isFinite(limit) || limit < 1 || limit > 200) limit = 50;\nconst offset = (page - 1) * limit;\n\nconst where = [];\nconst params = [];\nif (status) { params.push(status); where.push('d.status = $' + params.length); }\nif (modeloId) { params.push(modeloId); where.push('d.modelo_id = $' + params.length); }\nconst whereSql = where.length ? ('WHERE ' + where.join(' AND ')) : '';\n\ntry {\n  const countR = await pool.query('SELECT COUNT(*)::int AS n FROM devices d ' + whereSql, params);\n  const total = countR.rows[0].n;\n\n  const limitIdx = params.length + 1;\n  const offsetIdx = params.length + 2;\n  params.push(limit);\n  params.push(offset);\n  const selectSql = 'SELECT d.id, d.device_id AS serial, d.status, d.sequencial, d.provisionado_em, d.claimed_em, d.user_id AS owner_id, d.nome_amigavel AS nome, d.is_online, d.last_seen, d.telemetry_interval_s, d.burst_rate_s, d.modelo_id, m.nome AS modelo_nome, m.prefixo, m.major_version, u.email AS owner_email, u.full_name AS owner_nome FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id LEFT JOIN app_users u ON u.id = d.user_id ' + whereSql + ' ORDER BY d.provisionado_em DESC NULLS LAST, d.created_at DESC LIMIT $' + limitIdx + ' OFFSET $' + offsetIdx;\n  const r = await pool.query(selectSql, params);\n\n  msg.statusCode = 200;\n  msg.payload = {\n    produtos: r.rows,\n    paginacao: { page: page, limit: limit, total: total, pages: Math.ceil(total / limit) }\n  };\n} catch(e) {\n  node.error('list produtos: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 700,
+        "y": 2900,
+        "wires": [
+            [
+                "respListProdutos"
+            ]
+        ]
+    },
+    {
+        "id": "respListProdutos",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 2900,
+        "wires": []
+    },
+    {
+        "id": "httpGetProduto",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "GET /admin/produtos/:id",
+        "url": "/admin/produtos/:id",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 3000,
+        "wires": [
+            [
+                "fnAuthGetProduto"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthGetProduto",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 3000,
+        "wires": [
+            [
+                "fnGetProduto"
+            ],
+            [
+                "respGetProduto"
+            ]
+        ]
+    },
+    {
+        "id": "fnGetProduto",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Get produto",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nif (!msg.user || msg.user.role !== 'admin') {\n  msg.statusCode=403; msg.payload={error:'apenas admin'}; return msg;\n}\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return msg; }\n\ntry {\n  const selectSql = 'SELECT d.id, d.device_id AS serial, d.status, d.sequencial, d.provisionado_em, d.claimed_em, d.user_id AS owner_id, d.nome_amigavel AS nome, d.is_online, d.last_seen, d.telemetry_interval_s, d.burst_rate_s, d.modelo_id, m.nome AS modelo_nome, m.prefixo, m.major_version, u.email AS owner_email, u.full_name AS owner_nome, d.claim_token, d.pairing_code FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id LEFT JOIN app_users u ON u.id = d.user_id WHERE d.id=$1 LIMIT 1';\n  const r = await pool.query(selectSql, [id]);\n  if (r.rowCount === 0) { msg.statusCode=404; msg.payload={error:'produto nao encontrado'}; return msg; }\n  const row = r.rows[0];\n  const baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\n  if (row.claim_token) {\n    row.claim_url = baseUrl + '/claim?serial=' + encodeURIComponent(row.serial) + '&token=' + encodeURIComponent(row.claim_token);\n  }\n  msg.statusCode = 200;\n  msg.payload = { produto: row };\n} catch(e) {\n  node.error('get produto: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 700,
+        "y": 3000,
+        "wires": [
+            [
+                "respGetProduto"
+            ]
+        ]
+    },
+    {
+        "id": "respGetProduto",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 3000,
+        "wires": []
+    },
+    {
+        "id": "httpClaim",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /dispositivos/claim",
+        "url": "/dispositivos/claim",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 3100,
+        "wires": [
+            [
+                "fnAuthClaim"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthClaim",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 3100,
+        "wires": [
+            [
+                "fnClaim"
+            ],
+            [
+                "respClaim"
+            ]
+        ]
+    },
+    {
+        "id": "fnClaim",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Claim produto",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\n\nconst body = msg.payload || {};\nconst token = body.claim_token ? String(body.claim_token).trim() : '';\nconst serial = body.serial ? String(body.serial).trim() : '';\nconst pairing = body.pairing_code ? String(body.pairing_code).trim().toUpperCase() : '';\n\nif (!token && !(serial && pairing)) {\n  msg.statusCode=400; msg.payload={error:'informe claim_token ou (serial + pairing_code)'}; return msg;\n}\n\ntry {\n  let sel;\n  if (token) {\n    sel = await pool.query(\n      'SELECT id, device_id, status FROM devices WHERE claim_token = $1 LIMIT 1',\n      [token]\n    );\n  } else {\n    sel = await pool.query(\n      'SELECT id, device_id, status FROM devices WHERE device_id = $1 AND pairing_code = $2 LIMIT 1',\n      [serial, pairing]\n    );\n  }\n  if (sel.rowCount === 0) {\n    msg.statusCode=404; msg.payload={error:'dispositivo nao encontrado ou codigo invalido'}; return msg;\n  }\n  const cur = sel.rows[0];\n  if (cur.status !== 'ocioso') {\n    msg.statusCode=409; msg.payload={error:'dispositivo ja foi reivindicado'}; return msg;\n  }\n\n  const upd = await pool.query(\n    \"UPDATE devices SET status='associado', user_id=$1, claimed_em=NOW(), claim_token=NULL, pairing_code=NULL WHERE id=$2 AND status='ocioso' RETURNING id\",\n    [msg.user.id, cur.id]\n  );\n  if (upd.rowCount === 0) {\n    msg.statusCode=409; msg.payload={error:'estado mudou durante o claim, tente novamente'}; return msg;\n  }\n\n  const selectSql = 'SELECT d.id, d.device_id AS serial, d.status, d.sequencial, d.provisionado_em, d.claimed_em, d.user_id AS owner_id, d.nome_amigavel AS nome, d.is_online, d.last_seen, d.telemetry_interval_s, d.burst_rate_s, d.modelo_id, m.nome AS modelo_nome, m.prefixo, m.major_version, u.email AS owner_email, u.full_name AS owner_nome FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id LEFT JOIN app_users u ON u.id = d.user_id WHERE d.id=$1 LIMIT 1';\n  const r = await pool.query(selectSql, [cur.id]);\n  msg.statusCode = 200;\n  msg.payload = { dispositivo: r.rows[0] };\n} catch(e) {\n  node.error('claim: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal'};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [],
+        "x": 700,
+        "y": 3100,
+        "wires": [
+            [
+                "respClaim"
+            ]
+        ]
+    },
+    {
+        "id": "respClaim",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 3100,
+        "wires": []
+    },
+    {
+        "id": "httpResetProduto",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /admin/produtos/:id/reset",
+        "url": "/admin/produtos/:id/reset",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 3200,
+        "wires": [
+            [
+                "fnAuthResetProduto"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthResetProduto",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 3200,
+        "wires": [
+            [
+                "fnResetProduto"
+            ],
+            [
+                "respResetProduto"
+            ]
+        ]
+    },
+    {
+        "id": "fnResetProduto",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Reset produto",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return msg; }\nif (!msg.user || msg.user.role !== 'admin') {\n  msg.statusCode=403; msg.payload={error:'apenas admin'}; return msg;\n}\nconst id = msg.req.params.id;\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!UUID_RE.test(id)) { msg.statusCode=400; msg.payload={error:'id invalido'}; return msg; }\n\nconst PAIRING_ALPHABET = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';\nfunction pairing(len) {\n  const buf = crypto.randomBytes(len);\n  let s = '';\n  for (let i = 0; i < len; i++) s += PAIRING_ALPHABET[buf[i] % PAIRING_ALPHABET.length];\n  return s;\n}\n\ntry {\n  const cur = await pool.query('SELECT id, device_id, status FROM devices WHERE id=$1 LIMIT 1', [id]);\n  if (cur.rowCount === 0) { msg.statusCode=404; msg.payload={error:'produto nao encontrado'}; return msg; }\n\n  try {\n    await pool.query(\n      \"UPDATE dispositivo_compartilhado SET status='revogado', revogado_em=NOW(), token_convite=NULL WHERE dispositivo_id=$1 AND status<>'revogado'\",\n      [id]\n    );\n  } catch(e) { node.warn('reset: revoke shares failed: '+e.message); }\n\n  let claimToken, pairingCode, ok = false;\n  for (let attempt = 0; attempt < 5 && !ok; attempt++) {\n    claimToken = crypto.randomBytes(24).toString('base64url');\n    pairingCode = pairing(6);\n    try {\n      await pool.query(\n        \"UPDATE devices SET status='ocioso', user_id=NULL, claimed_em=NULL, claim_token=$1, pairing_code=$2 WHERE id=$3\",\n        [claimToken, pairingCode, id]\n      );\n      ok = true;\n    } catch(e) {\n      if (!(/unique|duplicate/i.test(e.message) || e.code === '23505')) { throw e; }\n    }\n  }\n  if (!ok) { msg.statusCode=500; msg.payload={error:'nao foi possivel alocar token/pairing unicos'}; return msg; }\n\n  const selectSql = 'SELECT d.id, d.device_id AS serial, d.status, d.sequencial, d.provisionado_em, d.claimed_em, d.user_id AS owner_id, d.nome_amigavel AS nome, d.is_online, d.last_seen, d.telemetry_interval_s, d.burst_rate_s, d.modelo_id, m.nome AS modelo_nome, m.prefixo, m.major_version, u.email AS owner_email, u.full_name AS owner_nome, d.claim_token, d.pairing_code FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id LEFT JOIN app_users u ON u.id = d.user_id WHERE d.id=$1 LIMIT 1';\n  const r = await pool.query(selectSql, [id]);\n  const row = r.rows[0];\n  const baseUrl = global.get('mailBaseUrl') || env.get('MAIL_BASE_URL') || 'https://hub.xtconect.online';\n  row.claim_url = baseUrl + '/claim?serial=' + encodeURIComponent(row.serial) + '&token=' + encodeURIComponent(row.claim_token);\n\n  msg.statusCode = 200;\n  msg.payload = { produto: row };\n} catch(e) {\n  node.error('reset produto: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal: '+e.message};\n}\nreturn msg;",
+        "outputs": 1,
+        "libs": [
+            {
+                "var": "crypto",
+                "module": "crypto"
+            }
+        ],
+        "x": 700,
+        "y": 3200,
+        "wires": [
+            [
+                "respResetProduto"
+            ]
+        ]
+    },
+    {
+        "id": "respResetProduto",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 3200,
         "wires": []
     }
 ]
