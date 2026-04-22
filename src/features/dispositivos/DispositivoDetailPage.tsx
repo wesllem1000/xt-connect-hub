@@ -6,10 +6,13 @@ import {
   Cpu,
   Eye,
   Lock,
+  Pencil,
   Radio,
   Clock,
+  Check,
   Loader2,
   UserPlus,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -26,6 +29,7 @@ import {
 import {
   listDispositivos,
   setDispositivoRate,
+  updateDispositivoApelido,
   type Dispositivo,
 } from '@/api/dispositivos'
 import { listReadings, type Reading } from '@/api/readings'
@@ -277,7 +281,12 @@ export function DispositivoDetailPage() {
           </Button>
           <div className="flex items-center gap-3 flex-wrap">
             <Cpu className="h-6 w-6 text-primary" />
-            <h2 className="text-2xl font-bold tracking-tight">{dispositivo!.nome}</h2>
+            <DeviceTitle
+              id={id!}
+              apelido={dispositivo!.apelido}
+              serial={dispositivo!.serial}
+              canEdit={isOwner}
+            />
             <Badge variant={isOnline ? 'default' : 'outline'} className={isOnline ? 'bg-green-600 hover:bg-green-600' : 'text-muted-foreground'}>
               <Radio className="h-3 w-3 mr-1" />
               {isOnline ? 'Online' : 'Offline'}
@@ -308,7 +317,9 @@ export function DispositivoDetailPage() {
               </Badge>
             )}
           </div>
-          <p className="font-mono text-xs text-muted-foreground">serial: {dispositivo!.serial}</p>
+          {dispositivo!.apelido && (
+            <p className="font-mono text-xs text-muted-foreground">serial: {dispositivo!.serial}</p>
+          )}
         </div>
         <div className="flex items-center justify-between sm:flex-col sm:items-end sm:justify-normal gap-2 sm:gap-2">
           {isOwner && (
@@ -523,5 +534,131 @@ function RateConfigCard({
         </p>
       </CardContent>
     </Card>
+  )
+}
+
+const APELIDO_MAX = 80
+
+function DeviceTitle({
+  id,
+  apelido,
+  serial,
+  canEdit,
+}: {
+  id: string
+  apelido: string | null
+  serial: string
+  canEdit: boolean
+}) {
+  const qc = useQueryClient()
+  const [editing, setEditing] = useState(false)
+  const [value, setValue] = useState(apelido ?? '')
+
+  useEffect(() => {
+    setValue(apelido ?? '')
+  }, [apelido])
+
+  const mutation = useMutation({
+    mutationFn: (next: string | null) => updateDispositivoApelido(id, next),
+    onSuccess: () => {
+      toast.success('Apelido atualizado.')
+      qc.invalidateQueries({ queryKey: ['dispositivos'] })
+      setEditing(false)
+    },
+    onError: async (err) => {
+      const msg = await extractApiError(err, 'Falha ao renomear.')
+      toast.error(msg)
+    },
+  })
+
+  const trimmed = value.trim()
+  const tooLong = trimmed.length > APELIDO_MAX
+
+  function handleSave() {
+    if (tooLong) return
+    const next = trimmed.length > 0 ? trimmed : null
+    if ((next ?? null) === (apelido ?? null)) {
+      setEditing(false)
+      return
+    }
+    mutation.mutate(next)
+  }
+
+  if (!editing) {
+    return (
+      <div className="flex items-center gap-2 flex-wrap min-w-0">
+        <h2 className="text-2xl font-bold tracking-tight truncate max-w-[min(100%,20rem)]">
+          {apelido || serial}
+        </h2>
+        {canEdit && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0"
+            onClick={() => {
+              setValue(apelido ?? '')
+              setEditing(true)
+            }}
+            aria-label="Editar apelido"
+            title="Editar apelido"
+          >
+            <Pencil className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <Input
+        autoFocus
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault()
+            handleSave()
+          } else if (e.key === 'Escape') {
+            e.preventDefault()
+            setEditing(false)
+            setValue(apelido ?? '')
+          }
+        }}
+        maxLength={APELIDO_MAX}
+        placeholder={serial}
+        className="h-9 w-full max-w-xs"
+        aria-invalid={tooLong || undefined}
+        disabled={mutation.isPending}
+      />
+      <div className="flex gap-1">
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-9 w-9"
+          onClick={() => {
+            setEditing(false)
+            setValue(apelido ?? '')
+          }}
+          disabled={mutation.isPending}
+          aria-label="Cancelar"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+        <Button
+          size="icon"
+          className="h-9 w-9"
+          onClick={handleSave}
+          disabled={mutation.isPending || tooLong}
+          aria-label="Salvar apelido"
+        >
+          {mutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Check className="h-4 w-4" />
+          )}
+        </Button>
+      </div>
+    </div>
   )
 }

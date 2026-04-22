@@ -1,20 +1,11 @@
-import { useState } from 'react'
-import {
-  Link,
-  Navigate,
-  useNavigate,
-  useSearchParams,
-} from 'react-router-dom'
-import { Check, Loader2 } from 'lucide-react'
-import { toast } from 'sonner'
-
-import { Button } from '@/components/ui/button'
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom'
 import { Skeleton } from '@/components/ui/skeleton'
 import { HTTPError } from 'ky'
+import { toast } from 'sonner'
 
 import { useAuthStore } from '@/stores/auth'
+import { ClaimConfirmationCard } from '../components/ClaimConfirmationCard'
 import { ClaimErrorState } from '../components/ClaimErrorState'
-import { ClaimPreviewCard } from '../components/ClaimPreviewCard'
 import { friendlyClaimError, useClaim, usePreviewClaim } from '../hooks'
 
 function sanitizeQueryForNext(sp: URLSearchParams): string {
@@ -32,7 +23,6 @@ function sanitizeQueryForNext(sp: URLSearchParams): string {
 export function ClaimLandingPage() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
-  const [errMsg, setErrMsg] = useState<string | null>(null)
 
   const isAuthed = useAuthStore((s) =>
     Boolean(s.user && (s.accessToken || s.refreshToken)),
@@ -59,26 +49,35 @@ export function ClaimLandingPage() {
 
   if (!hasAnyParam) {
     return (
-      <ClaimErrorState
-        title="Link incompleto"
-        description="Esse link não tem código de pareamento. Peça um novo link ou use a tela de adicionar dispositivo."
-      />
+      <div className="min-h-screen flex items-center justify-center bg-muted p-4">
+        <ClaimErrorState
+          title="Link incompleto"
+          description="Esse link não tem código de pareamento. Peça um novo link ou use a tela de adicionar dispositivo."
+        />
+      </div>
     )
   }
 
-  async function handleConfirm() {
-    setErrMsg(null)
+  async function handleConfirm(apelido: string | null) {
     try {
       const res = await claim.mutateAsync(
         token
-          ? { claim_token: token }
-          : { serial: serial!, pairing_code: pairing! },
+          ? { claim_token: token, apelido }
+          : { serial: serial!, pairing_code: pairing!, apelido },
       )
-      toast.success('Dispositivo adicionado.')
+      const displayName =
+        res.dispositivo.apelido ||
+        res.dispositivo.serial ||
+        'Dispositivo adicionado'
+      toast.success(`${displayName} adicionado.`)
       navigate(`/dispositivos/${res.dispositivo.id}`, { replace: true })
     } catch (e) {
-      setErrMsg(friendlyClaimError(e))
+      toast.error(friendlyClaimError(e))
     }
+  }
+
+  function handleCancel() {
+    navigate('/dispositivos', { replace: true })
   }
 
   return (
@@ -91,7 +90,7 @@ export function ClaimLandingPage() {
           </p>
         </div>
 
-        {preview.isPending && <Skeleton className="h-32 w-full" />}
+        {preview.isPending && <Skeleton className="h-40 w-full" />}
 
         {preview.isError && (
           <ClaimErrorState
@@ -101,36 +100,12 @@ export function ClaimLandingPage() {
         )}
 
         {preview.isSuccess && (
-          <>
-            <ClaimPreviewCard preview={preview.data} />
-
-            {errMsg && (
-              <div
-                className="rounded-md border border-destructive/50 bg-destructive/5 px-3 py-2 text-sm text-destructive"
-                role="alert"
-              >
-                {errMsg}
-              </div>
-            )}
-
-            <div className="flex flex-col-reverse sm:flex-row gap-2">
-              <Button variant="ghost" asChild className="sm:w-auto w-full">
-                <Link to="/dispositivos">Cancelar</Link>
-              </Button>
-              <Button
-                onClick={handleConfirm}
-                disabled={claim.isPending}
-                className="sm:flex-1 w-full h-11"
-              >
-                {claim.isPending ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Check className="h-4 w-4 mr-2" />
-                )}
-                Confirmar
-              </Button>
-            </div>
-          </>
+          <ClaimConfirmationCard
+            preview={preview.data}
+            onConfirm={handleConfirm}
+            onCancel={handleCancel}
+            loading={claim.isPending}
+          />
         )}
       </div>
     </div>

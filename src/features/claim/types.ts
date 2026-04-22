@@ -1,10 +1,12 @@
 export type ClaimSerialInput = {
   serial: string
   pairing_code: string
+  apelido?: string | null
 }
 
 export type ClaimTokenInput = {
   claim_token: string
+  apelido?: string | null
 }
 
 export type ClaimInput = ClaimSerialInput | ClaimTokenInput
@@ -16,6 +18,7 @@ export type ClaimedDispositivo = {
   modelo_nome: string | null
   owner_email: string | null
   nome?: string | null
+  apelido?: string | null
 }
 
 export type ClaimResponse = {

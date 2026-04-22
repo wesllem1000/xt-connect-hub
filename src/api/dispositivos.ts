@@ -6,6 +6,8 @@ export type SharePermissao = 'leitura' | 'controle'
 export type Dispositivo = {
   id: string
   nome: string
+  /** Apelido dado pelo owner; NULL = UI mostra serial. (E3.5) */
+  apelido: string | null
   serial: string
   modelo: string | null
   ultimo_valor: string | null
@@ -36,6 +38,20 @@ export async function listDispositivos(): Promise<Dispositivo[]> {
 
 export async function deleteDispositivo(id: string): Promise<void> {
   await api.delete(`dispositivos/${id}`).json<{ ok: true }>()
+}
+
+export type DispositivoUpdate = { apelido: string | null }
+
+export async function updateDispositivoApelido(
+  id: string,
+  apelido: string | null,
+): Promise<{ id: string; serial: string; apelido: string | null }> {
+  const { dispositivo } = await api
+    .patch(`dispositivos/${id}`, { json: { apelido } satisfies DispositivoUpdate })
+    .json<{
+      dispositivo: { id: string; serial: string; apelido: string | null }
+    }>()
+  return dispositivo
 }
 
 export async function setDispositivoRate(
