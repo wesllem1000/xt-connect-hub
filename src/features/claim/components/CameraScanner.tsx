@@ -15,6 +15,7 @@ const READER_ID = 'xt-qr-reader'
 
 export function CameraScanner({ active, onScan, onError }: Props) {
   const scannerRef = useRef<import('html5-qrcode').Html5Qrcode | null>(null)
+  const modRef = useRef<typeof import('html5-qrcode') | null>(null)
   const [state, setState] = useState<'idle' | 'starting' | 'running' | 'error'>(
     'idle',
   )
@@ -36,6 +37,7 @@ export function CameraScanner({ active, onScan, onError }: Props) {
       setErrMsg(null)
       try {
         const mod = await import('html5-qrcode')
+        modRef.current = mod
         if (cancelled) return
         const Html5Qrcode = mod.Html5Qrcode
         const scanner = new Html5Qrcode(READER_ID, { verbose: false })
@@ -66,8 +68,7 @@ export function CameraScanner({ active, onScan, onError }: Props) {
           },
         )
         if (cancelled) {
-          await scanner.stop().catch(() => {})
-          try { scanner.clear() } catch { /* ignore */ }
+          // Cleanup vai rodar em seguida; deixa stop/clear centralizados lá.
           return
         }
 
@@ -96,14 +97,27 @@ export function CameraScanner({ active, onScan, onError }: Props) {
     return () => {
       cancelled = true
       const s = scannerRef.current
+      const mod = modRef.current
       scannerRef.current = null
-      if (s) {
-        s.stop()
-          .catch(() => {})
-          .finally(() => {
-            try { s.clear() } catch { /* ignore */ }
+      if (!s) return
+      // Só chama stop() se o scanner realmente chegou a rodar; caso contrário
+      // html5-qrcode lança "Cannot stop, scanner is not running or paused".
+      try {
+        const getState = (s as unknown as { getState?: () => number }).getState
+        const currentState = typeof getState === 'function' ? getState.call(s) : undefined
+        const States = mod?.Html5QrcodeScannerState
+        const isStoppable =
+          States !== undefined &&
+          (currentState === States.SCANNING || currentState === States.PAUSED)
+        if (isStoppable) {
+          s.stop().catch(() => {
+            /* engole: estado pode ter mudado entre check e stop */
           })
+        }
+      } catch {
+        /* ignore */
       }
+      try { s.clear() } catch { /* ignore */ }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, facingMode])
