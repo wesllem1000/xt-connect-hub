@@ -111,6 +111,19 @@ export async function revokeShare(
     .json<{ ok: true; id: string }>()
 }
 
+export async function updateSharePermissao(
+  dispositivoId: string,
+  shareId: string,
+  permissao: SharePermissao,
+): Promise<Compartilhamento> {
+  const { compartilhamento } = await api
+    .patch(`dispositivos/${dispositivoId}/compartilhamentos/${shareId}`, {
+      json: { permissao },
+    })
+    .json<{ compartilhamento: Compartilhamento }>()
+  return compartilhamento
+}
+
 export async function inbox(): Promise<InboxResponse> {
   return api.get('compartilhamentos/inbox').json<InboxResponse>()
 }

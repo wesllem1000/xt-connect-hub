@@ -10,6 +10,7 @@ import {
   createShare,
   listShares,
   revokeShare,
+  updateSharePermissao,
   type Compartilhamento,
   type CreateShareResponse,
 } from '@/api/compartilhamentos'
@@ -80,6 +81,10 @@ export function ShareDialog({
 }: Props) {
   const qc = useQueryClient()
   const [toRevoke, setToRevoke] = useState<Compartilhamento | null>(null)
+  const [editing, setEditing] = useState<{
+    shareId: string
+    permissao: SharePermissao
+  } | null>(null)
 
   const sharesQuery = useQuery({
     queryKey: ['shares', dispositivoId],
@@ -93,7 +98,11 @@ export function ShareDialog({
   })
 
   useEffect(() => {
-    if (open) form.reset({ email: '', permissao: 'leitura' })
+    if (open) {
+      form.reset({ email: '', permissao: 'leitura' })
+    } else {
+      setEditing(null)
+    }
   }, [open, form])
 
   const createMutation = useMutation<CreateShareResponse, unknown, FormValues>({
@@ -124,6 +133,21 @@ export function ShareDialog({
               : raw === 'apenas o dono pode compartilhar'
                 ? 'Apenas o dono pode compartilhar este dispositivo.'
                 : raw
+      toast.error(msg)
+    },
+  })
+
+  const updateMutation = useMutation({
+    mutationFn: (vars: { shareId: string; permissao: SharePermissao }) =>
+      updateSharePermissao(dispositivoId, vars.shareId, vars.permissao),
+    onSuccess: () => {
+      toast.success('Permissão atualizada.')
+      qc.invalidateQueries({ queryKey: ['shares', dispositivoId] })
+      qc.invalidateQueries({ queryKey: ['dispositivos'] })
+      setEditing(null)
+    },
+    onError: async (err) => {
+      const msg = await extractApiError(err, 'Erro ao atualizar permissão')
       toast.error(msg)
     },
   })
@@ -247,45 +271,137 @@ export function ShareDialog({
               </p>
             )}
             {sharesQuery.isSuccess &&
-              ativos.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center gap-3 rounded-md border px-3 py-2"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{s.email_convidado}</p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <Badge
-                        variant="outline"
-                        className="text-xs h-5 gap-1 px-1.5"
+              ativos.map((s) => {
+                const editable = s.status === 'ativo'
+                const isEditing = editing?.shareId === s.id
+                return (
+                  <div key={s.id} className="space-y-2">
+                    <div className="flex items-center gap-3 rounded-md border px-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">
+                          {s.email_convidado}
+                        </p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {editable ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setEditing(
+                                  isEditing
+                                    ? null
+                                    : { shareId: s.id, permissao: s.permissao },
+                                )
+                              }
+                              aria-label={`Editar permissão de ${s.email_convidado}`}
+                              aria-expanded={isEditing}
+                              className="rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                              <Badge
+                                variant="outline"
+                                className="text-xs h-5 gap-1 px-1.5 cursor-pointer hover:bg-muted"
+                              >
+                                {s.permissao === 'controle' ? (
+                                  <Sliders className="h-3 w-3" />
+                                ) : (
+                                  <Eye className="h-3 w-3" />
+                                )}
+                                {permLabel[s.permissao]}
+                              </Badge>
+                            </button>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="text-xs h-5 gap-1 px-1.5"
+                            >
+                              {s.permissao === 'controle' ? (
+                                <Sliders className="h-3 w-3" />
+                              ) : (
+                                <Eye className="h-3 w-3" />
+                              )}
+                              {permLabel[s.permissao]}
+                            </Badge>
+                          )}
+                          <Badge
+                            variant={s.status === 'ativo' ? 'default' : 'secondary'}
+                            className={`text-xs h-5 px-1.5 ${s.status === 'ativo' ? 'bg-emerald-600 hover:bg-emerald-600' : ''}`}
+                          >
+                            {statusLabel[s.status]}
+                          </Badge>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-destructive hover:text-destructive"
+                        onClick={() => setToRevoke(s)}
+                        aria-label={`Revogar acesso de ${s.email_convidado}`}
+                        disabled={revokeMutation.isPending}
                       >
-                        {s.permissao === 'controle' ? (
-                          <Sliders className="h-3 w-3" />
-                        ) : (
-                          <Eye className="h-3 w-3" />
-                        )}
-                        {permLabel[s.permissao]}
-                      </Badge>
-                      <Badge
-                        variant={s.status === 'ativo' ? 'default' : 'secondary'}
-                        className={`text-xs h-5 px-1.5 ${s.status === 'ativo' ? 'bg-emerald-600 hover:bg-emerald-600' : ''}`}
-                      >
-                        {statusLabel[s.status]}
-                      </Badge>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
+
+                    {isEditing && (
+                      <div className="ml-3 rounded-md border bg-muted/30 p-3 space-y-3">
+                        <p className="text-xs font-medium text-muted-foreground">
+                          Alterar permissão
+                        </p>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          <PermCard
+                            selected={editing.permissao === 'leitura'}
+                            onSelect={() =>
+                              setEditing({ ...editing, permissao: 'leitura' })
+                            }
+                            icon={<Eye className="h-4 w-4" />}
+                            title="Só visualizar"
+                            desc="Ver dashboard, status e gráficos"
+                          />
+                          <PermCard
+                            selected={editing.permissao === 'controle'}
+                            onSelect={() =>
+                              setEditing({ ...editing, permissao: 'controle' })
+                            }
+                            icon={<Sliders className="h-4 w-4" />}
+                            title="Visualizar e comandar"
+                            desc="Acima + ajustar taxa e disparar burst"
+                          />
+                        </div>
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setEditing(null)}
+                            disabled={updateMutation.isPending}
+                          >
+                            Cancelar
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={() => {
+                              if (editing.permissao === s.permissao) {
+                                setEditing(null)
+                                return
+                              }
+                              updateMutation.mutate({
+                                shareId: s.id,
+                                permissao: editing.permissao,
+                              })
+                            }}
+                            disabled={updateMutation.isPending}
+                          >
+                            {updateMutation.isPending && (
+                              <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+                            )}
+                            Salvar
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive hover:text-destructive"
-                    onClick={() => setToRevoke(s)}
-                    aria-label={`Revogar acesso de ${s.email_convidado}`}
-                    disabled={revokeMutation.isPending}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
+                )
+              })}
           </div>
         </DialogContent>
       </Dialog>
