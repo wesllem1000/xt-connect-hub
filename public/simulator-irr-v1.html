@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IRR-V1 Simulator</title>
+<style>
+  :root {
+    --bg: #0f172a; --panel: #1e293b; --border: #334155;
+    --text: #f1f5f9; --muted: #94a3b8; --accent: #10b981;
+    --warn: #f59e0b; --err: #ef4444; --ok: #22c55e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg); color: var(--text); margin: 0; padding: 16px;
+    font-size: 14px; line-height: 1.5;
+  }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin: 16px 0 8px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+  input, select, button, textarea { font: inherit; }
+  input, select, textarea { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; width: 100%; }
+  textarea { font-family: ui-monospace, monospace; font-size: 12px; min-height: 100px; }
+  button { background: var(--accent); color: #052e16; border: 0; border-radius: 4px; padding: 8px 14px; font-weight: 600; cursor: pointer; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.danger { background: var(--err); color: white; }
+  button.warn { background: var(--warn); color: #451a03; }
+  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 150px; }
+  .stat { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+  .stat.ok { background: var(--ok); color: #052e16; }
+  .stat.err { background: var(--err); color: white; }
+  .stat.warn { background: var(--warn); color: #451a03; }
+  .stat.off { background: var(--muted); color: var(--bg); }
+  .log { background: #020617; border: 1px solid var(--border); border-radius: 4px; padding: 8px; font-family: ui-monospace, monospace; font-size: 11px; max-height: 300px; overflow-y: auto; margin-top: 8px; }
+  .log .tx { color: #38bdf8; }
+  .log .rx { color: #a78bfa; }
+  .log .err { color: var(--err); }
+  .log .info { color: var(--muted); }
+  .sector-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; }
+  .sector { border: 1px solid var(--border); border-radius: 4px; padding: 6px; font-size: 11px; }
+  .sector.open { background: rgba(34,197,94,.15); border-color: var(--ok); }
+  .sector.closed { background: rgba(148,163,184,.1); }
+  .sector.opening, .sector.closing, .sector.paused { background: rgba(245,158,11,.15); border-color: var(--warn); }
+  .cmd-row { display: flex; justify-content: space-between; gap: 8px; padding: 6px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .cmd-row:last-child { border-bottom: 0; }
+  .cmd-row .actions { display: flex; gap: 4px; }
+  .cmd-row button { padding: 4px 8px; font-size: 11px; font-weight: normal; }
+</style>
+</head>
+<body>
+
+<h1>🌱 IRR-V1 Simulator <span id="conn-status" class="stat off">offline</span></h1>
+
+<div class="panel">
+  <h2>Conexão MQTT WSS</h2>
+  <div class="row">
+    <div><label>Broker URL</label><input id="url" value="wss://hub.xtconect.online:8884/" /></div>
+    <div><label>Username (serial)</label><input id="user" value="IRR-V1-00006" /></div>
+    <div><label>Password</label><input id="pass" type="password" /></div>
+  </div>
+  <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
+    <button id="btn-connect">Conectar</button>
+    <button id="btn-disconnect" class="ghost" disabled>Desconectar (LWT)</button>
+    <span id="conn-detail" style="color:var(--muted); font-size:12px;"></span>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Bomba</h2>
+  <div class="row">
+    <div>
+      <label>Estado</label>
+      <select id="pump-state">
+        <option value="off">off</option>
+        <option value="starting">starting</option>
+        <option value="on">on</option>
+        <option value="stopping">stopping</option>
+      </select>
+    </div>
+    <div>
+      <label>Source</label>
+      <select id="pump-source">
+        <option value="">(null)</option>
+        <option>manual_local</option>
+        <option>manual_remote</option>
+        <option>automatic</option>
+        <option>physical_button</option>
+      </select>
+    </div>
+    <div>
+      <label>Scheduled off in (s)</label>
+      <input id="pump-off-in" type="number" placeholder="deixa vazio" />
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Setores (1–8)</h2>
+  <div class="sector-grid" id="sectors"></div>
+</div>
+
+<div class="panel">
+  <h2>Indicators</h2>
+  <div class="row">
+    <label><input type="checkbox" id="ind-wifi" checked> wifi</label>
+    <label><input type="checkbox" id="ind-mqtt" checked> mqtt</label>
+    <label><input type="checkbox" id="ind-time" checked> time_valid</label>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Publish</h2>
+  <div class="row">
+    <button id="btn-pub-state">Publish state (retained)</button>
+    <button id="btn-pub-online" class="ghost">Publish status: online (retained)</button>
+    <button id="btn-pub-offline" class="warn">Publish status: offline (retained)</button>
+  </div>
+  <h2 style="margin-top:12px;">Eventos</h2>
+  <div class="row">
+    <select id="event-type">
+      <option>pump_on_manual</option><option>pump_off_manual</option><option>pump_on_auto</option>
+      <option>pump_off_auto_end</option><option>pump_off_safety</option>
+      <option>sector_opened</option><option>sector_closed</option>
+      <option>safe_closure_started</option><option>safe_closure_completed</option>
+      <option>temp_alarm_triggered</option><option>temp_sensor_lost</option>
+      <option>physical_button_pressed</option><option>auto_shutoff_max_time</option>
+      <option>wifi_connected</option><option>wifi_disconnected</option>
+      <option>mqtt_connected</option><option>mqtt_disconnected</option>
+      <option>time_synced</option><option>time_invalid</option>
+    </select>
+    <button id="btn-pub-event">Publish event (QoS 1)</button>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Comandos recebidos</h2>
+  <div id="cmds"></div>
+  <p style="color:var(--muted); font-size:11px; margin:8px 0 0;">Subscribe <code>devices/&lt;serial&gt;/commands</code> — auto-acceita em 2s se nada for clicado.</p>
+</div>
+
+<div class="panel">
+  <h2>Log</h2>
+  <div id="log" class="log"></div>
+</div>
+
+<script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script>
+(() => {
+  const el = (id) => document.getElementById(id);
+  const log = (msg, cls = 'info') => {
+    const l = el('log');
+    const t = new Date().toISOString().slice(11, 19);
+    l.innerHTML = `<div class="${cls}">[${t}] ${msg}</div>` + l.innerHTML;
+  };
+  const uuidv4 = () => {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+      const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  };
+
+  // Render 8 setores
+  const sectorsEl = el('sectors');
+  const sectorState = {};
+  for (let n = 1; n <= 8; n++) {
+    sectorState[n] = { numero: n, estado: 'closed', source: null, opened_at: null, scheduled_close_at: null };
+    const d = document.createElement('div');
+    d.className = 'sector closed';
+    d.innerHTML = `
+      <strong>S${n}</strong>
+      <select data-numero="${n}">
+        <option value="closed">closed</option>
+        <option value="opening">opening</option>
+        <option value="open">open</option>
+        <option value="closing">closing</option>
+        <option value="paused">paused</option>
+      </select>
+    `;
+    sectorsEl.appendChild(d);
+  }
+  sectorsEl.addEventListener('change', (e) => {
+    if (e.target.tagName !== 'SELECT') return;
+    const n = parseInt(e.target.dataset.numero, 10);
+    const v = e.target.value;
+    sectorState[n].estado = v;
+    if (v === 'open' && !sectorState[n].opened_at) sectorState[n].opened_at = new Date().toISOString();
+    if (v === 'closed') { sectorState[n].opened_at = null; sectorState[n].scheduled_close_at = null; }
+    e.target.parentElement.className = 'sector ' + v;
+  });
+
+  // MQTT client state
+  let client = null;
+  let serial = '';
+
+  const buildStatePayload = () => {
+    const pumpState = el('pump-state').value;
+    const pumpSource = el('pump-source').value || null;
+    let scheduledOffAt = null;
+    const offIn = parseInt(el('pump-off-in').value, 10);
+    if (pumpState === 'on' && Number.isFinite(offIn) && offIn > 0) {
+      scheduledOffAt = new Date(Date.now() + offIn * 1000).toISOString();
+    }
+    return {
+      protocol_version: 1,
+      ts: new Date().toISOString(),
+      pump: {
+        state: pumpState,
+        source: pumpSource,
+        started_at: pumpState === 'on' ? new Date().toISOString() : null,
+        scheduled_off_at: scheduledOffAt,
+      },
+      sectors: Object.values(sectorState),
+      indicators: {
+        wifi: el('ind-wifi').checked,
+        mqtt: el('ind-mqtt').checked,
+        time_valid: el('ind-time').checked,
+      },
+    };
+  };
+
+  const publishState = () => {
+    if (!client || !client.connected) { log('não conectado', 'err'); return; }
+    const payload = JSON.stringify(buildStatePayload());
+    client.publish(`devices/${serial}/state`, payload, { qos: 1, retain: true }, (err) => {
+      if (err) log('pub state err: ' + err.message, 'err');
+      else log('TX state (' + payload.length + 'B) retained', 'tx');
+    });
+  };
+
+  const publishStatus = (online) => {
+    if (!client || !client.connected) return;
+    const payload = online ? 'online' : 'offline';
+    client.publish(`devices/${serial}/status`, payload, { qos: 1, retain: true }, (err) => {
+      if (err) log('pub status err: ' + err.message, 'err');
+      else log('TX status=' + payload + ' retained', 'tx');
+    });
+  };
+
+  const publishEvent = () => {
+    if (!client || !client.connected) { log('não conectado', 'err'); return; }
+    const evt = {
+      event_uuid: uuidv4(),
+      event_type: el('event-type').value,
+      origem: 'physical_button',
+      ts: new Date().toISOString(),
+      payload: {},
+    };
+    const payload = JSON.stringify(evt);
+    client.publish(`devices/${serial}/events`, payload, { qos: 1, retain: false }, (err) => {
+      if (err) log('pub event err: ' + err.message, 'err');
+      else log('TX event ' + evt.event_type + ' ' + evt.event_uuid.slice(0, 8), 'tx');
+    });
+  };
+
+  const publishAck = (cmdId, status, reason) => {
+    if (!client || !client.connected) return;
+    const ack = { cmd_id: cmdId, status, reason, ts: new Date().toISOString() };
+    client.publish(`devices/${serial}/commands/ack`, JSON.stringify(ack), { qos: 1, retain: false }, (err) => {
+      if (err) log('pub ack err: ' + err.message, 'err');
+      else log('TX ack ' + cmdId.slice(0, 8) + ' → ' + status, 'tx');
+    });
+  };
+
+  // Comando receiver + UI
+  const cmdsEl = el('cmds');
+  const renderCmd = (cmd) => {
+    const row = document.createElement('div');
+    row.className = 'cmd-row';
+    row.innerHTML = `
+      <div>
+        <strong>${cmd.cmd}</strong> <small style="color:var(--muted)">${cmd.cmd_id.slice(0, 8)}</small>
+        <div style="color:var(--muted); font-size:11px;">params: ${JSON.stringify(cmd.params || {})}</div>
+      </div>
+      <div class="actions">
+        <button class="ok">Executed</button>
+        <button class="warn">Refused</button>
+        <button class="danger ghost">Expire</button>
+      </div>
+    `;
+    const [okBtn, refBtn, expBtn] = row.querySelectorAll('button');
+    okBtn.onclick = () => { publishAck(cmd.cmd_id, 'executed', 'ok'); row.remove(); };
+    refBtn.onclick = () => { publishAck(cmd.cmd_id, 'refused', 'simulated_refuse'); row.remove(); };
+    expBtn.onclick = () => { publishAck(cmd.cmd_id, 'expired', 'expired'); row.remove(); };
+    cmdsEl.prepend(row);
+    // Auto-ack em 2s se não clicar
+    setTimeout(() => {
+      if (row.parentElement) { publishAck(cmd.cmd_id, 'executed', 'auto_accepted'); row.remove(); }
+    }, 2000);
+  };
+
+  el('btn-connect').onclick = () => {
+    const url = el('url').value;
+    const username = el('user').value;
+    const password = el('pass').value;
+    serial = username;
+    log(`conectando… ${url} as ${username}`);
+    client = mqtt.connect(url, {
+      username, password,
+      clientId: 'xtconect-sim-' + username + '-' + Math.random().toString(36).slice(2, 8),
+      will: {
+        topic: `devices/${username}/status`,
+        payload: 'offline',
+        qos: 1, retain: true,
+      },
+      protocolVersion: 5,
+      reconnectPeriod: 0, // sem auto-reconnect, mostra disconnect explícito
+    });
+    client.on('connect', () => {
+      el('conn-status').className = 'stat ok'; el('conn-status').textContent = 'online';
+      el('conn-detail').textContent = serial;
+      el('btn-disconnect').disabled = false;
+      log('CONNACK 0', 'info');
+      client.subscribe(`devices/${username}/commands`, { qos: 1 }, (err) => {
+        if (err) log('sub commands err: ' + err.message, 'err');
+        else log('SUB devices/' + username + '/commands', 'info');
+      });
+      // Publica status online retained no connect (próprio firmware faria)
+      publishStatus(true);
+      // Publica state inicial
+      publishState();
+    });
+    client.on('message', (topic, payload) => {
+      log('RX ' + topic + ' (' + payload.length + 'B)', 'rx');
+      if (topic === `devices/${username}/commands`) {
+        try {
+          const cmd = JSON.parse(payload.toString());
+          renderCmd(cmd);
+        } catch(e) { log('cmd JSON invalido: ' + e.message, 'err'); }
+      }
+    });
+    client.on('error', (err) => log('MQTT err: ' + err.message, 'err'));
+    client.on('close', () => {
+      el('conn-status').className = 'stat off'; el('conn-status').textContent = 'offline';
+      el('btn-disconnect').disabled = true;
+      log('closed', 'info');
+    });
+  };
+  el('btn-disconnect').onclick = () => {
+    if (client) { client.end(true); client = null; }
+  };
+  el('btn-pub-state').onclick = publishState;
+  el('btn-pub-online').onclick = () => publishStatus(true);
+  el('btn-pub-offline').onclick = () => publishStatus(false);
+  el('btn-pub-event').onclick = publishEvent;
+
+  log('simulator ready. configure credenciais e clique Conectar.');
+})();
+</script>
+</body>
+</html>
