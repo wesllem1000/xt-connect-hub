@@ -93,6 +93,16 @@ Arquivo vivo. Cada entrada: contexto, onde dói, e uma ideia de como resolver qu
 
 ---
 
+## D-sim-1. (E4.2A) Simulator IRR-V1 HTML leaka client MQTT em reconexão
+
+- **Contexto**: `public/simulator-irr-v1.html` reatribui `client = mqtt.connect(...)` no `btn-connect.onclick` sem fechar o anterior. O clientId sempre novo (`+ Math.random()`) faz o broker aceitar a nova sessão sem desconectar a antiga. Runtime JS da aba segura o objeto mqtt.js antigo vivo → 2+ handlers `on('message')` disparam pra cada publish.
+- **Onde dói**: Log do simulator mostra RX e TX duplicados (observado 2026-04-23 no round-trip E4.2A, cmd_id c228094c). Broker confirmou ≥2 sessões concorrentes com mesmo username. Efeito isolado à UI dev — banco e Node-RED são íntegros.
+- **Firmware real não reproduz**: ESP32 não clica "Conectar" 2x e sempre `client.disconnect()` antes de reconnect.
+- **Como resolver**: guard em btn-connect (`if (client) client.end(true)`) + desabilitar btn-connect no `connect` + reabilitar no `close`. Patch 3 linhas, zero risco.
+- **Prioridade**: baixa — é simulator dev-only; não bloqueia merge da Fase 2A.
+
+---
+
 # Resolvidos
 
 ## #48 — dynsec role de devices não permite subscribe em `devices/<serial>/commands`
