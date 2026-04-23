@@ -3448,7 +3448,7 @@
     {
         "id": "mqttInIrrState",
         "type": "mqtt in",
-        "z": "tabAuth",
+        "z": "tabIngest",
         "name": "devices/+/state",
         "topic": "devices/+/state",
         "qos": "1",
@@ -3460,14 +3460,18 @@
             [
                 "fnHandleIrrState"
             ]
-        ]
+        ],
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0
     },
     {
         "id": "fnHandleIrrState",
         "type": "function",
-        "z": "tabAuth",
+        "z": "tabIngest",
         "name": "Upsert irrigation_device_state",
-        "func": "const pool = global.get('pgPool');\nif (!pool) return null;\nconst topic = msg.topic || '';\nconst parts = topic.split('/');\nif (parts.length !== 3 || parts[0] !== 'devices' || parts[2] !== 'state') return null;\nconst mqttUser = parts[1];\nlet stateJson = null;\ntry {\n  const raw = Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') :\n              (typeof msg.payload === 'string' ? msg.payload : JSON.stringify(msg.payload));\n  if (!raw || raw.trim() === '') return null;\n  stateJson = JSON.parse(raw);\n  if (!stateJson || typeof stateJson !== 'object') return null;\n} catch(e) { node.warn('state JSON invalido: '+e.message); return null; }\ntry {\n  await pool.query(\n    `INSERT INTO irrigation_device_state (device_id, state_json, received_at)\n       SELECT d.id, $2::jsonb, NOW() FROM devices d WHERE d.mqtt_username = $1\n     ON CONFLICT (device_id) DO UPDATE SET state_json=EXCLUDED.state_json, received_at=NOW()`,\n    [mqttUser, JSON.stringify(stateJson)]\n  );\n  node.status({fill:'green',shape:'dot',text: mqttUser+' '+new Date().toISOString().slice(11,19)});\n} catch(e) { node.error('state upsert: '+e.message); }\nreturn null;",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { node.status({fill:'yellow',shape:'ring',text:'pool warming'}); return null; }\nconst topic = msg.topic || '';\nconst parts = topic.split('/');\nif (parts.length !== 3 || parts[0] !== 'devices' || parts[2] !== 'state') return null;\nconst mqttUser = parts[1];\nlet stateJson = null;\ntry {\n  const raw = Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') :\n              (typeof msg.payload === 'string' ? msg.payload : JSON.stringify(msg.payload));\n  if (!raw || raw.trim() === '') return null;\n  stateJson = JSON.parse(raw);\n  if (!stateJson || typeof stateJson !== 'object') return null;\n} catch(e) { node.warn('state JSON invalido: '+e.message); return null; }\ntry {\n  await pool.query(\n    `INSERT INTO irrigation_device_state (device_id, state_json, received_at)\n       SELECT d.id, $2::jsonb, NOW() FROM devices d WHERE d.mqtt_username = $1\n     ON CONFLICT (device_id) DO UPDATE SET state_json=EXCLUDED.state_json, received_at=NOW()`,\n    [mqttUser, JSON.stringify(stateJson)]\n  );\n  node.status({fill:'green',shape:'dot',text: mqttUser+' '+new Date().toISOString().slice(11,19)});\n} catch(e) { node.error('state upsert: '+e.message); }\nreturn null;",
         "outputs": 1,
         "libs": [],
         "x": 500,
@@ -3479,7 +3483,7 @@
     {
         "id": "mqttInIrrEvents",
         "type": "mqtt in",
-        "z": "tabAuth",
+        "z": "tabIngest",
         "name": "devices/+/events",
         "topic": "devices/+/events",
         "qos": "1",
@@ -3491,12 +3495,16 @@
             [
                 "fnHandleIrrEvents"
             ]
-        ]
+        ],
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0
     },
     {
         "id": "fnHandleIrrEvents",
         "type": "function",
-        "z": "tabAuth",
+        "z": "tabIngest",
         "name": "INSERT irrigation_events",
         "func": "const pool = global.get('pgPool');\nif (!pool) return null;\nconst parts = (msg.topic || '').split('/');\nif (parts.length !== 3 || parts[2] !== 'events') return null;\nconst mqttUser = parts[1];\nlet ev = null;\ntry {\n  const raw = Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') :\n              (typeof msg.payload === 'string' ? msg.payload : JSON.stringify(msg.payload));\n  ev = JSON.parse(raw);\n  if (!ev || typeof ev !== 'object') return null;\n} catch(e) { node.warn('event JSON invalido: '+e.message); return null; }\nconst UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\nif (!ev.event_uuid || !UUID_RE.test(ev.event_uuid)) { node.warn('event_uuid faltando/invalido'); return null; }\nif (!ev.event_type) { node.warn('event_type faltando'); return null; }\ntry {\n  const dev = await pool.query('SELECT id FROM devices WHERE mqtt_username=$1', [mqttUser]);\n  if (dev.rowCount === 0) return null;\n  await pool.query(\n    `INSERT INTO irrigation_events\n       (device_id, event_uuid, event_type, alvo_tipo, alvo_id, origem, resultado, duracao_s, payload_json, ts)\n     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)\n     ON CONFLICT (device_id, event_uuid) DO NOTHING`,\n    [dev.rows[0].id, ev.event_uuid, ev.event_type,\n     ev.alvo_tipo || null, ev.alvo_id || null,\n     ev.origem || null, ev.resultado || null, ev.duracao_s || null,\n     JSON.stringify(ev.payload || ev.payload_json || {}),\n     ev.ts || new Date().toISOString()]\n  );\n  node.status({fill:'green',shape:'dot',text: mqttUser+'\u00b7'+ev.event_type});\n} catch(e) { node.error('event insert: '+e.message); }\nreturn null;",
         "outputs": 1,
@@ -3510,7 +3518,7 @@
     {
         "id": "mqttInIrrAck",
         "type": "mqtt in",
-        "z": "tabAuth",
+        "z": "tabIngest",
         "name": "devices/+/commands/ack",
         "topic": "devices/+/commands/ack",
         "qos": "1",
@@ -3522,12 +3530,16 @@
             [
                 "fnHandleIrrAck"
             ]
-        ]
+        ],
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0
     },
     {
         "id": "fnHandleIrrAck",
         "type": "function",
-        "z": "tabAuth",
+        "z": "tabIngest",
         "name": "UPDATE irrigation_command_log",
         "func": "const pool = global.get('pgPool');\nif (!pool) return null;\nlet ack = null;\ntry {\n  const raw = Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') :\n              (typeof msg.payload === 'string' ? msg.payload : JSON.stringify(msg.payload));\n  ack = JSON.parse(raw);\n  if (!ack || !ack.cmd_id || !ack.status) return null;\n} catch(e) { node.warn('ack JSON invalido: '+e.message); return null; }\nconst valid = ['accepted','executed','refused','expired'];\nif (!valid.includes(ack.status)) { node.warn('ack status invalido: '+ack.status); return null; }\ntry {\n  await pool.query(\n    `UPDATE irrigation_command_log\n        SET ack_status = $1, ack_reason = $2, ack_received_at = NOW(),\n            result_payload = $3\n      WHERE cmd_id = $4`,\n    [ack.status, ack.reason || null,\n     ack.result_payload ? JSON.stringify(ack.result_payload) : null,\n     ack.cmd_id]\n  );\n  node.status({fill:'green',shape:'dot',text: ack.cmd_id.slice(0,8)+' '+ack.status});\n} catch(e) { node.error('ack update: '+e.message); }\nreturn null;",
         "outputs": 1,
@@ -3977,6 +3989,132 @@
         },
         "x": 940,
         "y": 5200,
+        "wires": []
+    },
+    {
+        "id": "mqttInIrrCfgCurrent",
+        "type": "mqtt in",
+        "z": "tabIngest",
+        "name": "devices/+/config/current",
+        "topic": "devices/+/config/current",
+        "qos": "1",
+        "datatype": "auto-detect",
+        "broker": "brokerMosq",
+        "x": 200,
+        "y": 4650,
+        "wires": [
+            [
+                "fnHandleIrrCfgCurrent"
+            ]
+        ],
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0
+    },
+    {
+        "id": "fnHandleIrrCfgCurrent",
+        "type": "function",
+        "z": "tabIngest",
+        "name": "Merge current_pinout",
+        "func": "const pool = global.get('pgPool');\nif (!pool) return null;\nconst parts = (msg.topic || '').split('/');\nif (parts.length !== 4 || parts[0] !== 'devices' || parts[2] !== 'config' || parts[3] !== 'current') return null;\nconst mqttUser = parts[1];\nlet cfg = null;\ntry {\n  const raw = Buffer.isBuffer(msg.payload) ? msg.payload.toString('utf8') :\n              (typeof msg.payload === 'string' ? msg.payload : JSON.stringify(msg.payload));\n  if (!raw || raw.trim() === '') return null;\n  cfg = JSON.parse(raw);\n  if (!cfg || typeof cfg !== 'object') return null;\n} catch(e) { node.warn('config/current JSON invalido: '+e.message); return null; }\ntry {\n  // Server apenas espelha (R6). Firmware \u00e9 autoridade do pinout.\n  const r = await pool.query(\n    `UPDATE irrigation_configs\n        SET current_pinout = $2::jsonb,\n            current_pinout_received_at = NOW()\n      WHERE device_id = (SELECT id FROM devices WHERE mqtt_username = $1)`,\n    [mqttUser, JSON.stringify(cfg)]\n  );\n  if (r.rowCount > 0) {\n    node.status({fill:'green',shape:'dot',text: mqttUser+' pinout ok'});\n  } else {\n    node.status({fill:'yellow',shape:'ring',text: mqttUser+' sem config row'});\n  }\n} catch(e) { node.error('config/current merge: '+e.message); }\nreturn null;",
+        "outputs": 1,
+        "libs": [],
+        "x": 500,
+        "y": 4650,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "httpIrrFactoryReset",
+        "type": "http in",
+        "z": "tabAuth",
+        "name": "POST /dispositivos/:id/irrigacao/factory-reset",
+        "url": "/dispositivos/:id/irrigacao/factory-reset",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 200,
+        "y": 5300,
+        "wires": [
+            [
+                "fnAuthIrrFactoryReset"
+            ]
+        ]
+    },
+    {
+        "id": "fnAuthIrrFactoryReset",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "Auth JWT",
+        "func": "const auth = (msg.req.headers['authorization']||'').trim();\nconst m = auth.match(/^Bearer (.+)$/);\nif (!m) { msg.statusCode=401; msg.payload={error:'missing bearer token'}; return [null, msg]; }\ntry {\n  const secret = env.get('JWT_SECRET');\n  const decoded = jwt.verify(m[1], secret);\n  if (decoded.typ === 'refresh') { msg.statusCode=401; msg.payload={error:'refresh token cannot be used here'}; return [null, msg]; }\n  msg.user = { id: decoded.sub, email: decoded.email, role: decoded.role, name: decoded.name };\n  return [msg, null];\n} catch(e) {\n  msg.statusCode=401; msg.payload={error:'invalid token'}; return [null, msg];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "jwt",
+                "module": "jsonwebtoken"
+            }
+        ],
+        "x": 440,
+        "y": 5300,
+        "wires": [
+            [
+                "fnIrrFactoryReset"
+            ],
+            [
+                "respIrrFactoryReset"
+            ]
+        ]
+    },
+    {
+        "id": "fnIrrFactoryReset",
+        "type": "function",
+        "z": "tabAuth",
+        "name": "POST /factory-reset",
+        "func": "const pool = global.get('pgPool');\nif (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return [msg, null]; }\nasync function checkDeviceAccess(pool, deviceId, user) {\n  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;\n  if (!UUID_RE.test(deviceId)) return { err: 400, msg: 'id invalido' };\n  const isAdmin = user && user.role === 'admin';\n  const r = await pool.query(\n    `SELECT d.id, d.device_id AS serial, d.user_id AS owner_id, d.status, d.modelo_id,\n            m.prefixo, m.major_version\n       FROM devices d LEFT JOIN modelos_dispositivo m ON m.id = d.modelo_id\n      WHERE d.id = $1 LIMIT 1`, [deviceId]);\n  if (r.rowCount === 0) return { err: 404, msg: 'dispositivo nao encontrado' };\n  const dev = r.rows[0];\n  if (isAdmin) return { device: dev, access: 'admin' };\n  if (dev.owner_id === user.id) return { device: dev, access: 'owner' };\n  const s = await pool.query(\n    `SELECT permissao::text AS permissao FROM dispositivo_compartilhado\n       WHERE dispositivo_id = $1 AND com_usuario_id = $2 AND status = 'ativo' LIMIT 1`,\n    [deviceId, user.id]);\n  if (s.rowCount > 0) return { device: dev, access: 'share', permissao: s.rows[0].permissao };\n  return { err: 403, msg: 'sem acesso a este dispositivo' };\n}\ntry {\n  const chk = await checkDeviceAccess(pool, msg.req.params.id, msg.user);\n  if (chk.err) { msg.statusCode=chk.err; msg.payload={error:chk.msg}; return [msg, null]; }\n  const device = chk.device;\n  if (device.prefixo !== 'IRR' || device.major_version !== 'V1') {\n    msg.statusCode=400; msg.payload={error:'device nao e IRR-V1'}; return [msg, null];\n  }\n  // S\u00f3 owner ou admin \u2014 share operator N\u00c3O pode resetar (a\u00e7\u00e3o destrutiva)\n  if (chk.access !== 'owner' && chk.access !== 'admin') {\n    msg.statusCode=403; msg.payload={error:'factory-reset restrito ao dono'}; return [msg, null];\n  }\n  // R7: apaga config, sectors, timers, sensors; resolve alarms ativos;\n  //     preserva events (hist\u00f3rico) + devices row.\n  const client = await pool.connect();\n  try {\n    await client.query('BEGIN');\n    await client.query('DELETE FROM irrigation_timers WHERE device_id=$1', [device.id]);\n    await client.query('DELETE FROM irrigation_temperature_sensors WHERE device_id=$1', [device.id]);\n    await client.query('UPDATE irrigation_alarms SET resolved_at=NOW() WHERE device_id=$1 AND resolved_at IS NULL', [device.id]);\n    await client.query('DELETE FROM irrigation_sectors WHERE device_id=$1', [device.id]);\n    await client.query('DELETE FROM irrigation_configs WHERE device_id=$1', [device.id]);\n    // Re-provisiona defaults (R1 + R9). Idempotente.\n    await client.query('SELECT * FROM provision_irr_v1_defaults($1)', [device.id]);\n    await client.query('COMMIT');\n  } catch(e) {\n    await client.query('ROLLBACK');\n    throw e;\n  } finally { client.release(); }\n  // Comando pro firmware limpar NVS tamb\u00e9m (async \u2014 se device offline,\n  // apenas loga; pr\u00f3xima conex\u00e3o com retained do commands ser\u00e1 ignorada\n  // porque publicamos non-retained QoS 1 com expires_at curto).\n  const cmdId = crypto.randomUUID();\n  const issuedAt = new Date();\n  const expiresAt = new Date(issuedAt.getTime() + 30000);\n  await pool.query(\n    `INSERT INTO irrigation_command_log\n       (cmd_id, device_id, user_id, cmd, params, issued_at, expires_at)\n     VALUES ($1, $2, $3, 'factory_reset', '{}'::jsonb, $4, $5)`,\n    [cmdId, device.id, msg.user.id, issuedAt, expiresAt]\n  );\n  const publishMsg = {\n    topic: 'devices/' + device.serial + '/commands',\n    payload: JSON.stringify({\n      cmd_id: cmdId, protocol_version: 1,\n      cmd: 'factory_reset', params: {},\n      issued_at: issuedAt.toISOString(), expires_at: expiresAt.toISOString(),\n      origin: 'manual_app_remote', user_id: msg.user.id\n    }),\n    qos: 1, retain: false\n  };\n  msg.statusCode = 200;\n  msg.payload = { ok: true, cmd_id: cmdId, reprovisioned: true };\n  return [msg, publishMsg];\n} catch(e) {\n  node.error('factory-reset: '+e.message, msg);\n  msg.statusCode=500; msg.payload={error:'internal: '+e.message};\n  return [msg, null];\n}",
+        "outputs": 2,
+        "libs": [
+            {
+                "var": "crypto",
+                "module": "crypto"
+            }
+        ],
+        "x": 700,
+        "y": 5300,
+        "wires": [
+            [
+                "respIrrFactoryReset"
+            ],
+            [
+                "mqttOutIrrFactoryReset"
+            ]
+        ]
+    },
+    {
+        "id": "respIrrFactoryReset",
+        "type": "http response",
+        "z": "tabAuth",
+        "name": "",
+        "statusCode": "",
+        "headers": {
+            "Content-Type": "application/json"
+        },
+        "x": 940,
+        "y": 5300,
+        "wires": []
+    },
+    {
+        "id": "mqttOutIrrFactoryReset",
+        "type": "mqtt out",
+        "z": "tabAuth",
+        "name": "publish factory_reset",
+        "topic": "",
+        "qos": "1",
+        "retain": "false",
+        "broker": "brokerMosq",
+        "x": 940,
+        "y": 5360,
         "wires": []
     }
 ]

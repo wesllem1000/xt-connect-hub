@@ -128,9 +128,10 @@ flows.push({
 removeId('mqttInIrrState');
 removeId('fnHandleIrrState');
 flows.push({
-  id: 'mqttInIrrState', type: 'mqtt in', z: 'tabAuth',
+  id: 'mqttInIrrState', type: 'mqtt in', z: 'tabIngest',
   name: 'devices/+/state', topic: 'devices/+/state', qos: '1',
   datatype: 'auto-detect', broker: 'brokerMosq',
+  nl: false, rap: true, rh: 0, inputs: 0,
   x: 200, y: 4400, wires: [['fnHandleIrrState']],
 });
 flows.push({
@@ -170,9 +171,10 @@ flows.push({
 removeId('mqttInIrrEvents');
 removeId('fnHandleIrrEvents');
 flows.push({
-  id: 'mqttInIrrEvents', type: 'mqtt in', z: 'tabAuth',
+  id: 'mqttInIrrEvents', type: 'mqtt in', z: 'tabIngest',
   name: 'devices/+/events', topic: 'devices/+/events', qos: '1',
   datatype: 'auto-detect', broker: 'brokerMosq',
+  nl: false, rap: true, rh: 0, inputs: 0,
   x: 200, y: 4500, wires: [['fnHandleIrrEvents']],
 });
 flows.push({
@@ -220,9 +222,10 @@ flows.push({
 removeId('mqttInIrrAck');
 removeId('fnHandleIrrAck');
 flows.push({
-  id: 'mqttInIrrAck', type: 'mqtt in', z: 'tabAuth',
+  id: 'mqttInIrrAck', type: 'mqtt in', z: 'tabIngest',
   name: 'devices/+/commands/ack', topic: 'devices/+/commands/ack', qos: '1',
   datatype: 'auto-detect', broker: 'brokerMosq',
+  nl: false, rap: true, rh: 0, inputs: 0,
   x: 200, y: 4600, wires: [['fnHandleIrrAck']],
 });
 flows.push({
