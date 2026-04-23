@@ -294,6 +294,7 @@
   };
 
   el('btn-connect').onclick = () => {
+    if (client) { try { client.end(true); } catch(_){} client = null; }
     const url = el('url').value;
     const username = el('user').value;
     const password = el('pass').value;
@@ -311,6 +312,7 @@
       reconnectPeriod: 0, // sem auto-reconnect, mostra disconnect explícito
     });
     client.on('connect', () => {
+      el('btn-connect').disabled = true;
       el('conn-status').className = 'stat ok'; el('conn-status').textContent = 'online';
       el('conn-detail').textContent = serial;
       el('btn-disconnect').disabled = false;
@@ -335,6 +337,7 @@
     });
     client.on('error', (err) => log('MQTT err: ' + err.message, 'err'));
     client.on('close', () => {
+      el('btn-connect').disabled = false;
       el('conn-status').className = 'stat off'; el('conn-status').textContent = 'offline';
       el('btn-disconnect').disabled = true;
       log('closed', 'info');
