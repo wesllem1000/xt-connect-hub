@@ -1,7 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Settings } from 'lucide-react'
+import { ArrowLeft, Hand, Loader2, Settings, Cog } from 'lucide-react'
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -42,38 +52,52 @@ type Props = {
   nomeAmigavel?: string | null
 }
 
+type ConfirmKind =
+  | 'pump_on_without_sector'
+  | 'pump_off_with_open_sector'
+  | 'close_last_sector_with_pump_on'
+  | 'mode_auto_to_manual_with_active'
+  | 'mode_manual_to_auto_with_active'
+
+type ConfirmState = {
+  kind: ConfirmKind
+  extra?: { abertos?: number; setorNome?: string }
+  resolve: (ok: boolean) => void
+}
+
 export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
   const navigate = useNavigate()
   const query = useIrrigationSnapshot(deviceId)
-  // Serial pra subscribe MQTT — vem do snapshot; hook é no-op até termos
   const serial = query.data?.device.serial
   useDeviceStateLive(serial, deviceId)
 
-  // Mutation compartilhada para setores; rastreia localmente qual setor
-  // despachou o comando pra desabilitar só o card tocado.
   const setorCmd = useComando(deviceId)
   const [pendingSetorNumero, setPendingSetorNumero] = useState<number | null>(null)
-
-  // Mutation separada pro toggle de modo (evita state cruzado com setores).
   const modeCmd = useComando(deviceId)
 
-  // Contador local pro display HH:MM:SS atualizar sem refetch
-  const [tick, setTick] = useState(0)
+  const [, setTick] = useState(0)
   useEffect(() => {
     const i = setInterval(() => setTick((t) => t + 1), 1000)
     return () => clearInterval(i)
   }, [])
-  void tick // consome pra lint
+
+  const [confirm, setConfirm] = useState<ConfirmState | null>(null)
+
+  function askConfirm(kind: ConfirmKind, extra?: ConfirmState['extra']): Promise<boolean> {
+    return new Promise((resolve) => setConfirm({ kind, extra, resolve }))
+  }
+  function closeConfirm(ok: boolean) {
+    if (confirm) confirm.resolve(ok)
+    setConfirm(null)
+  }
 
   if (query.isPending) {
     return (
       <div className="space-y-4 max-w-5xl">
         <BackButton onClick={() => navigate('/dispositivos')} />
         <Skeleton className="h-8 w-64" />
+        <Skeleton className="h-32 w-full" />
         <Skeleton className="h-56 w-full" />
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 8 }).map((_, i) => <Skeleton key={i} className="h-24" />)}
-        </div>
       </div>
     )
   }
@@ -100,13 +124,11 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
   const pumpState: PumpState = (pump.state as PumpState) ?? 'off'
   const indicators = state?.indicators ?? {}
 
-  // Mapa setor número → estado volátil do state
   const setorEstadoMap = new Map<number, SectorEstado>()
   for (const s of state?.sectors ?? []) {
     if (typeof s.numero === 'number' && s.estado) setorEstadoMap.set(s.numero, s.estado)
   }
 
-  // Contador central da bomba
   const counterMode: 'ligada_ha' | 'desliga_em' | null =
     pumpState === 'on' && pump.scheduled_off_at
       ? 'desliga_em'
@@ -116,57 +138,69 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
   const counterSeconds = computeCounterSeconds(pumpState, pump)
 
   const setoresHabilitados = snap.sectors.filter((s) => s.habilitado)
+  const setoresAbertos = (state?.sectors ?? []).filter((s) => s.estado === 'open')
+  const bombaLigada = pumpState === 'on' || pumpState === 'stopping'
+  const algumaOperacaoAtiva = bombaLigada || setoresAbertos.length > 0
+
+  const modoOperacao: IrrigationModoOperacao = snap.config?.modo_operacao ?? 'manual'
+  const isAuto = modoOperacao === 'automatico'
+  const modoPending = modeCmd.isPending
 
   async function beforePumpOn(): Promise<boolean> {
-    if (setoresHabilitados.length === 0) {
-      return window.confirm(
-        'Todos os setores estão desligados. Deseja mesmo ligar a bomba?',
-      )
+    // Firmware recusa hard → só informa usuário. Bloqueia commando antes dele
+    // tocar no MQTT.
+    if (setoresAbertos.length === 0) {
+      await askConfirm('pump_on_without_sector')
+      return false
     }
     return true
   }
 
   async function beforePumpOff(): Promise<boolean> {
-    const abertos = (state?.sectors ?? []).filter((s) => s.estado === 'open')
-    if (abertos.length > 0) {
-      return window.confirm(
-        `Há ${abertos.length} setor(es) aberto(s). Desligar a bomba mesmo assim?`,
-      )
+    if (setoresAbertos.length > 0) {
+      return askConfirm('pump_off_with_open_sector', { abertos: setoresAbertos.length })
     }
     return true
   }
 
-  const bombaLigada = pumpState === 'on' || pumpState === 'stopping'
-
-  const modoOperacao: IrrigationModoOperacao = snap.config?.modo_operacao ?? 'manual'
-  const modoPending = modeCmd.isPending
-
-  function handleToggleMode() {
-    if (modoPending) return
-    const novo: IrrigationModoOperacao = modoOperacao === 'manual' ? 'automatico' : 'manual'
-    const label = novo === 'manual' ? 'Manual' : 'Auto'
-    if (!window.confirm(`Mudar modo de operação para ${label}?`)) return
-    modeCmd.mutate({ cmd: 'mode_set', params: { modo: novo } })
-  }
-
-  function handleSetorClick(s: IrrigationSector) {
+  async function handleSetorClick(s: IrrigationSector) {
     const estadoFw = setorEstadoMap.get(s.numero)
-    // transients do firmware bloqueiam click
     if (estadoFw === 'opening' || estadoFw === 'closing') return
     if (setorCmd.isPending) return
     const abrir = estadoFw !== 'open'
-    const acao = abrir ? 'Abrir' : 'Fechar'
-    if (!window.confirm(`${acao} setor "${s.nome}"?`)) return
+
+    // Caso (a) do plano: fechar ÚLTIMO setor com bomba ligada.
+    if (
+      !abrir &&
+      bombaLigada &&
+      setoresAbertos.length === 1 &&
+      setoresAbertos[0].numero === s.numero
+    ) {
+      const ok = await askConfirm('close_last_sector_with_pump_on', { setorNome: s.nome })
+      if (!ok) return
+    }
+
     setPendingSetorNumero(s.numero)
     setorCmd.mutate(
-      {
-        cmd: abrir ? 'sector_open' : 'sector_close',
-        params: { numero: s.numero },
-      },
-      {
-        onSettled: () => setPendingSetorNumero(null),
-      },
+      { cmd: abrir ? 'sector_open' : 'sector_close', params: { numero: s.numero } },
+      { onSettled: () => setPendingSetorNumero(null) },
     )
+  }
+
+  async function handleToggleMode() {
+    if (modoPending) return
+    const novo: IrrigationModoOperacao = isAuto ? 'manual' : 'automatico'
+    const send = () => modeCmd.mutate({ cmd: 'mode_set', params: { modo: novo } })
+
+    if (!algumaOperacaoAtiva) {
+      send()
+      return
+    }
+    const kind: ConfirmKind = isAuto
+      ? 'mode_auto_to_manual_with_active'
+      : 'mode_manual_to_auto_with_active'
+    const ok = await askConfirm(kind)
+    if (ok) send()
   }
 
   return (
@@ -181,11 +215,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
           </p>
         </div>
         <div className="flex items-center gap-3 self-start">
-          <ModoToggle
-            modo={modoOperacao}
-            pending={modoPending}
-            onToggle={handleToggleMode}
-          />
+          <Clock />
           <Badge
             className={
               state
@@ -197,6 +227,12 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
           </Badge>
         </div>
       </div>
+
+      <ModoCard
+        modo={modoOperacao}
+        pending={modoPending}
+        onToggle={handleToggleMode}
+      />
 
       <IndicadoresStatusBar
         servidor={true}
@@ -211,6 +247,17 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
           <AlertTitle>{snap.active_alarms.length} alarme(s) ativo(s)</AlertTitle>
           <AlertDescription>
             {snap.active_alarms.map((a) => a.tipo).join(', ')}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {isAuto && (
+        <Alert>
+          <Cog className="h-4 w-4" />
+          <AlertTitle>Modo automático ativo</AlertTitle>
+          <AlertDescription>
+            Controles manuais estão desabilitados. Para comandar a bomba ou
+            setores manualmente, troque o modo.
           </AlertDescription>
         </Alert>
       )}
@@ -232,19 +279,21 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
               <Info label="Max contínuo" value={`${snap.config?.tempo_max_continuo_bomba_min ?? 120} min`} />
               <Info label="Reforço relé" value={snap.config?.reforco_rele_ativo ? 'Ativo' : 'Inativo'} />
             </div>
-            <div className="pt-1">
-              <BombaCommandButton
-                deviceId={deviceId}
-                pumpState={pumpState}
-                onBeforePumpOn={beforePumpOn}
-                onBeforePumpOff={beforePumpOff}
-              />
-              {!state && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Aguardando state do dispositivo — botão pode não refletir estado real.
-                </p>
-              )}
-            </div>
+            {!isAuto && (
+              <div className="pt-1">
+                <BombaCommandButton
+                  deviceId={deviceId}
+                  pumpState={pumpState}
+                  onBeforePumpOn={beforePumpOn}
+                  onBeforePumpOff={beforePumpOff}
+                />
+                {!state && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Aguardando state do dispositivo — botão pode não refletir estado real.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -275,15 +324,15 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
               const estadoFw = setorEstadoMap.get(s.numero)
               const transientFw = estadoFw === 'opening' || estadoFw === 'closing'
               const pendingThis = pendingSetorNumero === s.numero
-              const disabled = transientFw || setorCmd.isPending
+              const clickable = !isAuto && !transientFw && !setorCmd.isPending
               return (
                 <SetorCardValvula
                   key={s.id}
                   setor={s}
                   estadoLive={estadoFw}
-                  disabled={disabled}
+                  disabled={!clickable}
                   pending={pendingThis}
-                  onClick={disabled ? undefined : () => handleSetorClick(s)}
+                  onClick={clickable ? () => handleSetorClick(s) : undefined}
                 />
               )
             })}
@@ -319,10 +368,12 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
       </Card>
 
       <div className="flex flex-wrap gap-2">
-        <Button variant="outline" disabled>Automações (Fase 2B+)</Button>
+        <Button variant="outline" disabled>Automações (Sprint 2)</Button>
         <Button variant="outline" disabled>Histórico (Fase 2B+)</Button>
         <Button variant="outline" disabled>Tela técnica</Button>
       </div>
+
+      <ConfirmDialog state={confirm} onClose={closeConfirm} />
     </div>
   )
 }
@@ -336,7 +387,7 @@ function Info({ label, value }: { label: string; value: string }) {
   )
 }
 
-function ModoToggle({
+function ModoCard({
   modo,
   pending,
   onToggle,
@@ -346,47 +397,80 @@ function ModoToggle({
   onToggle: () => void
 }) {
   const isAuto = modo === 'automatico'
+  const Icon = isAuto ? Cog : Hand
   return (
-    <div
+    <Card
       className={cn(
-        'inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs',
-        pending && 'opacity-60',
+        'border-2 transition-colors',
+        isAuto ? 'border-emerald-500/60' : 'border-blue-500/60',
       )}
     >
-      <span className="text-muted-foreground uppercase tracking-wide">Modo</span>
-      <div className="inline-flex rounded-sm overflow-hidden border">
-        <button
-          type="button"
-          disabled={pending || isAuto}
-          onClick={isAuto ? undefined : onToggle}
-          className={cn(
-            'px-2 py-0.5 font-medium transition-colors',
-            isAuto
-              ? 'bg-emerald-600 text-white'
-              : 'bg-background text-muted-foreground hover:bg-muted',
-            pending && 'cursor-not-allowed',
-          )}
-          aria-pressed={isAuto}
+      <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex items-center gap-4 min-w-0">
+          <div
+            className={cn(
+              'flex h-12 w-12 shrink-0 items-center justify-center rounded-full',
+              isAuto ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700',
+            )}
+          >
+            <Icon className={cn('h-6 w-6', isAuto && 'animate-[spin_6s_linear_infinite]')} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs uppercase tracking-wider text-muted-foreground">
+              Modo de operação
+            </p>
+            <p className="text-2xl font-bold tracking-tight">
+              {isAuto ? 'AUTOMÁTICO' : 'MANUAL'}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              {isAuto
+                ? 'Rotinas programadas irão executar automaticamente'
+                : 'Controle direto via app e botões físicos'}
+            </p>
+          </div>
+        </div>
+        <Button
+          size="lg"
+          variant="outline"
+          onClick={onToggle}
+          disabled={pending}
+          className="self-stretch sm:self-auto"
         >
-          Auto
-        </button>
-        <button
-          type="button"
-          disabled={pending || !isAuto}
-          onClick={!isAuto ? undefined : onToggle}
-          className={cn(
-            'px-2 py-0.5 font-medium transition-colors',
-            !isAuto
-              ? 'bg-slate-700 text-white'
-              : 'bg-background text-muted-foreground hover:bg-muted',
-            pending && 'cursor-not-allowed',
-          )}
-          aria-pressed={!isAuto}
-        >
-          Manual
-        </button>
+          {pending ? (
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          ) : null}
+          Mudar para {isAuto ? 'MANUAL' : 'AUTOMÁTICO'}
+        </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function Clock() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const i = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(i)
+  }, [])
+  const hh = String(now.getHours()).padStart(2, '0')
+  const mm = String(now.getMinutes()).padStart(2, '0')
+  const ss = String(now.getSeconds()).padStart(2, '0')
+  const dias = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+  const dia = dias[now.getDay()]
+  const dmy =
+    String(now.getDate()).padStart(2, '0') +
+    '/' +
+    String(now.getMonth() + 1).padStart(2, '0') +
+    '/' +
+    now.getFullYear()
+  return (
+    <div className="text-right font-mono leading-tight">
+      <div className="text-sm tabular-nums">
+        {hh}:{mm}:{ss}
       </div>
-      {pending && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+      <div className="text-[10px] text-muted-foreground">
+        {dia} {dmy}
+      </div>
     </div>
   )
 }
@@ -411,4 +495,81 @@ function computeCounterSeconds(pumpState: string, pump: StatePump): number {
     return Math.max(0, Math.floor(diff))
   }
   return 0
+}
+
+function ConfirmDialog({
+  state,
+  onClose,
+}: {
+  state: ConfirmState | null
+  onClose: (ok: boolean) => void
+}) {
+  const open = state !== null
+  const kind = state?.kind
+  const extra = state?.extra
+
+  let title = ''
+  let description = ''
+  let confirmLabel: string | null = 'Confirmar'
+  let destructive = false
+  let dismissOnly = false
+
+  if (kind === 'pump_on_without_sector') {
+    title = 'Nenhum setor aberto'
+    description =
+      'Ligar a bomba sem nenhum setor aberto pode causar bomba seca e danificar o equipamento. Abra um setor primeiro.'
+    confirmLabel = 'Entendi'
+    dismissOnly = true
+  } else if (kind === 'pump_off_with_open_sector') {
+    title = 'Desligar bomba com setor aberto?'
+    description = `Há ${extra?.abertos ?? 0} setor(es) aberto(s). Desligar a bomba agora vai interromper a irrigação nesses setores. Continuar?`
+    confirmLabel = 'Desligar bomba'
+    destructive = true
+  } else if (kind === 'close_last_sector_with_pump_on') {
+    title = 'Fechar setor e desligar bomba?'
+    description = `"${extra?.setorNome ?? 'Setor'}" é o último setor aberto. Fechar vai também desligar a bomba automaticamente (safety). Deseja continuar?`
+    confirmLabel = 'Fechar e desligar bomba'
+    destructive = true
+  } else if (kind === 'mode_auto_to_manual_with_active') {
+    title = 'Parar operação automática?'
+    description =
+      'Isso vai desligar a bomba e fechar setores em execução antes de trocar para manual. Deseja continuar?'
+    confirmLabel = 'Parar e mudar para manual'
+    destructive = true
+  } else if (kind === 'mode_manual_to_auto_with_active') {
+    title = 'Ativar modo automático?'
+    description =
+      'Em modo automático, controles manuais serão bloqueados. A bomba e setores ativos continuam até o próximo timer decidir.'
+    confirmLabel = 'Ativar automático'
+  }
+
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose(false)
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          {!dismissOnly && (
+            <AlertDialogCancel onClick={() => onClose(false)}>Cancelar</AlertDialogCancel>
+          )}
+          <AlertDialogAction
+            onClick={() => onClose(true)}
+            className={cn(
+              destructive &&
+                'bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-600',
+            )}
+          >
+            {confirmLabel}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
 }
