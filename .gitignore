@@ -1,24 +1,48 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
+# Dependencies
+node_modules/
+.pnpm-store/
 
-node_modules
-dist
-dist-ssr
+# Build
+dist/
+dist-ssr/
 *.local
 
-# Editor directories and files
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Editor
 .vscode/*
+!.vscode/settings.json
 !.vscode/extensions.json
-.idea
+.idea/
+*.swp
+
+# OS
 .DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testes
+coverage/
+.vitest-cache/
+
+# Infra — secrets e dados ao vivo
+infra/env/secrets.env
+infra/env/smtp-password
+infra/env/mqtt-*-password
+infra/env/mosquitto-admin
+infra/mosquitto/certs/*.crt
+infra/mosquitto/certs/*.key
+infra/mosquitto/certs/*.pem
+infra/nodered/flows.json.bak-*
+infra/nodered/flows_cred.json
+infra/nodered/data/
