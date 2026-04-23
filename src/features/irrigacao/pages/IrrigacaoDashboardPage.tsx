@@ -1,20 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Settings } from 'lucide-react'
+import { ArrowLeft, Loader2, Settings } from 'lucide-react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 
 import { BombaCommandButton } from '../components/BombaCommandButton'
 import { BombaSvgAnimada } from '../components/BombaSvgAnimada'
 import { IndicadoresStatusBar } from '../components/IndicadoresStatusBar'
 import { SetorCardValvula } from '../components/SetorCardValvula'
+import { useComando } from '../hooks/useComando'
 import { useDeviceStateLive } from '../hooks/useDeviceStateLive'
 import { useIrrigationSnapshot } from '../hooks/useSnapshot'
-import type { IrrigationSector } from '../types'
+import type { IrrigationModoOperacao, IrrigationSector } from '../types'
 
 type PumpState = 'off' | 'starting' | 'on' | 'stopping'
 type SectorEstado = 'closed' | 'opening' | 'open' | 'closing' | 'paused'
@@ -46,6 +48,14 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
   // Serial pra subscribe MQTT — vem do snapshot; hook é no-op até termos
   const serial = query.data?.device.serial
   useDeviceStateLive(serial, deviceId)
+
+  // Mutation compartilhada para setores; rastreia localmente qual setor
+  // despachou o comando pra desabilitar só o card tocado.
+  const setorCmd = useComando(deviceId)
+  const [pendingSetorNumero, setPendingSetorNumero] = useState<number | null>(null)
+
+  // Mutation separada pro toggle de modo (evita state cruzado com setores).
+  const modeCmd = useComando(deviceId)
 
   // Contador local pro display HH:MM:SS atualizar sem refetch
   const [tick, setTick] = useState(0)
@@ -128,6 +138,37 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
 
   const bombaLigada = pumpState === 'on' || pumpState === 'stopping'
 
+  const modoOperacao: IrrigationModoOperacao = snap.config?.modo_operacao ?? 'manual'
+  const modoPending = modeCmd.isPending
+
+  function handleToggleMode() {
+    if (modoPending) return
+    const novo: IrrigationModoOperacao = modoOperacao === 'manual' ? 'automatico' : 'manual'
+    const label = novo === 'manual' ? 'Manual' : 'Auto'
+    if (!window.confirm(`Mudar modo de operação para ${label}?`)) return
+    modeCmd.mutate({ cmd: 'mode_set', params: { modo: novo } })
+  }
+
+  function handleSetorClick(s: IrrigationSector) {
+    const estadoFw = setorEstadoMap.get(s.numero)
+    // transients do firmware bloqueiam click
+    if (estadoFw === 'opening' || estadoFw === 'closing') return
+    if (setorCmd.isPending) return
+    const abrir = estadoFw !== 'open'
+    const acao = abrir ? 'Abrir' : 'Fechar'
+    if (!window.confirm(`${acao} setor "${s.nome}"?`)) return
+    setPendingSetorNumero(s.numero)
+    setorCmd.mutate(
+      {
+        cmd: abrir ? 'sector_open' : 'sector_close',
+        params: { numero: s.numero },
+      },
+      {
+        onSettled: () => setPendingSetorNumero(null),
+      },
+    )
+  }
+
   return (
     <div className="space-y-6 max-w-5xl">
       <BackButton onClick={() => navigate('/dispositivos')} />
@@ -139,15 +180,22 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
             {snap.device.serial} · {snap.device.modelo}
           </p>
         </div>
-        <Badge
-          className={
-            state
-              ? 'bg-emerald-600 hover:bg-emerald-600 self-start'
-              : 'bg-slate-500 hover:bg-slate-500 self-start'
-          }
-        >
-          {state ? 'Online' : 'Aguardando state'}
-        </Badge>
+        <div className="flex items-center gap-3 self-start">
+          <ModoToggle
+            modo={modoOperacao}
+            pending={modoPending}
+            onToggle={handleToggleMode}
+          />
+          <Badge
+            className={
+              state
+                ? 'bg-emerald-600 hover:bg-emerald-600'
+                : 'bg-slate-500 hover:bg-slate-500'
+            }
+          >
+            {state ? 'Online' : 'Aguardando state'}
+          </Badge>
+        </div>
       </div>
 
       <IndicadoresStatusBar
@@ -223,13 +271,22 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
           </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {setoresHabilitados.map((s: IrrigationSector) => (
-              <SetorCardValvula
-                key={s.id}
-                setor={s}
-                estadoLive={setorEstadoMap.get(s.numero)}
-              />
-            ))}
+            {setoresHabilitados.map((s: IrrigationSector) => {
+              const estadoFw = setorEstadoMap.get(s.numero)
+              const transientFw = estadoFw === 'opening' || estadoFw === 'closing'
+              const pendingThis = pendingSetorNumero === s.numero
+              const disabled = transientFw || setorCmd.isPending
+              return (
+                <SetorCardValvula
+                  key={s.id}
+                  setor={s}
+                  estadoLive={estadoFw}
+                  disabled={disabled}
+                  pending={pendingThis}
+                  onClick={disabled ? undefined : () => handleSetorClick(s)}
+                />
+              )
+            })}
           </div>
         )}
       </section>
@@ -275,6 +332,61 @@ function Info({ label, value }: { label: string; value: string }) {
     <div>
       <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="font-medium">{value}</p>
+    </div>
+  )
+}
+
+function ModoToggle({
+  modo,
+  pending,
+  onToggle,
+}: {
+  modo: IrrigationModoOperacao
+  pending: boolean
+  onToggle: () => void
+}) {
+  const isAuto = modo === 'automatico'
+  return (
+    <div
+      className={cn(
+        'inline-flex items-center gap-2 rounded-md border px-2 py-1 text-xs',
+        pending && 'opacity-60',
+      )}
+    >
+      <span className="text-muted-foreground uppercase tracking-wide">Modo</span>
+      <div className="inline-flex rounded-sm overflow-hidden border">
+        <button
+          type="button"
+          disabled={pending || isAuto}
+          onClick={isAuto ? undefined : onToggle}
+          className={cn(
+            'px-2 py-0.5 font-medium transition-colors',
+            isAuto
+              ? 'bg-emerald-600 text-white'
+              : 'bg-background text-muted-foreground hover:bg-muted',
+            pending && 'cursor-not-allowed',
+          )}
+          aria-pressed={isAuto}
+        >
+          Auto
+        </button>
+        <button
+          type="button"
+          disabled={pending || !isAuto}
+          onClick={!isAuto ? undefined : onToggle}
+          className={cn(
+            'px-2 py-0.5 font-medium transition-colors',
+            !isAuto
+              ? 'bg-slate-700 text-white'
+              : 'bg-background text-muted-foreground hover:bg-muted',
+            pending && 'cursor-not-allowed',
+          )}
+          aria-pressed={!isAuto}
+        >
+          Manual
+        </button>
+      </div>
+      {pending && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
     </div>
   )
 }
