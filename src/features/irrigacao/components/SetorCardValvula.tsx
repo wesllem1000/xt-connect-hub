@@ -1,3 +1,5 @@
+import { Loader2 } from 'lucide-react'
+
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -5,12 +7,25 @@ import { Badge } from '@/components/ui/badge'
 import type { IrrigationSector } from '../types'
 
 type EstadoVisual = 'desabilitado' | 'fechada' | 'aberta' | 'abrindo' | 'fechando' | 'pausada'
+type EstadoFirmware = 'closed' | 'opening' | 'open' | 'closing' | 'paused'
+
+const FIRMWARE_TO_VISUAL: Record<EstadoFirmware, EstadoVisual> = {
+  closed: 'fechada',
+  opening: 'abrindo',
+  open: 'aberta',
+  closing: 'fechando',
+  paused: 'pausada',
+}
 
 type Props = {
   setor: IrrigationSector
-  /** Estado adicional vindo do MQTT live (sobrescreve o derivado). */
-  estadoLive?: EstadoVisual
+  /** Estado adicional vindo do MQTT live. Aceita estado do firmware (en) ou visual (pt). */
+  estadoLive?: EstadoFirmware | EstadoVisual
   onClick?: () => void
+  /** Card desabilitado (mutation global em voo ou estado transiente do firmware). */
+  disabled?: boolean
+  /** Este card específico despachou o comando e está aguardando ack. */
+  pending?: boolean
 }
 
 function deriveEstado(s: IrrigationSector): EstadoVisual {
@@ -29,15 +44,18 @@ const colorMap: Record<EstadoVisual, { ring: string; fill: string; badge: string
   pausada:      { ring: 'stroke-amber-500', fill: 'fill-amber-50', badge: 'bg-amber-500 text-white hover:bg-amber-500', label: 'Pausada' },
 }
 
-export function SetorCardValvula({ setor, estadoLive, onClick }: Props) {
-  const estado = estadoLive ?? deriveEstado(setor)
+export function SetorCardValvula({ setor, estadoLive, onClick, disabled, pending }: Props) {
+  const estado: EstadoVisual = estadoLive
+    ? (FIRMWARE_TO_VISUAL[estadoLive as EstadoFirmware] ?? (estadoLive as EstadoVisual))
+    : deriveEstado(setor)
   const c = colorMap[estado]
-  const clickable = Boolean(onClick) && setor.habilitado
+  const clickable = Boolean(onClick) && setor.habilitado && !disabled
 
   return (
     <Card
       role={clickable ? 'button' : undefined}
       tabIndex={clickable ? 0 : -1}
+      aria-disabled={disabled || !setor.habilitado}
       onClick={clickable ? onClick : undefined}
       onKeyDown={(e) => {
         if (!clickable) return
@@ -47,9 +65,11 @@ export function SetorCardValvula({ setor, estadoLive, onClick }: Props) {
         }
       }}
       className={cn(
-        'transition-shadow',
+        'transition-shadow relative',
         clickable && 'cursor-pointer hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        !clickable && setor.habilitado && 'cursor-not-allowed',
         estado === 'desabilitado' && 'opacity-60',
+        disabled && 'opacity-75',
       )}
     >
       <CardContent className="p-4 flex items-center gap-3">
@@ -77,6 +97,12 @@ export function SetorCardValvula({ setor, estadoLive, onClick }: Props) {
             #{setor.numero} · GPIO {setor.gpio_rele}
           </p>
         </div>
+        {pending && (
+          <Loader2
+            aria-label="Comando em voo"
+            className="h-4 w-4 animate-spin text-muted-foreground absolute top-2 right-2"
+          />
+        )}
       </CardContent>
     </Card>
   )

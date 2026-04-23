@@ -140,6 +140,28 @@ export type IrrigationAlarme = {
   payload_json: Record<string, unknown>
 }
 
+/** Estado volátil reportado pelo firmware via MQTT `devices/<serial>/state` (retained). */
+export type DeviceStatePayload = {
+  protocol_version?: number
+  ts?: string
+  pump?: {
+    state?: 'off' | 'starting' | 'on' | 'stopping'
+    source?: string | null
+    started_at?: string | null
+    scheduled_off_at?: string | null
+  }
+  sectors?: Array<{
+    numero?: number
+    estado?: 'closed' | 'opening' | 'open' | 'closing' | 'paused'
+    source?: string | null
+    opened_at?: string | null
+    scheduled_close_at?: string | null
+  }>
+  indicators?: { wifi?: boolean; mqtt?: boolean; time_valid?: boolean }
+  last_event_uuid?: string
+  _received_at?: string
+}
+
 export type IrrigationSnapshot = {
   device: { id: string; serial: string; modelo: string }
   config: IrrigationConfig | null
@@ -147,4 +169,5 @@ export type IrrigationSnapshot = {
   timers: IrrigationTimer[]
   sensors: IrrigationTemperatureSensor[]
   active_alarms: IrrigationAlarme[]
+  state: DeviceStatePayload | null
 }
