@@ -91,3 +91,84 @@ export async function getActiveAlarms(
     .json<{ alarmes: IrrigationAlarme[] }>()
   return alarmes
 }
+
+// ========= writes (E4.2A) =========
+
+export type IrrCmd =
+  | 'pump_on' | 'pump_off'
+  | 'sector_open' | 'sector_close' | 'sector_pause' | 'sector_resume'
+  | 'mode_set' | 'safe_closure' | 'config_reload' | 'factory_reset'
+
+export type ComandoResponse = {
+  cmd_id: string
+  issued_at: string
+  expires_at: string
+}
+
+export async function postComando(
+  deviceId: string,
+  cmd: IrrCmd,
+  params: Record<string, unknown> = {},
+): Promise<ComandoResponse> {
+  return api
+    .post(`${base(deviceId)}/comandos`, { json: { cmd, params } })
+    .json<ComandoResponse>()
+}
+
+export async function patchConfig(
+  deviceId: string,
+  patch: Partial<Record<string, unknown>>,
+) {
+  const { config } = await api
+    .patch(`${base(deviceId)}/config`, { json: patch })
+    .json<{ config: unknown }>()
+  return config
+}
+
+export async function patchSetor(
+  deviceId: string,
+  numero: number,
+  patch: Partial<Record<string, unknown>>,
+) {
+  const { setor } = await api
+    .patch(`${base(deviceId)}/setores/${numero}`, { json: patch })
+    .json<{ setor: unknown }>()
+  return setor
+}
+
+export type PostTimerInput = {
+  alvo_tipo: 'pump' | 'sector'
+  alvo_id?: string | null
+  tipo: 'fixed' | 'cyclic_window' | 'cyclic_continuous'
+  nome: string
+  hora_inicio?: string
+  hora_fim?: string
+  duracao_min?: number
+  on_minutes?: number
+  off_minutes?: number
+  dias_semana: number
+  observacao?: string
+  overlap_confirmed?: boolean
+}
+
+export async function postTimer(deviceId: string, input: PostTimerInput) {
+  return api
+    .post(`${base(deviceId)}/timers`, { json: input })
+    .json<{ timer: unknown }>()
+}
+
+export async function patchTimer(
+  deviceId: string,
+  timerId: string,
+  patch: Partial<PostTimerInput>,
+) {
+  return api
+    .patch(`${base(deviceId)}/timers/${timerId}`, { json: patch })
+    .json<{ timer: unknown }>()
+}
+
+export async function deleteTimer(deviceId: string, timerId: string) {
+  return api
+    .delete(`${base(deviceId)}/timers/${timerId}`)
+    .json<{ ok: true; id: string }>()
+}

@@ -5,11 +5,20 @@ import { Badge } from '@/components/ui/badge'
 import type { IrrigationSector } from '../types'
 
 type EstadoVisual = 'desabilitado' | 'fechada' | 'aberta' | 'abrindo' | 'fechando' | 'pausada'
+type EstadoFirmware = 'closed' | 'opening' | 'open' | 'closing' | 'paused'
+
+const FIRMWARE_TO_VISUAL: Record<EstadoFirmware, EstadoVisual> = {
+  closed: 'fechada',
+  opening: 'abrindo',
+  open: 'aberta',
+  closing: 'fechando',
+  paused: 'pausada',
+}
 
 type Props = {
   setor: IrrigationSector
-  /** Estado adicional vindo do MQTT live (sobrescreve o derivado). */
-  estadoLive?: EstadoVisual
+  /** Estado adicional vindo do MQTT live. Aceita estado do firmware (en) ou visual (pt). */
+  estadoLive?: EstadoFirmware | EstadoVisual
   onClick?: () => void
 }
 
@@ -30,7 +39,9 @@ const colorMap: Record<EstadoVisual, { ring: string; fill: string; badge: string
 }
 
 export function SetorCardValvula({ setor, estadoLive, onClick }: Props) {
-  const estado = estadoLive ?? deriveEstado(setor)
+  const estado: EstadoVisual = estadoLive
+    ? (FIRMWARE_TO_VISUAL[estadoLive as EstadoFirmware] ?? (estadoLive as EstadoVisual))
+    : deriveEstado(setor)
   const c = colorMap[estado]
   const clickable = Boolean(onClick) && setor.habilitado
 
