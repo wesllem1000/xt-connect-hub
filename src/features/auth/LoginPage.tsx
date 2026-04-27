@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import ky from 'ky'
-import { Loader2 } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Zap } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -57,6 +57,7 @@ export function LoginPage() {
   const [apiError, setApiError] = useState<string | null>(null)
   const [needsVerify, setNeedsVerify] = useState<string | null>(null)
   const [resendStatus, setResendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [showPassword, setShowPassword] = useState(false)
 
   const verifiedParam = params.get('verified')
   const banner = verifiedParam ? VERIFIED_BANNERS[verifiedParam] : null
@@ -104,123 +105,148 @@ export function LoginPage() {
   const submitting = form.formState.isSubmitting
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-muted p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-2xl">XT Conect Hub - Entrar</CardTitle>
-          <CardDescription>
-            Use seu email e senha para acessar o painel
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {banner && (
-            <Alert
-              variant={banner.variant}
-              className={
-                banner.variant === 'default'
-                  ? 'mb-4 border-emerald-200 bg-emerald-50 text-emerald-900'
-                  : 'mb-4'
-              }
-            >
-              <AlertDescription>{banner.text}</AlertDescription>
-            </Alert>
-          )}
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 via-background to-secondary/10 p-4">
+      <div className="w-full max-w-md animate-slide-up">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full gradient-primary mb-4 shadow-glow">
+            <Zap className="w-8 h-8 text-white" />
+          </div>
+          <h1 className="text-3xl font-bold gradient-primary bg-clip-text text-transparent mb-2">
+            XT CONECT
+          </h1>
+          <p className="text-muted-foreground">Plataforma de Automação Inteligente</p>
+        </div>
 
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="email"
-                        autoComplete="email"
-                        autoFocus
-                        placeholder="voce@empresa.com"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+        <Card className="shadow-lg border-border/50">
+          <CardHeader className="space-y-1">
+            <CardTitle className="text-2xl">Bem-vindo</CardTitle>
+            <CardDescription>Use seu email e senha para acessar o painel</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {banner && (
+              <Alert
+                variant={banner.variant}
+                className={
+                  banner.variant === 'default'
+                    ? 'mb-4 border-emerald-200 bg-emerald-50 text-emerald-900'
+                    : 'mb-4'
+                }
+              >
+                <AlertDescription>{banner.text}</AlertDescription>
+              </Alert>
+            )}
+
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Email</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="email"
+                          autoComplete="email"
+                          autoFocus
+                          placeholder="voce@empresa.com"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="password"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Senha</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Input
+                            type={showPassword ? 'text' : 'password'}
+                            autoComplete="current-password"
+                            placeholder="••••••••"
+                            className="pr-10"
+                            {...field}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((v) => !v)}
+                            aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                            className="min-touch-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                          >
+                            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {apiError && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{apiError}</AlertDescription>
+                  </Alert>
                 )}
-              />
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Senha</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="password"
-                        autoComplete="current-password"
-                        placeholder="••••••••"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+
+                {needsVerify && (
+                  <Alert variant="destructive">
+                    <AlertDescription className="space-y-2">
+                      <p>
+                        Confirme seu e-mail antes de entrar. Enviamos um link de
+                        ativação para <strong>{needsVerify}</strong>.
+                      </p>
+                      {resendStatus === 'sent' ? (
+                        <p className="text-sm">
+                          ✓ Novo link enviado. Verifique sua caixa de entrada (e o spam).
+                        </p>
+                      ) : (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={handleResend}
+                          disabled={resendStatus === 'sending'}
+                        >
+                          {resendStatus === 'sending' && (
+                            <Loader2 className="mr-2 h-3 w-3 animate-spin" />
+                          )}
+                          Reenviar link de confirmação
+                        </Button>
+                      )}
+                      {resendStatus === 'error' && (
+                        <p className="text-sm">
+                          Falha ao reenviar. Tente novamente em instantes.
+                        </p>
+                      )}
+                    </AlertDescription>
+                  </Alert>
                 )}
-              />
 
-              {apiError && (
-                <Alert variant="destructive">
-                  <AlertDescription>{apiError}</AlertDescription>
-                </Alert>
-              )}
+                <Button type="submit" className="w-full gradient-primary text-white" disabled={submitting}>
+                  {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Entrar
+                </Button>
 
-              {needsVerify && (
-                <Alert variant="destructive">
-                  <AlertDescription className="space-y-2">
-                    <p>
-                      Confirme seu e-mail antes de entrar. Enviamos um link de
-                      ativação para <strong>{needsVerify}</strong>.
-                    </p>
-                    {resendStatus === 'sent' ? (
-                      <p className="text-sm">
-                        ✓ Novo link enviado. Verifique sua caixa de entrada (e o spam).
-                      </p>
-                    ) : (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={handleResend}
-                        disabled={resendStatus === 'sending'}
-                      >
-                        {resendStatus === 'sending' && (
-                          <Loader2 className="mr-2 h-3 w-3 animate-spin" />
-                        )}
-                        Reenviar link de confirmação
-                      </Button>
-                    )}
-                    {resendStatus === 'error' && (
-                      <p className="text-sm">
-                        Falha ao reenviar. Tente novamente em instantes.
-                      </p>
-                    )}
-                  </AlertDescription>
-                </Alert>
-              )}
+                <p className="text-center text-sm text-muted-foreground">
+                  Ainda não tem conta?{' '}
+                  <Link to="/signup" className="text-primary hover:underline">
+                    Cadastre-se
+                  </Link>
+                </p>
+              </form>
+            </Form>
+          </CardContent>
+        </Card>
 
-              <Button type="submit" className="w-full" disabled={submitting}>
-                {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Entrar
-              </Button>
-
-              <p className="text-center text-sm text-muted-foreground">
-                Ainda não tem conta?{' '}
-                <Link to="/signup" className="text-primary hover:underline">
-                  Cadastre-se
-                </Link>
-              </p>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
+        <p className="text-center text-xs text-muted-foreground mt-6">
+          XT AUTOMATIZE © 2026 — Todos os direitos reservados
+        </p>
+      </div>
     </div>
   )
 }
