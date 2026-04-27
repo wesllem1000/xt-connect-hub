@@ -1,6 +1,19 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Hand, Loader2, Settings, Cog } from 'lucide-react'
+import {
+  ArrowLeft,
+  Clock as ClockIcon,
+  Cog,
+  Construction,
+  Hand,
+  History,
+  LayoutDashboard,
+  Loader2,
+  Power,
+  Settings,
+  Sliders,
+  Terminal,
+} from 'lucide-react'
 
 import {
   AlertDialog,
@@ -17,6 +30,8 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ThemeToggle } from '@/components/ThemeToggle'
 import { cn } from '@/lib/utils'
 
 import { BombaCommandButton } from '../components/BombaCommandButton'
@@ -204,31 +219,77 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
   }
 
   return (
-    <div className="space-y-6 max-w-5xl">
-      <BackButton onClick={() => navigate('/dispositivos')} />
-
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-2xl font-bold tracking-tight truncate">{titulo}</h2>
-          <p className="text-xs text-muted-foreground font-mono mt-0.5">
-            {snap.device.serial} · {snap.device.modelo}
-          </p>
-        </div>
-        <div className="flex items-center gap-3 self-start">
-          <Clock />
-          <Badge
-            className={
-              state
-                ? 'bg-emerald-600 hover:bg-emerald-600'
-                : 'bg-slate-500 hover:bg-slate-500'
-            }
+    <div className="-m-4 md:-m-8">
+      {/* Sticky horizontal header — Lovable style, restrito a IRR-V1 */}
+      <header className="sticky top-0 z-30 bg-card/80 backdrop-blur-sm border-b">
+        <div className="max-w-5xl mx-auto px-3 sm:px-6 py-3 flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0 h-9 w-9"
+            onClick={() => navigate('/dispositivos')}
+            aria-label="Voltar para dispositivos"
           >
-            {state ? 'Online' : 'Aguardando state'}
-          </Badge>
+            <ArrowLeft className="h-4 w-4 sm:h-5 sm:w-5" />
+          </Button>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-sm sm:text-lg font-bold truncate">{titulo}</h1>
+            <p className="text-[10px] sm:text-xs text-muted-foreground font-mono truncate">
+              {snap.device.serial} · {snap.device.modelo}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            <Clock />
+            <Badge
+              className={cn(
+                'shrink-0 text-[10px] sm:text-xs',
+                state
+                  ? 'bg-emerald-600 hover:bg-emerald-600'
+                  : 'bg-slate-500 hover:bg-slate-500',
+              )}
+            >
+              {state ? 'Online' : 'Aguardando'}
+            </Badge>
+            <ThemeToggle />
+          </div>
         </div>
-      </div>
+      </header>
 
-      <ModoCard
+      <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
+        <Tabs defaultValue="painel" className="w-full">
+          <TabsList className="w-full flex flex-wrap h-auto gap-1 mb-4 justify-start">
+            <TabsTrigger value="painel" className="gap-1.5">
+              <LayoutDashboard className="h-4 w-4" />
+              <span>Painel</span>
+            </TabsTrigger>
+            <TabsTrigger value="timers" className="gap-1.5">
+              <ClockIcon className="h-4 w-4" />
+              <span>Timers</span>
+            </TabsTrigger>
+            <TabsTrigger value="setores" className="gap-1.5">
+              <Sliders className="h-4 w-4" />
+              <span>Setores</span>
+            </TabsTrigger>
+            <TabsTrigger value="bomba" className="gap-1.5">
+              <Power className="h-4 w-4" />
+              <span>Bomba</span>
+            </TabsTrigger>
+            <TabsTrigger value="historico" className="gap-1.5">
+              <History className="h-4 w-4" />
+              <span>Histórico</span>
+            </TabsTrigger>
+            <TabsTrigger value="sistema" className="gap-1.5">
+              <Cog className="h-4 w-4" />
+              <span>Sistema</span>
+            </TabsTrigger>
+            <TabsTrigger value="logs" className="gap-1.5">
+              <Terminal className="h-4 w-4" />
+              <span>Logs</span>
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="painel" className="space-y-6 mt-0">
+            <ModoCard
         modo={modoOperacao}
         pending={modoPending}
         onToggle={handleToggleMode}
@@ -367,14 +428,89 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
         </CardContent>
       </Card>
 
-      <div className="flex flex-wrap gap-2">
-        <Button variant="outline" disabled>Automações (Sprint 2)</Button>
-        <Button variant="outline" disabled>Histórico (Fase 2B+)</Button>
-        <Button variant="outline" disabled>Tela técnica</Button>
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" disabled>Automações (Sprint 2)</Button>
+              <Button variant="outline" disabled>Tela técnica</Button>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="timers" className="mt-0">
+            <TabPlaceholder
+              icon={<ClockIcon className="h-8 w-8" />}
+              title="Timers"
+              description="Cadastro de timers e agendamentos por setor (firmware é autoridade do tempo). Em construção — vem na próxima rodada da Fase 1.2."
+            />
+          </TabsContent>
+
+          <TabsContent value="setores" className="mt-0">
+            <TabPlaceholder
+              icon={<Sliders className="h-8 w-8" />}
+              title="Setores"
+              description="Configuração avançada: ativar/desativar setores, renomear, ajustar GPIO. Em construção."
+            />
+          </TabsContent>
+
+          <TabsContent value="bomba" className="mt-0">
+            <TabPlaceholder
+              icon={<Power className="h-8 w-8" />}
+              title="Bomba"
+              description="Configuração da bomba: tipo, max contínuo, cooldown, reforço de relé. Em construção."
+            />
+          </TabsContent>
+
+          <TabsContent value="historico" className="mt-0">
+            <TabPlaceholder
+              icon={<History className="h-8 w-8" />}
+              title="Histórico"
+              description="Histórico de eventos, comandos e alarmes do dispositivo. Em construção."
+            />
+          </TabsContent>
+
+          <TabsContent value="sistema" className="mt-0">
+            <TabPlaceholder
+              icon={<Cog className="h-8 w-8" />}
+              title="Sistema"
+              description="Configurações de sistema: data/hora, telemetria, reset de fábrica. Em construção."
+            />
+          </TabsContent>
+
+          <TabsContent value="logs" className="mt-0">
+            <TabPlaceholder
+              icon={<Terminal className="h-8 w-8" />}
+              title="Logs"
+              description="Logs internos do firmware. Em construção."
+            />
+          </TabsContent>
+        </Tabs>
       </div>
 
       <ConfirmDialog state={confirm} onClose={closeConfirm} />
     </div>
+  )
+}
+
+function TabPlaceholder({
+  icon,
+  title,
+  description,
+}: {
+  icon: React.ReactNode
+  title: string
+  description: string
+}) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col items-center justify-center py-12 text-center gap-3">
+        <div className="rounded-full bg-primary/10 p-4 text-primary">{icon}</div>
+        <div className="space-y-1 max-w-md">
+          <p className="text-lg font-semibold flex items-center justify-center gap-2">
+            <Construction className="h-4 w-4 text-amber-600" />
+            {title}
+          </p>
+          <p className="text-sm text-muted-foreground">{description}</p>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
