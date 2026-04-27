@@ -1,0 +1,26 @@
+{
+  "name": "XT CONECT - Automação Inteligente",
+  "short_name": "XT CONECT",
+  "description": "Plataforma para gerenciar dispositivos inteligentes e automações",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1418",
+  "theme_color": "#1ca96e",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
