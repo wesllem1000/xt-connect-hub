@@ -2,12 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
+  Activity,
   AlertCircle,
+  Cpu,
   Eye,
+  Gauge,
   MoreVertical,
   Plus,
   QrCode,
   Radio,
+  Settings,
   Sliders,
   Trash2,
 } from 'lucide-react'
@@ -18,6 +22,7 @@ import {
   listDispositivos,
   type Dispositivo,
 } from '@/api/dispositivos'
+import { useAuthStore } from '@/stores/auth'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -248,6 +253,7 @@ function ErrorMessage({ error }: { error: unknown }) {
 export function DispositivosPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
   const [toDelete, setToDelete] = useState<Dispositivo | null>(null)
 
   const query = useQuery({
@@ -265,6 +271,18 @@ export function DispositivosPage() {
     })
   }, [query.data])
 
+  const totalDevices = dispositivos.length
+  const ownDevices = dispositivos.filter((d) => d.access_type === 'owner').length
+  const sharedDevices = totalDevices - ownDevices
+  const onlineDevices = dispositivos.filter((d) => d.online).length
+  const firstName = (user?.name || user?.email || '').split(/\s+/)[0] || 'visitante'
+  const roleLabel =
+    user?.role === 'admin'
+      ? 'Administrador'
+      : user?.role === 'instalador'
+        ? 'Instalador'
+        : 'Usuário'
+
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteDispositivo(id),
     onSuccess: () => {
@@ -281,14 +299,95 @@ export function DispositivosPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* Greeting */}
+      <div className="animate-slide-up">
+        <h2 className="text-xl sm:text-3xl font-bold mb-1 sm:mb-2">
+          Olá, {firstName}! 👋
+        </h2>
+        <p className="text-sm sm:text-base text-muted-foreground">
+          Bem-vindo de volta — {roleLabel.toLowerCase()} XT CONECT.
+        </p>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+        <Card className="hover:shadow-lg transition-shadow">
+          <CardHeader className="pb-2 sm:pb-3 p-3 sm:p-6">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">
+                Dispositivos
+              </CardTitle>
+              <Cpu className="h-4 w-4 text-primary" />
+            </div>
+          </CardHeader>
+          <CardContent className="p-3 sm:p-6 pt-0">
+            <div className="text-xl sm:text-2xl font-bold">{ownDevices}</div>
+            <p className="text-[10px] sm:text-xs text-muted-foreground mt-1 truncate">
+              {sharedDevices > 0 ? `+ ${sharedDevices} compartilhado(s)` : 'Próprios'}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="hover:shadow-lg transition-shadow">
+          <CardHeader className="pb-2 sm:pb-3 p-3 sm:p-6">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">
+                Online
+              </CardTitle>
+              <Activity className="h-4 w-4 text-success" />
+            </div>
+          </CardHeader>
+          <CardContent className="p-3 sm:p-6 pt-0">
+            <div className="text-xl sm:text-2xl font-bold">{onlineDevices}</div>
+            <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">
+              de {totalDevices} ativo(s)
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="hover:shadow-lg transition-shadow opacity-70">
+          <CardHeader className="pb-2 sm:pb-3 p-3 sm:p-6">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">
+                Automações
+              </CardTitle>
+              <Gauge className="h-4 w-4 text-secondary" />
+            </div>
+          </CardHeader>
+          <CardContent className="p-3 sm:p-6 pt-0">
+            <div className="text-xl sm:text-2xl font-bold">0</div>
+            <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">
+              em breve
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="hover:shadow-lg transition-shadow opacity-70">
+          <CardHeader className="pb-2 sm:pb-3 p-3 sm:p-6">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground">
+                Alertas
+              </CardTitle>
+              <Settings className="h-4 w-4 text-info" />
+            </div>
+          </CardHeader>
+          <CardContent className="p-3 sm:p-6 pt-0">
+            <div className="text-xl sm:text-2xl font-bold">—</div>
+            <p className="text-[10px] sm:text-xs text-muted-foreground mt-1">
+              em breve
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="flex items-center justify-between pt-2">
         <div>
-          <h2 className="text-2xl font-bold tracking-tight">Dispositivos</h2>
-          <p className="text-muted-foreground text-sm">
+          <h3 className="text-lg sm:text-xl font-bold tracking-tight">Meus Dispositivos</h3>
+          <p className="text-muted-foreground text-xs sm:text-sm">
             Seus dispositivos conectados ao hub.
           </p>
         </div>
-        <Button onClick={() => navigate('/dispositivos/adicionar')}>
+        <Button onClick={() => navigate('/dispositivos/adicionar')} className="gradient-primary text-white">
           <Plus className="h-4 w-4 mr-2" />
           Adicionar
         </Button>
