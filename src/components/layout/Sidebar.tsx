@@ -55,8 +55,8 @@ export function Sidebar({ mobileOpen = false, onCloseMobile }: SidebarProps) {
       aria-label="Navegação principal"
       aria-hidden={!mobileOpen ? undefined : false}
       className={cn(
-        // Desktop: estático, sempre visível, largura 256px
-        'md:static md:translate-x-0 md:flex md:w-64 md:shrink-0',
+        // Desktop: sticky no topo, altura da viewport (não rola junto com main)
+        'md:sticky md:top-0 md:h-screen md:translate-x-0 md:flex md:w-64 md:shrink-0',
         // Mobile: drawer slide-in; z acima do overlay (40); transições suaves
         'fixed inset-y-0 left-0 z-50 w-[17rem] max-w-[85%] bg-white border-r shadow-xl md:shadow-none',
         'flex flex-col transition-transform duration-200 ease-out',

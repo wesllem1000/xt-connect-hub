@@ -79,7 +79,7 @@ export function AppShell() {
       />
 
       <main
-        className="flex-1 min-w-0 overflow-auto p-4 md:p-8 pt-[calc(3.5rem+env(safe-area-inset-top))] md:pt-8"
+        className="flex-1 min-w-0 p-4 md:p-8 pt-[calc(3.5rem+env(safe-area-inset-top))] md:pt-8"
         style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}
       >
         <Outlet />
