@@ -707,32 +707,81 @@
   // Defaults da NVS — o ESP de verdade carregaria isso do flash na boot.
   // Aqui simulamos com 8 slots, 2 habilitados por padrão (igual aos defaults
   // da função provision_irr_v1_defaults do banco — alinha primeira boot).
+  // Defaults completos — alinhados com irrigation_configs / irrigation_sectors
+  // do banco. Todos os campos sao trocados via config/push e ecoados em
+  // config/current.
+  const DEFAULT_SECTOR = (numero, gpio, habilitado) => ({
+    numero, nome: 'Setor ' + numero, habilitado,
+    pausado: false, gpio_rele: gpio, nivel_ativo_rele: 'high',
+    tipo_botao_fisico: null, gpio_botao: null, debounce_ms: 50,
+  });
   const DEFAULT_DEVICE_CONFIG = () => ({
+    modo_operacao: 'manual',
     bomba: {
       tipo_bomba: 'monofasica',
       nivel_ativo_bomba: 'high',
       reforco_rele_ativo: false,
+      atraso_abrir_valvula_antes_bomba_s: 3,
+      tempo_bomba_desligada_antes_fechar_valvula_s: 2,
+      atraso_religar_bomba_apos_fechamento_s: 5,
+      tempo_max_continuo_bomba_min: 120,
+      tempo_max_manual_local_min: 60,
+      tempo_max_manual_remoto_sem_internet_min: 60,
     },
+    botao: { tipo: 'pulso_alterna', debounce_ms: 50, assume_manual: true },
+    gpio_1wire: 15,
     sectors: [
-      { numero: 1, nome: 'Setor 1', habilitado: true,  gpio_rele: 16, nivel_ativo_rele: 'high' },
-      { numero: 2, nome: 'Setor 2', habilitado: true,  gpio_rele: 17, nivel_ativo_rele: 'high' },
-      { numero: 3, nome: 'Setor 3', habilitado: false, gpio_rele: 18, nivel_ativo_rele: 'high' },
-      { numero: 4, nome: 'Setor 4', habilitado: false, gpio_rele: 19, nivel_ativo_rele: 'high' },
-      { numero: 5, nome: 'Setor 5', habilitado: false, gpio_rele: 21, nivel_ativo_rele: 'high' },
-      { numero: 6, nome: 'Setor 6', habilitado: false, gpio_rele: 22, nivel_ativo_rele: 'high' },
-      { numero: 7, nome: 'Setor 7', habilitado: false, gpio_rele: 23, nivel_ativo_rele: 'high' },
-      { numero: 8, nome: 'Setor 8', habilitado: false, gpio_rele: 25, nivel_ativo_rele: 'high' },
+      DEFAULT_SECTOR(1, 16, true),
+      DEFAULT_SECTOR(2, 17, true),
+      DEFAULT_SECTOR(3, 18, false),
+      DEFAULT_SECTOR(4, 19, false),
+      DEFAULT_SECTOR(5, 21, false),
+      DEFAULT_SECTOR(6, 22, false),
+      DEFAULT_SECTOR(7, 23, false),
+      DEFAULT_SECTOR(8, 25, false),
     ],
   });
 
   const internal = {
-    mode: 'manual', // 'manual' | 'automatico'
-    sensors: [],   // { id, role, nome, mode, valor, limite, histerese, ativo, lastAlarm }
-    timers: [],    // { id, nome, alvo, sectorN, hora, duracaoMin, diasMask, ativo, _running, _runStartedAt }
+    mode: 'manual', // 'manual' | 'automatico' (espelho local de cfg.modo_operacao)
+    sensors: [],   // { id, role, nome, mode, valor, limite, histerese, ativo, lastAlarm, rom_id, ack_usuario_requerido }
+    // Timers usam o formato canonico do banco (irrigation_timers): id (uuid),
+    // alvo_tipo ('pump'|'sector'), sector_numero (int|null), tipo
+    // ('fixed'|'cyclic_window'|'cyclic_continuous'), nome, ativo, pausado,
+    // hora_inicio (HH:MM), hora_fim, duracao_min, on_minutes, off_minutes,
+    // dias_semana (bitmask 0..127). Campos voláteis com prefixo _ (_running,
+    // _runStartedAt) são internos ao simulator.
+    timers: [],
     alarmActive: false,
-    alarmInfo: null, // { sensorId, valor, limite }
+    alarmInfo: null,
     deviceConfig: DEFAULT_DEVICE_CONFIG(),
   };
+
+  // Mascara de migracao: timers no formato antigo (alvo, sectorN, hora,
+  // duracaoMin, diasMask) → formato banco. Aplicado no restore().
+  function migrateTimerFromLegacy(t) {
+    if (!t) return null;
+    if (t.alvo_tipo) return t; // ja migrado
+    if (typeof t.alvo === 'string') {
+      return {
+        id: t.id || uuidv4(),
+        alvo_tipo: t.alvo === 'sector' ? 'sector' : 'pump',
+        sector_numero: t.alvo === 'sector' ? (t.sectorN || 1) : null,
+        tipo: 'fixed',
+        nome: t.nome || 'Timer',
+        ativo: t.ativo !== false,
+        pausado: false,
+        hora_inicio: t.hora || '06:00',
+        hora_fim: null,
+        duracao_min: t.duracaoMin || 15,
+        on_minutes: null,
+        off_minutes: null,
+        dias_semana: t.diasMask || 0b0111110,
+        observacao: null,
+      };
+    }
+    return null;
+  }
 
   // Persistência leve no localStorage
   const LS_KEY = 'xtsim_v1';
@@ -765,10 +814,28 @@
         for (const s of internal.sensors) if (!s.rom_id) s.rom_id = mockRomId();
       }
       if (Array.isArray(d.timers)) {
-        internal.timers = d.timers.map(t => ({ ...t, _running: false, _runStartedAt: null }));
+        internal.timers = d.timers
+          .map(migrateTimerFromLegacy)
+          .filter(Boolean)
+          .map(t => ({ ...t, _running: false, _runStartedAt: null }));
       }
       if (d.deviceConfig && d.deviceConfig.bomba && Array.isArray(d.deviceConfig.sectors)) {
-        internal.deviceConfig = d.deviceConfig;
+        // Merge com defaults pra preencher campos novos que nao existiam em
+        // configs antigas (atrasos, botao, gpio_1wire, etc).
+        const def = DEFAULT_DEVICE_CONFIG();
+        internal.deviceConfig = {
+          ...def,
+          ...d.deviceConfig,
+          bomba: { ...def.bomba, ...(d.deviceConfig.bomba || {}) },
+          botao: { ...def.botao, ...(d.deviceConfig.botao || {}) },
+          sectors: d.deviceConfig.sectors.map((s, i) => ({
+            ...DEFAULT_SECTOR(s.numero || (i+1), 16+i, false),
+            ...s,
+          })),
+        };
+        if (typeof internal.deviceConfig.modo_operacao === 'string') {
+          internal.mode = internal.deviceConfig.modo_operacao;
+        }
       }
     } catch (_) {}
   }
@@ -830,11 +897,15 @@
 
   function publishConfigCurrent() {
     if (!client || !client.connected) return;
+    const dc = internal.deviceConfig;
     const payload = JSON.stringify({
       protocol_version: 1,
       ts: new Date().toISOString(),
-      bomba: internal.deviceConfig.bomba,
-      sectors: internal.deviceConfig.sectors,
+      modo_operacao: internal.mode,
+      bomba: dc.bomba,
+      botao: dc.botao,
+      gpio_1wire: dc.gpio_1wire,
+      sectors: dc.sectors,
       sensors: internal.sensors.map(s => ({
         rom_id: s.rom_id,
         nome: s.nome,
@@ -843,6 +914,22 @@
         histerese_c: s.histerese,
         ack_usuario_requerido: s.ack_usuario_requerido !== false,
         ativo: s.ativo,
+      })),
+      timers: internal.timers.map(t => ({
+        id: t.id,
+        alvo_tipo: t.alvo_tipo,
+        sector_numero: t.sector_numero,
+        tipo: t.tipo,
+        nome: t.nome,
+        ativo: t.ativo,
+        pausado: t.pausado === true,
+        hora_inicio: t.hora_inicio || null,
+        hora_fim: t.hora_fim || null,
+        duracao_min: t.duracao_min || null,
+        on_minutes: t.on_minutes || null,
+        off_minutes: t.off_minutes || null,
+        dias_semana: t.dias_semana || 0,
+        observacao: t.observacao || null,
       })),
     });
     client.publish(`devices/${serial}/config/current`, payload, { qos: 1, retain: true }, (err) => {
@@ -1083,22 +1170,26 @@
     let stateChanged = false;
 
     for (const t of internal.timers) {
-      if (!t.ativo) continue;
-      if (!(t.diasMask & (1 << dia))) continue;
+      if (!t.ativo || t.pausado) continue;
+      if (t.tipo !== 'fixed') continue; // simulator so executa fixed por simplicidade
+      if (!(t.dias_semana & (1 << dia))) continue;
+      const hora = (t.hora_inicio || '').slice(0, 5);
+      const dur = t.duracao_min || 0;
+      if (!hora || dur <= 0) continue;
+      const setorNum = t.alvo_tipo === 'sector' ? t.sector_numero : null;
+      const alvoLabel = t.alvo_tipo === 'sector' ? ('setor ' + setorNum) : 'bomba';
 
-      if (!t._running && t.hora === nowHm && now.getSeconds() < 5) {
-        // Dispara
+      if (!t._running && hora === nowHm && now.getSeconds() < 5) {
         t._running = true;
         t._runStartedAt = Date.now();
-        const offAt = new Date(Date.now() + t.duracaoMin * 60 * 1000).toISOString();
+        const offAt = new Date(Date.now() + dur * 60 * 1000).toISOString();
 
-        if (t.alvo === 'sector') {
-          state.sectors[t.sectorN].estado = 'open';
-          state.sectors[t.sectorN].opened_at = new Date().toISOString();
-          state.sectors[t.sectorN].source = 'automatic';
-          publishEvent('sector_opened', { numero: t.sectorN, timer_id: t.id, duracao_min: t.duracaoMin }, 'automatic');
+        if (t.alvo_tipo === 'sector' && setorNum && state.sectors[setorNum]) {
+          state.sectors[setorNum].estado = 'open';
+          state.sectors[setorNum].opened_at = new Date().toISOString();
+          state.sectors[setorNum].source = 'automatic';
+          publishEvent('sector_opened', { numero: setorNum, timer_id: t.id, duracao_min: dur }, 'automatic');
         }
-        // Liga bomba se está off; se já está on com scheduled_off_at, mantém o maior (mais distante).
         if (state.pump.state !== 'on') {
           state.pump.state = 'on';
           state.pump.source = 'automatic';
@@ -1111,22 +1202,21 @@
         } else {
           state.pump.scheduled_off_at = offAt;
         }
-        publishEvent('pump_on_auto', { timer_id: t.id, nome: t.nome, duracao_min: t.duracaoMin }, 'automatic');
-        log(`TIMER "${t.nome}" disparou (alvo=${t.alvo === 'sector' ? 'setor ' + t.sectorN : 'bomba'}, ${t.duracaoMin}min)`, 'ok');
+        publishEvent('pump_on_auto', { timer_id: t.id, nome: t.nome, duracao_min: dur }, 'automatic');
+        log(`TIMER "${t.nome}" disparou (${alvoLabel}, ${dur}min)`, 'ok');
         stateChanged = true;
       }
 
-      if (t._running && t._runStartedAt && Date.now() - t._runStartedAt >= t.duracaoMin * 60 * 1000) {
-        // Termina o timer atual
+      if (t._running && t._runStartedAt && Date.now() - t._runStartedAt >= dur * 60 * 1000) {
         t._running = false;
         t._runStartedAt = null;
-        if (t.alvo === 'sector') {
-          state.sectors[t.sectorN].estado = 'closed';
-          state.sectors[t.sectorN].opened_at = null;
-          state.sectors[t.sectorN].scheduled_close_at = null;
-          publishEvent('sector_closed', { numero: t.sectorN, timer_id: t.id }, 'automatic');
+        if (t.alvo_tipo === 'sector' && setorNum && state.sectors[setorNum]) {
+          state.sectors[setorNum].estado = 'closed';
+          state.sectors[setorNum].opened_at = null;
+          state.sectors[setorNum].scheduled_close_at = null;
+          publishEvent('sector_closed', { numero: setorNum, timer_id: t.id }, 'automatic');
         }
-        log(`TIMER "${t.nome}" terminou (${t.duracaoMin}min)`, 'ok');
+        log(`TIMER "${t.nome}" terminou (${dur}min)`, 'ok');
         stateChanged = true;
       }
     }
@@ -1153,18 +1243,20 @@
     if (internal.mode !== 'automatico') {
       log('Modo manual — força disparo do timer mesmo assim', 'info');
     }
+    const dur = t.duracao_min || 15;
     t._running = true;
     t._runStartedAt = Date.now();
-    if (t.alvo === 'sector') {
-      state.sectors[t.sectorN].estado = 'open';
-      state.sectors[t.sectorN].opened_at = new Date().toISOString();
-      publishEvent('sector_opened', { numero: t.sectorN, timer_id: t.id }, 'automatic');
+    const setorNum = t.alvo_tipo === 'sector' ? t.sector_numero : null;
+    if (t.alvo_tipo === 'sector' && setorNum && state.sectors[setorNum]) {
+      state.sectors[setorNum].estado = 'open';
+      state.sectors[setorNum].opened_at = new Date().toISOString();
+      publishEvent('sector_opened', { numero: setorNum, timer_id: t.id }, 'automatic');
     }
     state.pump.state = 'on';
     state.pump.source = 'automatic';
     state.pump.started_at = new Date().toISOString();
-    state.pump.scheduled_off_at = new Date(Date.now() + t.duracaoMin * 60 * 1000).toISOString();
-    publishEvent('pump_on_auto', { timer_id: t.id, nome: t.nome, duracao_min: t.duracaoMin }, 'automatic');
+    state.pump.scheduled_off_at = new Date(Date.now() + dur * 60 * 1000).toISOString();
+    publishEvent('pump_on_auto', { timer_id: t.id, nome: t.nome, duracao_min: dur }, 'automatic');
     publishState();
     log(`TIMER "${t.nome}" disparado manualmente`, 'ok');
     render();
@@ -1419,19 +1511,23 @@
     }
     for (const t of internal.timers) {
       const dias = [];
-      for (let d = 0; d < 7; d++) if (t.diasMask & (1 << d)) dias.push(dayLabels[d]);
+      for (let d = 0; d < 7; d++) if (t.dias_semana & (1 << d)) dias.push(dayLabels[d]);
       const card = document.createElement('div');
       card.className = 'sensor-card';
+      const alvoLbl = t.alvo_tipo === 'sector' ? ('Setor ' + t.sector_numero) : 'Bomba';
+      const hora = (t.hora_inicio || '').slice(0, 5) || '—';
+      const dur = t.duracao_min || 0;
       card.innerHTML = `
         <div class="between">
           <div style="flex:1; min-width:0;">
             <div style="font-weight:600;">${t.nome}</div>
             <div class="small muted">
-              ${t.alvo === 'sector' ? 'Setor ' + t.sectorN : 'Bomba'} · ${t.hora} · ${t.duracaoMin}min
+              ${alvoLbl} · ${hora} · ${dur}min · ${t.tipo}
             </div>
             <div class="tiny muted">Dias: ${dias.join(', ') || '—'}</div>
             ${t._running ? '<div class="tiny" style="color:var(--ok);">▶ Rodando agora</div>' : ''}
             ${!t.ativo ? '<div class="tiny muted">INATIVO</div>' : ''}
+            ${t.pausado ? '<div class="tiny muted">PAUSADO</div>' : ''}
           </div>
           <div class="stack" style="gap:4px;">
             <button class="btn tiny" data-act="fire">▶ Disparar agora</button>
@@ -1442,12 +1538,12 @@
         </div>`;
       const h = {
         'fire': () => fireTimerNow(t.id),
-        'toggle': () => { t.ativo = !t.ativo; persist(); render(); },
+        'toggle': () => { t.ativo = !t.ativo; persist(); scheduleConfigPublish(); render(); },
         'edit': () => openTimerModal(t),
         'remove': () => {
           if (!confirm(`Remover timer "${t.nome}"?`)) return;
           internal.timers = internal.timers.filter(x => x.id !== t.id);
-          persist(); render();
+          persist(); scheduleConfigPublish(); render();
         },
       };
       card.querySelectorAll('button[data-act]').forEach(b => {
@@ -1572,11 +1668,11 @@
     editingTimerId = t ? t.id : null;
     el('modal-timer-title').textContent = t ? 'Editar timer' : 'Novo timer';
     el('mt-nome').value = t ? t.nome : '';
-    el('mt-alvo').value = t ? t.alvo : 'pump';
-    el('mt-sector').value = t ? String(t.sectorN || 1) : '1';
-    el('mt-hora').value = t ? t.hora : '06:00';
-    el('mt-dur').value = t ? t.duracaoMin : 15;
-    const mask = t ? t.diasMask : 0b0111110; // úteis default
+    el('mt-alvo').value = t ? t.alvo_tipo : 'pump';
+    el('mt-sector').value = t ? String(t.sector_numero || 1) : '1';
+    el('mt-hora').value = t ? ((t.hora_inicio || '').slice(0, 5) || '06:00') : '06:00';
+    el('mt-dur').value = t ? (t.duracao_min || 15) : 15;
+    const mask = t ? (t.dias_semana || 0b0111110) : 0b0111110;
     renderDayPickers(mask);
     el('mt-sector-wrap').style.display = el('mt-alvo').value === 'sector' ? '' : 'none';
     openModal('modal-timer');
@@ -1607,14 +1703,21 @@
   el('btn-save-timer').onclick = () => {
     const lastBtn = el('mt-dias-row').querySelector('button:last-child');
     const mask = lastBtn ? parseInt(lastBtn.dataset.mask, 10) : 0;
+    const alvo = el('mt-alvo').value;
     const data = {
       nome: el('mt-nome').value.trim() || 'Timer',
-      alvo: el('mt-alvo').value,
-      sectorN: parseInt(el('mt-sector').value, 10) || 1,
-      hora: el('mt-hora').value,
-      duracaoMin: parseInt(el('mt-dur').value, 10) || 15,
-      diasMask: mask,
+      alvo_tipo: alvo,
+      sector_numero: alvo === 'sector' ? (parseInt(el('mt-sector').value, 10) || 1) : null,
+      tipo: 'fixed',
+      hora_inicio: el('mt-hora').value,
+      hora_fim: null,
+      duracao_min: parseInt(el('mt-dur').value, 10) || 15,
+      on_minutes: null,
+      off_minutes: null,
+      dias_semana: mask,
       ativo: true,
+      pausado: false,
+      observacao: null,
     };
     if (editingTimerId) {
       const t = internal.timers.find(x => x.id === editingTimerId);
@@ -1624,6 +1727,7 @@
     }
     persist();
     closeModal('modal-timer');
+    scheduleConfigPublish();
     render();
   };
 
@@ -1749,21 +1853,77 @@
         try {
           const cfg = JSON.parse(payload.toString());
           let changed = 0;
+          if (typeof cfg.modo_operacao === 'string' && cfg.modo_operacao !== internal.mode) {
+            internal.mode = cfg.modo_operacao;
+            internal.deviceConfig.modo_operacao = cfg.modo_operacao;
+            changed++;
+          }
           if (cfg.bomba && typeof cfg.bomba === 'object') {
             const b = internal.deviceConfig.bomba;
-            ['tipo_bomba','nivel_ativo_bomba','reforco_rele_ativo'].forEach(k => {
+            const bombaKeys = ['tipo_bomba','nivel_ativo_bomba','reforco_rele_ativo',
+              'atraso_abrir_valvula_antes_bomba_s','tempo_bomba_desligada_antes_fechar_valvula_s',
+              'atraso_religar_bomba_apos_fechamento_s','tempo_max_continuo_bomba_min',
+              'tempo_max_manual_local_min','tempo_max_manual_remoto_sem_internet_min'];
+            bombaKeys.forEach(k => {
               if (cfg.bomba[k] !== undefined && b[k] !== cfg.bomba[k]) { b[k] = cfg.bomba[k]; changed++; }
             });
+          }
+          if (cfg.botao && typeof cfg.botao === 'object') {
+            const bt = internal.deviceConfig.botao;
+            ['tipo','debounce_ms','assume_manual'].forEach(k => {
+              if (cfg.botao[k] !== undefined && bt[k] !== cfg.botao[k]) { bt[k] = cfg.botao[k]; changed++; }
+            });
+          }
+          if (Number.isFinite(cfg.gpio_1wire) && internal.deviceConfig.gpio_1wire !== cfg.gpio_1wire) {
+            internal.deviceConfig.gpio_1wire = cfg.gpio_1wire; changed++;
           }
           if (Array.isArray(cfg.sectors)) {
             for (const s of cfg.sectors) {
               if (typeof s.numero !== 'number') continue;
               const local = internal.deviceConfig.sectors.find(x => x.numero === s.numero);
               if (!local) continue;
-              ['nome','habilitado','gpio_rele','nivel_ativo_rele'].forEach(k => {
+              ['nome','habilitado','pausado','gpio_rele','nivel_ativo_rele',
+               'tipo_botao_fisico','gpio_botao','debounce_ms'].forEach(k => {
                 if (s[k] !== undefined && local[k] !== s[k]) { local[k] = s[k]; changed++; }
               });
             }
+          }
+          if (Array.isArray(cfg.timers)) {
+            // Reconcilia timers por id (uuid do banco). Adiciona/atualiza/remove.
+            const incomingById = new Map();
+            for (const t of cfg.timers) {
+              if (!t || !t.id) continue;
+              incomingById.set(t.id, t);
+            }
+            for (const inc of incomingById.values()) {
+              const local = internal.timers.find(x => x.id === inc.id);
+              const next = {
+                id: inc.id,
+                alvo_tipo: inc.alvo_tipo,
+                sector_numero: inc.sector_numero,
+                tipo: inc.tipo,
+                nome: inc.nome,
+                ativo: inc.ativo !== false,
+                pausado: inc.pausado === true,
+                hora_inicio: inc.hora_inicio || null,
+                hora_fim: inc.hora_fim || null,
+                duracao_min: inc.duracao_min || null,
+                on_minutes: inc.on_minutes || null,
+                off_minutes: inc.off_minutes || null,
+                dias_semana: inc.dias_semana || 0,
+                observacao: inc.observacao || null,
+              };
+              if (local) {
+                Object.assign(local, next);
+                changed++;
+              } else {
+                internal.timers.push({ ...next, _running: false, _runStartedAt: null });
+                changed++;
+              }
+            }
+            const before = internal.timers.length;
+            internal.timers = internal.timers.filter(t => incomingById.has(t.id));
+            if (internal.timers.length !== before) changed += (before - internal.timers.length);
           }
           if (Array.isArray(cfg.sensors)) {
             // Sensors são identificados por rom_id. Adiciona o que veio e
