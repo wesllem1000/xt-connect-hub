@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils'
 
 import { BombaCommandButton } from '../components/BombaCommandButton'
 import { IndicadoresStatusBar } from '../components/IndicadoresStatusBar'
+import { LogsTab } from '../components/LogsTab'
 import { PumpStatusCard, type PumpRuntime } from '../components/PumpStatusCard'
 import { SetorCardValvula } from '../components/SetorCardValvula'
 import { useComando } from '../hooks/useComando'
@@ -509,11 +510,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
           </TabsContent>
 
           <TabsContent value="logs" className="mt-0">
-            <TabPlaceholder
-              icon={<Terminal className="h-8 w-8" />}
-              title="Logs"
-              description="Logs internos do firmware. Em construção."
-            />
+            <LogsTab deviceId={deviceId} />
           </TabsContent>
         </Tabs>
       </div>
