@@ -40,6 +40,7 @@ import { HistoryTab } from '../components/HistoryTab'
 import { LogsTab } from '../components/LogsTab'
 import { PumpStatusCard, type PumpRuntime } from '../components/PumpStatusCard'
 import { PumpTab } from '../components/PumpTab'
+import { SectorsTab } from '../components/SectorsTab'
 import { SystemTab } from '../components/SystemTab'
 import { SetorCardValvula } from '../components/SetorCardValvula'
 import { useComando } from '../hooks/useComando'
@@ -481,11 +482,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
           </TabsContent>
 
           <TabsContent value="setores" className="mt-0">
-            <TabPlaceholder
-              icon={<Sliders className="h-8 w-8" />}
-              title="Setores"
-              description="Configuração avançada: ativar/desativar setores, renomear, ajustar GPIO. Em construção."
-            />
+            <SectorsTab deviceId={deviceId} setores={snap.sectors} />
           </TabsContent>
 
           <TabsContent value="bomba" className="mt-0">
