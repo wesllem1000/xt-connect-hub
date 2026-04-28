@@ -1,9 +1,11 @@
 import { api } from '@/lib/api'
 import type {
   ListaProdutosResponse,
+  MqttCredentials,
   ProdutoDetalhe,
   ProvisionarInput,
   ProvisionarResponse,
+  RegenerarMqttResponse,
   ResetProdutoResponse,
 } from './types'
 
@@ -45,4 +47,11 @@ export async function resetProduto(id: string): Promise<ProdutoDetalhe> {
     .post(`admin/produtos/${id}/reset`)
     .json<ResetProdutoResponse>()
   return produto
+}
+
+export async function regenerarMqttPassword(id: string): Promise<MqttCredentials> {
+  const { mqtt_credentials } = await api
+    .post(`dispositivos/${id}/regenerar-mqtt`)
+    .json<RegenerarMqttResponse>()
+  return mqtt_credentials
 }

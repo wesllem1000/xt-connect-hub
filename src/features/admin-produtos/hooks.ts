@@ -6,6 +6,7 @@ import {
   getProduto,
   listProdutos,
   provisionarProduto,
+  regenerarMqttPassword,
   resetProduto,
 } from './api'
 import type { Filtros, ProvisionarInput } from './types'
@@ -61,6 +62,16 @@ export function useResetProduto() {
     },
     onError: async (err) => {
       const msg = await extractApiError(err, 'Falha ao resetar produto')
+      toast.error(msg)
+    },
+  })
+}
+
+export function useRegenerarMqttPassword() {
+  return useMutation({
+    mutationFn: (id: string) => regenerarMqttPassword(id),
+    onError: async (err) => {
+      const msg = await extractApiError(err, 'Falha ao regenerar senha MQTT')
       toast.error(msg)
     },
   })

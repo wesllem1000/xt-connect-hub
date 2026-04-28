@@ -67,6 +67,16 @@ export type ResetProdutoResponse = {
   produto: ProdutoDetalhe
 }
 
+export type MqttCredentials = {
+  username: string
+  password: string
+  broker: string
+}
+
+export type RegenerarMqttResponse = {
+  mqtt_credentials: MqttCredentials
+}
+
 export type Filtros = {
   status?: ProdutoStatus | 'todos'
   modelo_id?: string

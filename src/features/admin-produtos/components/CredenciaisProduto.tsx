@@ -100,7 +100,7 @@ export function CredenciaisProduto({
                     Password
                   </p>
                   <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground italic">
-                    já consumida — use "Reset" pra regenerar
+                    não disponível — use "Regenerar senha MQTT" pra gerar uma nova
                   </div>
                 </div>
               )}

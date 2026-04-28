@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   ChevronRight,
   ExternalLink,
+  KeyRound,
   Loader2,
   Printer,
   Radio,
@@ -26,6 +27,14 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Skeleton } from '@/components/ui/skeleton'
 import { extractApiError } from '@/lib/api'
 
@@ -33,7 +42,8 @@ import { CopyField } from '../components/CopyField'
 import { CredenciaisProduto } from '../components/CredenciaisProduto'
 import { openEtiquetaProduto } from '../components/EtiquetaProduto'
 import { ProdutoStatusChip } from '../components/ProdutoStatusChip'
-import { useProduto, useResetProduto } from '../hooks'
+import { useProduto, useRegenerarMqttPassword, useResetProduto } from '../hooks'
+import type { MqttCredentials } from '../types'
 
 const dateFormatter = new Intl.DateTimeFormat('pt-BR', {
   dateStyle: 'short',
@@ -52,8 +62,11 @@ export function ProdutoFichaPage() {
   const navigate = useNavigate()
   const query = useProduto(id)
   const resetMutation = useResetProduto()
+  const regenMqttMutation = useRegenerarMqttPassword()
 
   const [confirmStep, setConfirmStep] = useState<0 | 1 | 2>(0)
+  const [confirmRegenMqtt, setConfirmRegenMqtt] = useState(false)
+  const [regenResult, setRegenResult] = useState<MqttCredentials | null>(null)
 
   useEffect(() => {
     if (!resetMutation.isPending && !resetMutation.isIdle) {
@@ -242,6 +255,14 @@ export function ProdutoFichaPage() {
         </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           <Button
+            variant="outline"
+            onClick={() => setConfirmRegenMqtt(true)}
+            disabled={regenMqttMutation.isPending}
+          >
+            <KeyRound className="h-4 w-4 mr-2" />
+            Regenerar senha MQTT
+          </Button>
+          <Button
             variant="destructive"
             onClick={() => setConfirmStep(1)}
             disabled={resetMutation.isPending}
@@ -254,7 +275,113 @@ export function ProdutoFichaPage() {
         </CardContent>
       </Card>
 
-      {/* Alert dialog — confirmação dupla */}
+      {/* Confirmação simples — regenerar senha MQTT */}
+      <AlertDialog
+        open={confirmRegenMqtt}
+        onOpenChange={(o) => {
+          if (!o && !regenMqttMutation.isPending) setConfirmRegenMqtt(false)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Regenerar senha MQTT?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  Uma nova senha será gerada e gravada no broker. O firmware
+                  atual de <strong>{p.serial}</strong> vai parar de conectar até
+                  ser reflashado (ou reconfigurado, no caso do simulador) com a
+                  nova senha.
+                </p>
+                <Alert className="border-amber-300 bg-amber-50 text-amber-900">
+                  <AlertTriangle className="h-4 w-4 text-amber-600" />
+                  <AlertDescription>
+                    A nova senha será mostrada <strong>uma única vez</strong> —
+                    copie agora ou regenere de novo depois.
+                  </AlertDescription>
+                </Alert>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={regenMqttMutation.isPending}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={regenMqttMutation.isPending}
+              onClick={(e) => {
+                e.preventDefault()
+                if (!id) return
+                regenMqttMutation.mutate(id, {
+                  onSuccess: (creds) => {
+                    setConfirmRegenMqtt(false)
+                    setRegenResult(creds)
+                  },
+                })
+              }}
+            >
+              {regenMqttMutation.isPending && (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              )}
+              Regenerar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Resultado: nova senha MQTT (one-shot) */}
+      <Dialog
+        open={regenResult !== null}
+        onOpenChange={(o) => {
+          if (!o) setRegenResult(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Nova senha MQTT</DialogTitle>
+            <DialogDescription>
+              Senha de <span className="font-mono font-semibold">{p.serial}</span>{' '}
+              regenerada com sucesso.
+            </DialogDescription>
+          </DialogHeader>
+          {regenResult && (
+            <div className="space-y-4">
+              <Alert className="border-amber-300 bg-amber-50 text-amber-900">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <AlertDescription className="text-amber-900">
+                  <strong>Guarde estas informações agora.</strong> A senha não
+                  será mostrada novamente. Se perder, regere outra vez (e
+                  reflash/reconfigure o firmware).
+                </AlertDescription>
+              </Alert>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <CopyField
+                  label="Broker"
+                  value={regenResult.broker}
+                  valueClassName="font-mono text-xs"
+                />
+                <CopyField
+                  label="Username"
+                  value={regenResult.username}
+                  valueClassName="font-mono text-xs"
+                />
+                <div className="sm:col-span-2">
+                  <CopyField
+                    label="Password (única vez)"
+                    value={regenResult.password}
+                    valueClassName="font-mono text-xs break-all"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setRegenResult(null)}>Entendi, fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Alert dialog — confirmação dupla do reset */}
       <AlertDialog
         open={confirmStep > 0}
         onOpenChange={(o) => {
