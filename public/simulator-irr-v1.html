@@ -1117,12 +1117,17 @@
       }
     }
     if (triggered) {
-      // Se há alarme novo (não estava active ou era outro sensor) → publica evento
+      // Safety hard: corta bomba E fecha TODOS setores em qualquer alarme
+      // (independente do role). Esse comportamento NÃO depende do app — é
+      // fail-safe local do firmware. Se internet cair, o ESP ainda corta.
       const isNew = !internal.alarmActive || (internal.alarmInfo && internal.alarmInfo.sensorId !== triggered.id);
       internal.alarmActive = true;
-      internal.alarmInfo = { sensorId: triggered.id, sensorNome: triggered.nome, valor: triggered.valor, limite: triggered.limite, role: triggered.role };
-      // Desliga bomba se estiver ligada
+      internal.alarmInfo = {
+        sensorId: triggered.id, sensorNome: triggered.nome, valor: triggered.valor,
+        limite: triggered.limite, role: triggered.role, rom_id: triggered.rom_id,
+      };
       let bombaCortada = false;
+      const setoresFechados = [];
       if (state.pump.state !== 'off') {
         state.pump.state = 'off';
         state.pump.source = null;
@@ -1130,13 +1135,35 @@
         state.pump.scheduled_off_at = null;
         bombaCortada = true;
       }
+      // Fecha todos setores abertos
+      for (const numStr of Object.keys(state.sectors)) {
+        const sec = state.sectors[numStr];
+        if (sec && (sec.estado === 'open' || sec.estado === 'opening')) {
+          sec.estado = 'closed';
+          sec.opened_at = null;
+          sec.scheduled_close_at = null;
+          sec.source = null;
+          setoresFechados.push(parseInt(numStr, 10));
+        }
+      }
+      // Cancela timers em execucao
+      for (const t of internal.timers) {
+        if (t._running) { t._running = false; t._runStartedAt = null; }
+      }
       if (isNew) {
         publishEvent('temp_alarm_triggered', {
-          sensor_id: triggered.id, role: triggered.role, nome: triggered.nome,
+          sensor_id: triggered.id, rom_id: triggered.rom_id,
+          role: triggered.role, nome: triggered.nome,
           temp_c: triggered.valor, limite_c: triggered.limite,
           bomba_cortada: bombaCortada,
+          setores_fechados: setoresFechados,
         }, 'safety');
-        if (bombaCortada) publishEvent('pump_off_safety', { motivo: 'temp_alarm', sensor_id: triggered.id }, 'safety');
+        if (bombaCortada) {
+          publishEvent('pump_off_safety', { motivo: 'temp_alarm', sensor_id: triggered.id, rom_id: triggered.rom_id }, 'safety');
+        }
+        for (const num of setoresFechados) {
+          publishEvent('sector_closed', { numero: num, motivo: 'temp_alarm_safety', rom_id: triggered.rom_id }, 'safety');
+        }
         publishState();
       }
     } else if (internal.alarmActive) {
@@ -1147,10 +1174,19 @@
         const armaThreshold = s.limite - (s.histerese || 0);
         if (s.valor >= armaThreshold) { stillAbove = true; break; }
       }
-      if (!stillAbove) {
+      // O alarme só é resolvido quando: temperatura caiu abaixo de
+      // limite-histerese E (se sensor exigia ack) o user enviou ack.
+      // Aqui o auto-clear só acontece pra sensores SEM ack_usuario_requerido.
+      const wasInfo = internal.alarmInfo;
+      const sensor = wasInfo ? internal.sensors.find(s => s.id === wasInfo.sensorId) : null;
+      const requiresAck = sensor ? (sensor.ack_usuario_requerido !== false) : true;
+      if (!stillAbove && !requiresAck) {
         internal.alarmActive = false;
         internal.alarmInfo = null;
-        publishEvent('temp_alarm_ack_user', { motivo: 'auto_clear_below_hysteresis' }, 'automatic');
+        publishEvent('temp_alarm_resolved', {
+          motivo: 'auto_clear_below_hysteresis',
+          rom_id: wasInfo ? wasInfo.rom_id : null,
+        }, 'automatic');
       }
     }
   }

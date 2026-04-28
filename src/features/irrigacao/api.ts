@@ -260,3 +260,10 @@ export async function deleteSensor(deviceId: string, sensorId: string) {
     .delete(`${base(deviceId)}/sensores-temperatura/${sensorId}`)
     .json<{ ok: true; removido: { id: string; rom_id: string } }>()
 }
+
+export async function ackAlarm(deviceId: string, alarmId: string) {
+  const { alarme } = await api
+    .post(`${base(deviceId)}/alarmes/${alarmId}/ack`)
+    .json<{ alarme: IrrigationAlarme }>()
+  return alarme
+}

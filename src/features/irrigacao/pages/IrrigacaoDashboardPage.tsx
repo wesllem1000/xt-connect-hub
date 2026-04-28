@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   Clock as ClockIcon,
@@ -43,6 +43,7 @@ import { IndicadoresStatusBar } from '../components/IndicadoresStatusBar'
 import { HistoryTab } from '../components/HistoryTab'
 import { LogsTab } from '../components/LogsTab'
 import { PumpStatusCard, type PumpRuntime } from '../components/PumpStatusCard'
+import { AlarmsBanner } from '../components/AlarmsBanner'
 import { PumpTab } from '../components/PumpTab'
 import { SectorsTab } from '../components/SectorsTab'
 import { SensoresTab } from '../components/SensoresTab'
@@ -98,6 +99,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
   const serial = query.data?.device.serial
   useDeviceStateLive(serial, deviceId)
 
+  const [activeTab, setActiveTab] = useState<string>('painel')
   const [decision, setDecision] = useState<DecisionState | null>(null)
   const decisionOpts = {
     onRequiresAction: (info: DecisionState) => setDecision(info),
@@ -320,7 +322,11 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
       </header>
 
       <div className="max-w-5xl mx-auto px-3 sm:px-6 py-6 sm:py-8">
-        <Tabs defaultValue="painel" className="w-full">
+        <Tabs
+          value={activeTab}
+          onValueChange={setActiveTab}
+          className="w-full"
+        >
           <TabsList className="w-full flex flex-wrap h-auto gap-1 mb-6 justify-start bg-card border">
             <TabsTrigger value="painel" className="gap-1.5">
               <LayoutDashboard className="h-4 w-4" />
@@ -371,14 +377,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
         horaSincronizada={indicators.time_valid ?? false}
       />
 
-      {snap.active_alarms.length > 0 && (
-        <Alert variant="destructive">
-          <AlertTitle>{snap.active_alarms.length} alarme(s) ativo(s)</AlertTitle>
-          <AlertDescription>
-            {snap.active_alarms.map((a) => a.tipo).join(', ')}
-          </AlertDescription>
-        </Alert>
-      )}
+      <AlarmsBanner deviceId={deviceId} alarms={snap.active_alarms} />
 
       {isAuto && (
         <Alert>
@@ -435,11 +434,13 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
               ({setoresHabilitados.length} ativo{setoresHabilitados.length === 1 ? '' : 's'})
             </span>
           </h3>
-          <Button variant="outline" size="sm" asChild>
-            <Link to="#" onClick={(e) => e.preventDefault()}>
-              <Settings className="h-4 w-4 mr-1" />
-              Configurar
-            </Link>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setActiveTab('setores')}
+          >
+            <Settings className="h-4 w-4 mr-1" />
+            Configurar
           </Button>
         </div>
 
@@ -477,21 +478,10 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
               variant="ghost"
               size="sm"
               className="h-7"
-              asChild
+              onClick={() => setActiveTab('sensores')}
             >
-              <Link
-                to="#"
-                onClick={(e) => {
-                  e.preventDefault()
-                  const trigger = document.querySelector<HTMLButtonElement>(
-                    '[data-radix-collection-item][value="sensores"]',
-                  )
-                  trigger?.click()
-                }}
-              >
-                <Settings className="h-4 w-4 mr-1" />
-                Configurar
-              </Link>
+              <Settings className="h-4 w-4 mr-1" />
+              Configurar
             </Button>
           )}
         </CardHeader>
@@ -545,10 +535,6 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
         </CardContent>
       </Card>
 
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" disabled>Automações (Sprint 2)</Button>
-              <Button variant="outline" disabled>Tela técnica</Button>
-            </div>
           </TabsContent>
 
           <TabsContent value="timers" className="mt-0">
