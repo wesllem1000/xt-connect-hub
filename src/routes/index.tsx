@@ -1,24 +1,81 @@
+import { lazy, Suspense, type ReactNode } from 'react'
 import { Navigate, createBrowserRouter, useSearchParams } from 'react-router-dom'
 
 import { AppShell } from '@/components/layout/AppShell'
-import { AdminPage } from '@/features/admin/AdminPage'
-import { ClienteDetailPage } from '@/features/admin/clientes/ClienteDetailPage'
+import { Skeleton } from '@/components/ui/skeleton'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { ProtectedRoute } from '@/features/auth/ProtectedRoute'
 import { SignupPage } from '@/features/auth/SignupPage'
 import { VerifyPage } from '@/features/auth/VerifyPage'
-import { AdicionarDispositivoPage } from '@/features/claim/pages/AdicionarDispositivoPage'
 import { ClaimErrorBoundary } from '@/features/claim/components/ClaimErrorBoundary'
-import { ClaimLandingPage } from '@/features/claim/pages/ClaimLandingPage'
-import { AutomacoesPage } from '@/features/automacoes/pages/AutomacoesPage'
-import { AceitarConvitePage } from '@/features/convites/AceitarConvitePage'
-import { ConvitesPage } from '@/features/convites/ConvitesPage'
-import { DispositivoDetailPage } from '@/features/dispositivos/DispositivoDetailPage'
 import { DispositivosPage } from '@/features/dispositivos/DispositivosPage'
-import { ProdutoFichaPage } from '@/features/admin-produtos/pages/ProdutoFichaPage'
-import { ProdutosListPage } from '@/features/admin-produtos/pages/ProdutosListPage'
 import { useAuthStore } from '@/stores/auth'
-import type { ReactNode } from 'react'
+
+// Lazy: páginas tocadas raramente ou que têm dependências grandes (admin,
+// detail de dispositivo com MQTT live, claim com câmera/QR). Reduz o JS
+// baixado no boot — usuário comum vê só /dispositivos.
+const DispositivoDetailPage = lazy(() =>
+  import('@/features/dispositivos/DispositivoDetailPage').then((m) => ({
+    default: m.DispositivoDetailPage,
+  })),
+)
+const AutomacoesPage = lazy(() =>
+  import('@/features/automacoes/pages/AutomacoesPage').then((m) => ({
+    default: m.AutomacoesPage,
+  })),
+)
+const ConvitesPage = lazy(() =>
+  import('@/features/convites/ConvitesPage').then((m) => ({
+    default: m.ConvitesPage,
+  })),
+)
+const AceitarConvitePage = lazy(() =>
+  import('@/features/convites/AceitarConvitePage').then((m) => ({
+    default: m.AceitarConvitePage,
+  })),
+)
+const ClaimLandingPage = lazy(() =>
+  import('@/features/claim/pages/ClaimLandingPage').then((m) => ({
+    default: m.ClaimLandingPage,
+  })),
+)
+const AdicionarDispositivoPage = lazy(() =>
+  import('@/features/claim/pages/AdicionarDispositivoPage').then((m) => ({
+    default: m.AdicionarDispositivoPage,
+  })),
+)
+const AdminPage = lazy(() =>
+  import('@/features/admin/AdminPage').then((m) => ({ default: m.AdminPage })),
+)
+const ClienteDetailPage = lazy(() =>
+  import('@/features/admin/clientes/ClienteDetailPage').then((m) => ({
+    default: m.ClienteDetailPage,
+  })),
+)
+const ProdutoFichaPage = lazy(() =>
+  import('@/features/admin-produtos/pages/ProdutoFichaPage').then((m) => ({
+    default: m.ProdutoFichaPage,
+  })),
+)
+const ProdutosListPage = lazy(() =>
+  import('@/features/admin-produtos/pages/ProdutosListPage').then((m) => ({
+    default: m.ProdutosListPage,
+  })),
+)
+
+function PageLoading() {
+  return (
+    <div className="space-y-3 max-w-4xl">
+      <Skeleton className="h-8 w-64" />
+      <Skeleton className="h-32 w-full" />
+      <Skeleton className="h-48 w-full" />
+    </div>
+  )
+}
+
+function L({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<PageLoading />}>{children}</Suspense>
+}
 
 function safeNext(raw: string | null): string | null {
   if (!raw) return null
@@ -46,10 +103,10 @@ export const router = createBrowserRouter([
   { path: '/login', element: <LoginGate /> },
   { path: '/signup', element: <SignupPage /> },
   { path: '/verify', element: <VerifyPage /> },
-  { path: '/convites/aceitar', element: <AceitarConvitePage /> },
+  { path: '/convites/aceitar', element: <L><AceitarConvitePage /></L> },
   {
     path: '/claim',
-    element: <ClaimLandingPage />,
+    element: <L><ClaimLandingPage /></L>,
     errorElement: <ClaimErrorBoundary />,
   },
   {
@@ -63,17 +120,17 @@ export const router = createBrowserRouter([
       { path: '/dispositivos', element: <DispositivosPage /> },
       {
         path: '/dispositivos/adicionar',
-        element: <AdicionarDispositivoPage />,
+        element: <L><AdicionarDispositivoPage /></L>,
         errorElement: <ClaimErrorBoundary />,
       },
-      { path: '/dispositivos/:id', element: <DispositivoDetailPage /> },
-      { path: '/automacoes', element: <AutomacoesPage /> },
-      { path: '/convites', element: <ConvitesPage /> },
+      { path: '/dispositivos/:id', element: <L><DispositivoDetailPage /></L> },
+      { path: '/automacoes', element: <L><AutomacoesPage /></L> },
+      { path: '/convites', element: <L><ConvitesPage /></L> },
       {
         path: '/admin',
         element: (
           <RequireAdmin>
-            <AdminPage />
+            <L><AdminPage /></L>
           </RequireAdmin>
         ),
       },
@@ -81,7 +138,7 @@ export const router = createBrowserRouter([
         path: '/admin/clientes/:id',
         element: (
           <RequireAdmin>
-            <ClienteDetailPage />
+            <L><ClienteDetailPage /></L>
           </RequireAdmin>
         ),
       },
@@ -89,7 +146,7 @@ export const router = createBrowserRouter([
         path: '/admin/produtos',
         element: (
           <RequireAdmin>
-            <ProdutosListPage />
+            <L><ProdutosListPage /></L>
           </RequireAdmin>
         ),
       },
@@ -97,7 +154,7 @@ export const router = createBrowserRouter([
         path: '/admin/produtos/:id',
         element: (
           <RequireAdmin>
-            <ProdutoFichaPage />
+            <L><ProdutoFichaPage /></L>
           </RequireAdmin>
         ),
       },
