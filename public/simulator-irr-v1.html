@@ -635,6 +635,13 @@
       <div>
         <label><input type="checkbox" id="ms-ativo" checked style="width:auto;margin-right:6px;">Ativo (monitora alarme)</label>
       </div>
+      <div>
+        <label><input type="checkbox" id="ms-ack" checked style="width:auto;margin-right:6px;">Exige ACK do usuário (R-temp-2)</label>
+      </div>
+      <div>
+        <label>ROM ID (1-Wire DS18B20, somente leitura — gerado pelo simulator)</label>
+        <input id="ms-rom-id" readonly style="font-family:monospace;font-size:12px;">
+      </div>
       <div class="row" style="margin-top:8px;">
         <button class="btn" id="btn-save-sensor">Salvar</button>
         <button class="btn ghost" id="btn-cancel-sensor">Cancelar</button>
@@ -747,7 +754,16 @@
       if (d.url) el('url').value = d.url;
       if (d.user) el('user').value = d.user;
       if (d.pass) el('pass').value = d.pass;
-      if (Array.isArray(d.sensors)) internal.sensors = d.sensors;
+      if (Array.isArray(d.sensors)) {
+        internal.sensors = d.sensors.map(s => ({
+          ack_usuario_requerido: s.ack_usuario_requerido !== false,
+          rom_id: s.rom_id || mockRomId(),
+          ...s,
+        }));
+        // Garante que migração tenha aplicado rom_id (no spread acima, s sobrescreve
+        // se já tiver rom_id; mas se não tiver, o default acima vence).
+        for (const s of internal.sensors) if (!s.rom_id) s.rom_id = mockRomId();
+      }
       if (Array.isArray(d.timers)) {
         internal.timers = d.timers.map(t => ({ ...t, _running: false, _runStartedAt: null }));
       }
@@ -819,6 +835,15 @@
       ts: new Date().toISOString(),
       bomba: internal.deviceConfig.bomba,
       sectors: internal.deviceConfig.sectors,
+      sensors: internal.sensors.map(s => ({
+        rom_id: s.rom_id,
+        nome: s.nome,
+        role: s.role,
+        limite_alarme_c: s.limite,
+        histerese_c: s.histerese,
+        ack_usuario_requerido: s.ack_usuario_requerido !== false,
+        ativo: s.ativo,
+      })),
     });
     client.publish(`devices/${serial}/config/current`, payload, { qos: 1, retain: true }, (err) => {
       if (err) log('pub config/current err: ' + err.message, 'err');
@@ -1335,12 +1360,12 @@
         },
         'bump-up': () => { s.valor = +(s.valor + 1).toFixed(1); persist(); render(); },
         'bump-down': () => { s.valor = +(s.valor - 1).toFixed(1); persist(); render(); },
-        'toggle': () => { s.ativo = !s.ativo; persist(); render(); },
+        'toggle': () => { s.ativo = !s.ativo; persist(); scheduleConfigPublish(); render(); },
         'edit': () => openSensorModal(s),
         'remove': () => {
           if (!confirm(`Remover sensor "${s.nome}"?`)) return;
           internal.sensors = internal.sensors.filter(x => x.id !== s.id);
-          persist(); render();
+          persist(); scheduleConfigPublish(); render();
         },
       };
       card.querySelectorAll('button[data-act]').forEach(b => {
@@ -1458,6 +1483,14 @@
   el('btn-open-conn').onclick = () => openModal('modal-conn');
   el('btn-close-conn').onclick = () => closeModal('modal-conn');
 
+  // Gera um rom_id mock no formato DS18B20: "28-XXXXXXXXXXXX" (28 = family code).
+  // ESP real usaria o ROM 1-Wire descoberto no scan do barramento. Aqui é só
+  // identificador estável pra UPSERT no banco.
+  function mockRomId() {
+    let hex = '';
+    for (let i = 0; i < 12; i++) hex += Math.floor(Math.random() * 16).toString(16);
+    return '28-' + hex.toUpperCase();
+  }
   let editingSensorId = null;
   function openSensorModal(s) {
     editingSensorId = s ? s.id : null;
@@ -1469,6 +1502,8 @@
     el('ms-limite').value = s ? s.limite : 70;
     el('ms-histerese').value = s ? s.histerese : 3;
     el('ms-ativo').checked = s ? s.ativo : true;
+    el('ms-ack').checked = s ? (s.ack_usuario_requerido !== false) : true;
+    el('ms-rom-id').value = s ? (s.rom_id || mockRomId()) : mockRomId();
     openModal('modal-sensor');
   }
   el('btn-add-sensor').onclick = () => openSensorModal(null);
@@ -1482,6 +1517,8 @@
       limite: parseFloat(el('ms-limite').value) || 70,
       histerese: parseFloat(el('ms-histerese').value) || 3,
       ativo: el('ms-ativo').checked,
+      ack_usuario_requerido: el('ms-ack').checked,
+      rom_id: el('ms-rom-id').value,
     };
     if (editingSensorId) {
       const s = internal.sensors.find(x => x.id === editingSensorId);
@@ -1491,6 +1528,7 @@
     }
     persist();
     closeModal('modal-sensor');
+    scheduleConfigPublish();
     render();
   };
 
@@ -1691,6 +1729,46 @@
                 if (s[k] !== undefined && local[k] !== s[k]) { local[k] = s[k]; changed++; }
               });
             }
+          }
+          if (Array.isArray(cfg.sensors)) {
+            // Sensors são identificados por rom_id. Adiciona o que veio e
+            // não tem local; atualiza o que veio com mesmo rom_id; remove
+            // o que existe local e não veio (pra fechar o loop com app
+            // que faz CRUD remoto).
+            const incomingByRom = new Map();
+            for (const s of cfg.sensors) {
+              if (s && typeof s.rom_id === 'string' && s.rom_id) incomingByRom.set(s.rom_id, s);
+            }
+            // Update / add
+            for (const inc of incomingByRom.values()) {
+              const local = internal.sensors.find(x => x.rom_id === inc.rom_id);
+              if (local) {
+                if (typeof inc.nome === 'string' && local.nome !== inc.nome) { local.nome = inc.nome; changed++; }
+                if (typeof inc.role === 'string' && local.role !== inc.role) { local.role = inc.role; changed++; }
+                if (Number.isFinite(inc.limite_alarme_c) && local.limite !== inc.limite_alarme_c) { local.limite = inc.limite_alarme_c; changed++; }
+                if (Number.isFinite(inc.histerese_c) && local.histerese !== inc.histerese_c) { local.histerese = inc.histerese_c; changed++; }
+                if (typeof inc.ack_usuario_requerido === 'boolean' && local.ack_usuario_requerido !== inc.ack_usuario_requerido) { local.ack_usuario_requerido = inc.ack_usuario_requerido; changed++; }
+                if (typeof inc.ativo === 'boolean' && local.ativo !== inc.ativo) { local.ativo = inc.ativo; changed++; }
+              } else {
+                internal.sensors.push({
+                  id: uuidv4(),
+                  rom_id: inc.rom_id,
+                  nome: inc.nome || 'Sensor',
+                  role: inc.role || 'custom',
+                  mode: 'manual',
+                  valor: 25,
+                  limite: Number.isFinite(inc.limite_alarme_c) ? inc.limite_alarme_c : 70,
+                  histerese: Number.isFinite(inc.histerese_c) ? inc.histerese_c : 5,
+                  ativo: inc.ativo !== false,
+                  ack_usuario_requerido: inc.ack_usuario_requerido !== false,
+                });
+                changed++;
+              }
+            }
+            // Delete
+            const before = internal.sensors.length;
+            internal.sensors = internal.sensors.filter(s => !s.rom_id || incomingByRom.has(s.rom_id));
+            if (internal.sensors.length !== before) changed += (before - internal.sensors.length);
           }
           if (changed > 0) {
             persist();
