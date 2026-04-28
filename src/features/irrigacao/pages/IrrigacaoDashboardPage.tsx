@@ -34,6 +34,10 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import { cn } from '@/lib/utils'
 
 import { BombaCommandButton } from '../components/BombaCommandButton'
+import {
+  ComandoDecisionDialog,
+  type DecisionState,
+} from '../components/ComandoDecisionDialog'
 import { IndicadoresStatusBar } from '../components/IndicadoresStatusBar'
 import { HistoryTab } from '../components/HistoryTab'
 import { LogsTab } from '../components/LogsTab'
@@ -91,9 +95,16 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
   const serial = query.data?.device.serial
   useDeviceStateLive(serial, deviceId)
 
-  const setorCmd = useComando(deviceId)
+  const [decision, setDecision] = useState<DecisionState | null>(null)
+  const decisionOpts = {
+    onRequiresAction: (info: DecisionState) => setDecision(info),
+    onResolved: () => setDecision(null),
+  }
+
+  const setorCmd = useComando(deviceId, decisionOpts)
   const [pendingSetorNumero, setPendingSetorNumero] = useState<number | null>(null)
-  const modeCmd = useComando(deviceId)
+  const modeCmd = useComando(deviceId, decisionOpts)
+  const forceCmd = useComando(deviceId, decisionOpts)
 
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -511,6 +522,12 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
       </div>
 
       <ConfirmDialog state={confirm} onClose={closeConfirm} />
+      <ComandoDecisionDialog
+        state={decision}
+        pending={forceCmd.isPending}
+        onClose={() => setDecision(null)}
+        onConfirm={(vars) => forceCmd.mutate(vars)}
+      />
     </div>
   )
 }

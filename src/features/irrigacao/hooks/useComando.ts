@@ -16,6 +16,25 @@ export type ComandoError = {
   cmd_id?: string
 }
 
+/** Variáveis enviadas para a mutation (mantidas no contexto da decisão). */
+export type ComandoVars = {
+  cmd: IrrCmd
+  params?: Record<string, unknown>
+}
+
+/** Quando o ack vem requires_decision/requires_confirmation, hook delega
+ *  o tratamento pro componente via callback (que abre o dialog interativo).
+ *  onResolved é chamado em qualquer outro ack_status (final) — útil pro
+ *  componente fechar dialogs pendentes. */
+export type ComandoOptions = {
+  onRequiresAction?: (info: {
+    kind: 'requires_decision' | 'requires_confirmation'
+    response: ComandoSyncResponse
+    vars: ComandoVars
+  }) => void
+  onResolved?: (response: ComandoSyncResponse) => void
+}
+
 async function toFriendly(err: unknown): Promise<ComandoError> {
   if (err instanceof HTTPError) {
     const status = err.response.status
@@ -60,13 +79,12 @@ async function toFriendly(err: unknown): Promise<ComandoError> {
   return { message: err instanceof Error ? err.message : 'Erro inesperado.' }
 }
 
-export function useComando(deviceId: string | undefined) {
+export function useComando(
+  deviceId: string | undefined,
+  options?: ComandoOptions,
+) {
   const qc = useQueryClient()
-  return useMutation<
-    ComandoSyncResponse,
-    ComandoError,
-    { cmd: IrrCmd; params?: Record<string, unknown> }
-  >({
+  return useMutation<ComandoSyncResponse, ComandoError, ComandoVars>({
     mutationFn: async (vars) => {
       if (!deviceId) throw new Error('deviceId obrigatório')
       try {
@@ -75,8 +93,9 @@ export function useComando(deviceId: string | undefined) {
         throw await toFriendly(e)
       }
     },
-    onSuccess: (data) => {
+    onSuccess: (data, vars) => {
       // Ack chegou em ≤10s. Decide o toast com base no ack_status.
+      let resolved = true
       switch (data.ack_status) {
         case 'executed':
         case 'accepted':
@@ -92,27 +111,39 @@ export function useComando(deviceId: string | undefined) {
           )
           break
         case 'requires_decision':
-          // TODO: implementar dialog interativo (Lovable PanelTab.tsx:130-215)
-          toast.info(
-            data.ack_message ??
-              'O dispositivo pediu uma decisão — UI interativa ainda não implementada.',
-          )
-          break
         case 'requires_confirmation':
-          toast.info(
-            data.ack_message ??
-              'O dispositivo pediu confirmação — UI ainda não implementada.',
-          )
+          resolved = false
+          // Delega pro componente abrir o dialog interativo. Se não houver
+          // handler, cai num toast.info (igual antes — fallback de segurança).
+          if (options?.onRequiresAction) {
+            options.onRequiresAction({
+              kind: data.ack_status,
+              response: data,
+              vars,
+            })
+          } else {
+            toast.info(
+              data.ack_message ??
+                (data.ack_status === 'requires_decision'
+                  ? 'O dispositivo pediu uma decisão.'
+                  : 'O dispositivo pediu confirmação.'),
+            )
+          }
           break
         default:
           // ack_status ausente / desconhecido — tratamos como sucesso pra não
           // ficar silencioso. Banco do Node-RED já gravou o ack mesmo assim.
           toast.success('Comando recebido pelo servidor.')
       }
+      if (resolved && options?.onResolved) options.onResolved(data)
       qc.invalidateQueries({ queryKey: ['irrigacao', 'snapshot', deviceId] })
     },
     onError: (err) => {
       toast.error(err.message)
+      // Erro também resolve o fluxo (fecha dialog pendente).
+      if (options?.onResolved) {
+        options.onResolved({ cmd_id: '', ack_status: 'refused', ack_message: err.message })
+      }
       // No caso 504, o ack pode chegar entre 10s e 30s (expires_at do ESP).
       // Invalidamos o snapshot pra estimular o user a verificar estado atual.
       if (err.status === 504) {
