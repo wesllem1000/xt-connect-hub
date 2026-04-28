@@ -9,9 +9,9 @@ type Props = {
   histereseC?: number
   /** true se há alarme ativo (override visual independente da leitura). */
   alarme?: boolean
-  /** Tamanho do componente em px (height = width). */
+  /** Largura do componente em px. */
   size?: number
-  /** Mostra escala numérica (min/limite/max) no rodapé do arco. */
+  /** Mostra escala numérica (min/limite/max) no rodapé. */
   showScale?: boolean
   /** Faixa visual do gauge. Default 0..100°C. */
   minC?: number
@@ -20,9 +20,9 @@ type Props = {
 }
 
 /**
- * Gauge circular semi-aberto (270°) + display digital no centro.
- * Sem dependência externa — SVG inline. O arco é colorido por faixa:
- *   verde (< limite-histerese), amarelo (limite-histerese..limite), vermelho (>= limite).
+ * Semicírculo TOP (180°) com 3 zonas coloridas (ok/warn/alert) calculadas
+ * a partir do limite e histerese, tick laranja no limite, agulha apontando
+ * a leitura atual e display digital ABAIXO do arco. Sem dep externa.
  */
 export function TemperatureGauge({
   valueC,
@@ -35,14 +35,21 @@ export function TemperatureGauge({
   maxC = 100,
   className,
 }: Props) {
-  // Geometria: arco de 240° abrindo pra baixo (-120° a +120° do topo).
+  // Geometria SVG (y aumenta pra baixo).
+  // Semicírculo TOP: ângulos 180° (esquerda) → 270° (topo) → 360° (direita).
+  const padding = 14
+  const strokeW = 12
   const cx = size / 2
-  const cy = size / 2
-  const radius = size / 2 - 18
-  const strokeW = 14
-  const startAngle = -210 // graus (-210 = 150° em sentido horário a partir do topo, fica no canto inferior esquerdo)
-  const endAngle = 30 // canto inferior direito
-  const totalSpan = endAngle - startAngle // 240°
+  const cy = size / 2 + padding / 2 // baseline do semicírculo, deslocado pra
+  // dar respiro pra cima do arco
+  const radius = size / 2 - padding - strokeW / 2
+  const startAngle = 180
+  const endAngle = 360
+  const totalSpan = endAngle - startAngle // 180
+
+  // Altura do svg = baseline + espaço pro display digital
+  const digitalH = Math.round(size * 0.32)
+  const svgH = cy + digitalH
 
   function valueToAngle(v: number): number {
     const t = Math.max(0, Math.min(1, (v - minC) / (maxC - minC)))
@@ -58,138 +65,158 @@ export function TemperatureGauge({
     const a = polar(fromDeg, r)
     const b = polar(toDeg, r)
     const large = Math.abs(toDeg - fromDeg) > 180 ? 1 : 0
-    const sweep = toDeg > fromDeg ? 1 : 0
-    return `M ${a.x} ${a.y} A ${r} ${r} 0 ${large} ${sweep} ${b.x} ${b.y}`
+    // Sweep=1 em SVG (com y invertido) = sentido visual horário, que pelo
+    // semicírculo top da esquerda pra direita passa por cima ✓
+    return `M ${a.x} ${a.y} A ${r} ${r} 0 ${large} 1 ${b.x} ${b.y}`
   }
 
   const warnStartC = Math.max(minC, limiteC - histereseC)
 
-  // Faixas do trilho colorido (sempre visíveis como background do gauge).
-  const angOk = [valueToAngle(minC), valueToAngle(warnStartC)]
-  const angWarn = [valueToAngle(warnStartC), valueToAngle(limiteC)]
-  const angAlert = [valueToAngle(limiteC), valueToAngle(maxC)]
+  // Zonas — tudo proporcional ao limite real
+  const angOkStart = valueToAngle(minC)
+  const angOkEnd = valueToAngle(warnStartC)
+  const angWarnEnd = valueToAngle(limiteC)
+  const angAlertEnd = valueToAngle(maxC)
 
-  // Posição da agulha. Se sem leitura, mantém no início (mostra "—" digital).
-  const needleAngle =
-    valueC != null ? valueToAngle(Math.max(minC, Math.min(maxC, valueC))) : null
-
-  // Tick marker do limite (linha curta atravessando o arco, laranja)
+  // Tick do limite (linha cruzando o arco)
   const limitInner = polar(valueToAngle(limiteC), radius - strokeW / 2 - 4)
   const limitOuter = polar(valueToAngle(limiteC), radius + strokeW / 2 + 4)
 
-  // Cor do display digital
+  // Agulha — só renderiza com leitura
+  const needleAngle =
+    valueC != null ? valueToAngle(Math.max(minC, Math.min(maxC, valueC))) : null
+  const needleTip =
+    needleAngle != null ? polar(needleAngle, radius - strokeW / 2 - 6) : null
+
+  // Cores
   const valueIsAlarm =
     alarme || (valueC != null && valueC >= limiteC)
-  const valueIsWarn = valueC != null && valueC >= warnStartC && !valueIsAlarm
+  const valueIsWarn =
+    valueC != null && valueC >= warnStartC && !valueIsAlarm
 
   return (
     <div
       className={cn('inline-flex flex-col items-center select-none', className)}
       style={{ width: size }}
     >
-      <div className="relative" style={{ width: size, height: size * 0.78 }}>
-        <svg
-          viewBox={`0 0 ${size} ${size * 0.78}`}
-          width={size}
-          height={size * 0.78}
-          aria-label={
-            valueC != null
-              ? `Temperatura ${valueC.toFixed(1)} graus Celsius`
-              : 'Temperatura sem leitura'
-          }
-        >
-          {/* Trilho — segmentos coloridos */}
+      <svg
+        viewBox={`0 0 ${size} ${svgH}`}
+        width={size}
+        height={svgH}
+        aria-label={
+          valueC != null
+            ? `Temperatura ${valueC.toFixed(1)} graus Celsius`
+            : 'Temperatura sem leitura'
+        }
+      >
+        {/* trilho cinza atrás de tudo (caso alguma faixa fique vazia, fica visualmente bonito) */}
+        <path
+          d={arcPath(startAngle, endAngle, radius)}
+          fill="none"
+          stroke="hsl(220 13% 91%)"
+          strokeWidth={strokeW}
+          strokeLinecap="round"
+        />
+
+        {/* zona ok (verde) */}
+        {angOkEnd > angOkStart && (
           <path
-            d={arcPath(angOk[0], angOk[1], radius)}
+            d={arcPath(angOkStart, angOkEnd, radius)}
             fill="none"
             stroke="hsl(142 71% 45%)"
             strokeWidth={strokeW}
             strokeLinecap="round"
-            opacity="0.85"
           />
+        )}
+        {/* zona warn (amarelo) */}
+        {angWarnEnd > angOkEnd && (
           <path
-            d={arcPath(angWarn[0], angWarn[1], radius)}
+            d={arcPath(angOkEnd, angWarnEnd, radius)}
             fill="none"
             stroke="hsl(38 92% 50%)"
             strokeWidth={strokeW}
             strokeLinecap="butt"
-            opacity="0.85"
           />
+        )}
+        {/* zona alert (vermelho) */}
+        {angAlertEnd > angWarnEnd && (
           <path
-            d={arcPath(angAlert[0], angAlert[1], radius)}
+            d={arcPath(angWarnEnd, angAlertEnd, radius)}
             fill="none"
             stroke="hsl(0 84% 55%)"
             strokeWidth={strokeW}
             strokeLinecap="round"
-            opacity="0.85"
           />
+        )}
 
-          {/* Tick do limite */}
-          <line
-            x1={limitInner.x}
-            y1={limitInner.y}
-            x2={limitOuter.x}
-            y2={limitOuter.y}
-            stroke="hsl(0 84% 50%)"
-            strokeWidth={3}
-            strokeLinecap="round"
-          />
+        {/* Tick do limite */}
+        <line
+          x1={limitInner.x}
+          y1={limitInner.y}
+          x2={limitOuter.x}
+          y2={limitOuter.y}
+          stroke="hsl(0 84% 35%)"
+          strokeWidth={3}
+          strokeLinecap="round"
+        />
 
-          {/* Agulha (só quando há leitura) */}
-          {needleAngle != null && (
-            <>
-              <line
-                x1={cx}
-                y1={cy}
-                x2={polar(needleAngle, radius - strokeW - 2).x}
-                y2={polar(needleAngle, radius - strokeW - 2).y}
-                stroke={
-                  valueIsAlarm
-                    ? 'hsl(0 84% 50%)'
-                    : valueIsWarn
-                      ? 'hsl(38 92% 50%)'
-                      : 'hsl(220 14% 30%)'
-                }
-                strokeWidth={3}
-                strokeLinecap="round"
-              />
-              <circle cx={cx} cy={cy} r={6} fill="hsl(220 14% 30%)" />
-              <circle cx={cx} cy={cy} r={2.5} fill="white" />
-            </>
-          )}
-        </svg>
+        {/* Agulha: linha do centro até a ponta + base + tampa */}
+        {needleAngle != null && needleTip != null && (
+          <>
+            <line
+              x1={cx}
+              y1={cy}
+              x2={needleTip.x}
+              y2={needleTip.y}
+              stroke={
+                valueIsAlarm
+                  ? 'hsl(0 84% 45%)'
+                  : valueIsWarn
+                    ? 'hsl(38 92% 45%)'
+                    : 'hsl(220 14% 25%)'
+              }
+              strokeWidth={3}
+              strokeLinecap="round"
+            />
+            <circle cx={cx} cy={cy} r={6} fill="hsl(220 14% 25%)" />
+            <circle cx={cx} cy={cy} r={2.5} fill="white" />
+          </>
+        )}
 
-        {/* Display digital — sobreposto, abaixo do centro */}
-        <div
-          className="absolute inset-x-0 flex flex-col items-center pointer-events-none"
-          style={{ top: '52%' }}
-        >
-          <div
+        {/* Display digital — ABAIXO do baseline do semicírculo */}
+        <g>
+          <text
+            x={cx}
+            y={cy + digitalH * 0.62}
+            textAnchor="middle"
             className={cn(
-              'font-mono tabular-nums leading-none',
+              'font-mono font-bold',
               valueIsAlarm
-                ? 'text-red-600'
+                ? 'fill-red-600'
                 : valueIsWarn
-                  ? 'text-amber-600'
-                  : 'text-foreground',
+                  ? 'fill-amber-600'
+                  : 'fill-foreground',
             )}
             style={{ fontSize: size * 0.22 }}
           >
             {valueC != null ? valueC.toFixed(1) : '—'}
-          </div>
-          <div
-            className="text-muted-foreground font-medium tracking-widest mt-1"
-            style={{ fontSize: size * 0.07 }}
+          </text>
+          <text
+            x={cx}
+            y={cy + digitalH * 0.92}
+            textAnchor="middle"
+            className="fill-muted-foreground font-medium"
+            style={{ fontSize: size * 0.08, letterSpacing: '0.15em' }}
           >
             °C
-          </div>
-        </div>
-      </div>
+          </text>
+        </g>
+      </svg>
 
       {showScale && (
         <div
-          className="flex items-center justify-between text-[10px] text-muted-foreground mt-1 font-mono"
-          style={{ width: size * 0.85 }}
+          className="flex items-center justify-between text-[10px] text-muted-foreground -mt-1 font-mono"
+          style={{ width: size * 0.88 }}
         >
           <span>{minC}°</span>
           <span className="text-red-600 font-semibold">
