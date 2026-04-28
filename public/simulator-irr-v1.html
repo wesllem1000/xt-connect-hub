@@ -862,19 +862,31 @@
   // ~30s; aqui usamos 5s pra UI ficar viva durante demos. Servidor faz
   // UPDATE em irrigation_temperature_sensors.ultima_leitura_c (handler
   // _e055), e o app refetch o snapshot a cada 15s.
+  // Throttle do log: a cada 5s seria barulhento; logamos só 1x a cada 30s.
+  let lastTelemetryLog = 0;
   function publishTelemetrySensors() {
     if (!client || !client.connected) return;
     if (internal.sensors.length === 0) return;
+    const readings = internal.sensors.map(s => ({
+      rom_id: s.rom_id,
+      temperature_c: typeof s.valor === 'number' ? s.valor : null,
+    }));
     const payload = JSON.stringify({
       protocol_version: 1,
       ts: new Date().toISOString(),
-      readings: internal.sensors.map(s => ({
-        rom_id: s.rom_id,
-        temperature_c: typeof s.valor === 'number' ? s.valor : null,
-      })),
+      readings,
     });
     client.publish(`devices/${serial}/telemetry/sensors`, payload, { qos: 0, retain: false }, (err) => {
-      if (err) log('pub telemetry/sensors err: ' + err.message, 'err');
+      if (err) {
+        log('pub telemetry/sensors err: ' + err.message, 'err');
+        return;
+      }
+      const now = Date.now();
+      if (now - lastTelemetryLog > 30000) {
+        lastTelemetryLog = now;
+        const summary = readings.map(r => r.temperature_c == null ? '—' : r.temperature_c.toFixed(1)).join(', ');
+        log('TX telemetry/sensors [' + summary + '°C]', 'tx');
+      }
     });
   }
 

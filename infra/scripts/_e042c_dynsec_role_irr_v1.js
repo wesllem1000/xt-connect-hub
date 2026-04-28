@@ -35,7 +35,7 @@ const PASS = process.env.MQTT_BRIDGE_PASSWORD;
 
 if (!PASS) { console.error('MQTT_BRIDGE_PASSWORD env var required'); process.exit(1); }
 
-const TOPICS_PUB = ['data','state','events','commands/ack','config/current','status'];
+const TOPICS_PUB = ['data','state','events','commands/ack','config/current','status','telemetry/sensors'];
 const TOPICS_SUB = ['commands','config/push'];
 
 const commands = [
