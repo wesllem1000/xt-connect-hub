@@ -12,6 +12,7 @@ import {
   Settings,
   Sliders,
   Terminal,
+  Thermometer,
 } from 'lucide-react'
 
 import {
@@ -44,6 +45,7 @@ import { LogsTab } from '../components/LogsTab'
 import { PumpStatusCard, type PumpRuntime } from '../components/PumpStatusCard'
 import { PumpTab } from '../components/PumpTab'
 import { SectorsTab } from '../components/SectorsTab'
+import { SensoresTab } from '../components/SensoresTab'
 import { SystemTab } from '../components/SystemTab'
 import { TimersTab } from '../components/TimersTab'
 import { SetorCardValvula } from '../components/SetorCardValvula'
@@ -331,6 +333,10 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
               <Sliders className="h-4 w-4" />
               <span>Setores</span>
             </TabsTrigger>
+            <TabsTrigger value="sensores" className="gap-1.5">
+              <Thermometer className="h-4 w-4" />
+              <span>Sensores</span>
+            </TabsTrigger>
             <TabsTrigger value="bomba" className="gap-1.5">
               <Power className="h-4 w-4" />
               <span>Bomba</span>
@@ -463,27 +469,83 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
       </section>
 
       <Card>
-        <CardHeader className="pb-2">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">Temperatura</CardTitle>
+          {snap.sensors.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7"
+              asChild
+            >
+              <Link
+                to="#"
+                onClick={(e) => {
+                  e.preventDefault()
+                  const trigger = document.querySelector<HTMLButtonElement>(
+                    '[data-radix-collection-item][value="sensores"]',
+                  )
+                  trigger?.click()
+                }}
+              >
+                <Settings className="h-4 w-4 mr-1" />
+                Configurar
+              </Link>
+            </Button>
+          )}
         </CardHeader>
         <CardContent>
           {snap.sensors.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Nenhum sensor DS18B20 configurado.
+              Nenhum sensor DS18B20 configurado. Vá em <strong>Sensores</strong>{' '}
+              para adicionar.
             </p>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {snap.sensors.map((s) => (
-                <div key={s.id} className="rounded-md border p-3">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                    {s.nome}
-                  </p>
-                  <p className="text-2xl font-semibold tabular-nums">
-                    {s.ultima_leitura_c?.toFixed(1) ?? '—'}
-                    <span className="text-sm text-muted-foreground ml-1">°C</span>
-                  </p>
-                </div>
-              ))}
+              {snap.sensors.map((s) => {
+                const tempAlarms = snap.active_alarms.filter(
+                  (a) =>
+                    a.tipo === 'temperature_high' &&
+                    a.sensor_rom_id === s.rom_id,
+                )
+                const alarme = tempAlarms.length > 0
+                return (
+                  <div
+                    key={s.id}
+                    className={cn(
+                      'rounded-md border p-3',
+                      alarme && 'border-red-500/60 bg-red-50/50',
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground truncate">
+                        {s.nome}
+                      </p>
+                      {alarme && (
+                        <Badge variant="destructive" className="text-[10px]">
+                          ALARME
+                        </Badge>
+                      )}
+                    </div>
+                    <p
+                      className={cn(
+                        'text-2xl font-semibold tabular-nums',
+                        alarme && 'text-red-700',
+                      )}
+                    >
+                      {s.ultima_leitura_c != null
+                        ? Number(s.ultima_leitura_c).toFixed(1)
+                        : '—'}
+                      <span className="text-sm text-muted-foreground ml-1">
+                        °C
+                      </span>
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      Limite {Number(s.limite_alarme_c).toFixed(0)}°C
+                    </p>
+                  </div>
+                )
+              })}
             </div>
           )}
         </CardContent>
@@ -501,6 +563,23 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
 
           <TabsContent value="setores" className="mt-0">
             <SectorsTab deviceId={deviceId} setores={snap.sectors} />
+          </TabsContent>
+
+          <TabsContent value="sensores" className="mt-0">
+            <SensoresTab
+              deviceId={deviceId}
+              sensores={snap.sensors}
+              activeAlarmRomIds={
+                new Set(
+                  snap.active_alarms
+                    .filter(
+                      (a) =>
+                        a.tipo === 'temperature_high' && a.sensor_rom_id,
+                    )
+                    .map((a) => a.sensor_rom_id as string),
+                )
+              }
+            />
           </TabsContent>
 
           <TabsContent value="bomba" className="mt-0">

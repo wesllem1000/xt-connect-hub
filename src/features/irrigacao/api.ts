@@ -222,3 +222,41 @@ export async function deleteTimer(deviceId: string, timerId: string) {
     .delete(`${base(deviceId)}/timers/${timerId}`)
     .json<{ ok: true; id: string }>()
 }
+
+export type CreateSensorInput = {
+  nome: string
+  role: 'pump' | 'inverter' | 'custom'
+  nome_custom?: string | null
+  rom_id?: string | null
+  limite_alarme_c: number
+  histerese_c?: number
+  ack_usuario_requerido?: boolean
+  ativo?: boolean
+}
+
+export async function createSensor(
+  deviceId: string,
+  input: CreateSensorInput,
+): Promise<IrrigationTemperatureSensor> {
+  const { sensor } = await api
+    .post(`${base(deviceId)}/sensores-temperatura`, { json: input })
+    .json<{ sensor: IrrigationTemperatureSensor }>()
+  return sensor
+}
+
+export async function patchSensor(
+  deviceId: string,
+  sensorId: string,
+  patch: Partial<CreateSensorInput>,
+): Promise<IrrigationTemperatureSensor> {
+  const { sensor } = await api
+    .patch(`${base(deviceId)}/sensores-temperatura/${sensorId}`, { json: patch })
+    .json<{ sensor: IrrigationTemperatureSensor }>()
+  return sensor
+}
+
+export async function deleteSensor(deviceId: string, sensorId: string) {
+  return api
+    .delete(`${base(deviceId)}/sensores-temperatura/${sensorId}`)
+    .json<{ ok: true; removido: { id: string; rom_id: string } }>()
+}
