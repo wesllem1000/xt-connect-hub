@@ -87,8 +87,10 @@ export function AlarmsBanner({ deviceId, alarms }: Props) {
           )
         })}
         <p className="text-[11px] text-muted-foreground pt-1">
-          Reconhecer não rearma — alarme só limpa quando a temperatura cair
-          abaixo do limite (com histerese) no firmware.
+          Reconhecer limpa o alarme aqui e no firmware. Bomba e setores foram
+          cortados como segurança e permanecem desligados — você precisa
+          religá-los manualmente depois de confirmar que o problema foi
+          resolvido.
         </p>
       </AlertDescription>
     </Alert>
