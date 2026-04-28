@@ -137,6 +137,7 @@ services:
     volumes:
       - /opt/xtconect/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - /opt/xtconect/nginx/conf.d:/etc/nginx/conf.d:ro
+      - /opt/xtconect/nginx/.htpasswd:/etc/nginx/.htpasswd:ro
       - /opt/xtconect/letsencrypt:/etc/letsencrypt:ro
       - /opt/xtconect/letsencrypt/www:/var/www/certbot:ro
       - /opt/xtconect/www:/usr/share/nginx/html:ro
