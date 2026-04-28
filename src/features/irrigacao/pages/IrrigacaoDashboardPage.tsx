@@ -38,6 +38,7 @@ import { BombaCommandButton } from '../components/BombaCommandButton'
 import { IndicadoresStatusBar } from '../components/IndicadoresStatusBar'
 import { LogsTab } from '../components/LogsTab'
 import { PumpStatusCard, type PumpRuntime } from '../components/PumpStatusCard'
+import { PumpTab } from '../components/PumpTab'
 import { SetorCardValvula } from '../components/SetorCardValvula'
 import { useComando } from '../hooks/useComando'
 import { useDeviceStateLive } from '../hooks/useDeviceStateLive'
@@ -486,10 +487,10 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
           </TabsContent>
 
           <TabsContent value="bomba" className="mt-0">
-            <TabPlaceholder
-              icon={<Power className="h-8 w-8" />}
-              title="Bomba"
-              description="Configuração da bomba: tipo, max contínuo, cooldown, reforço de relé. Em construção."
+            <PumpTab
+              deviceId={deviceId}
+              config={snap.config ?? null}
+              disabled={isAuto}
             />
           </TabsContent>
 
