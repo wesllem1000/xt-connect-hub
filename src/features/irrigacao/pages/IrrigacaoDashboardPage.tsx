@@ -46,6 +46,7 @@ import { PumpStatusCard, type PumpRuntime } from '../components/PumpStatusCard'
 import { PumpTab } from '../components/PumpTab'
 import { SectorsTab } from '../components/SectorsTab'
 import { SensoresTab } from '../components/SensoresTab'
+import { TemperatureGauge } from '../components/TemperatureGauge'
 import { SystemTab } from '../components/SystemTab'
 import { TimersTab } from '../components/TimersTab'
 import { SetorCardValvula } from '../components/SetorCardValvula'
@@ -318,9 +319,9 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-3 sm:px-6 py-4 sm:py-6">
+      <div className="max-w-5xl mx-auto px-3 sm:px-6 py-6 sm:py-8">
         <Tabs defaultValue="painel" className="w-full">
-          <TabsList className="w-full flex flex-wrap h-auto gap-1 mb-4 justify-start">
+          <TabsList className="w-full flex flex-wrap h-auto gap-1 mb-6 justify-start bg-card border">
             <TabsTrigger value="painel" className="gap-1.5">
               <LayoutDashboard className="h-4 w-4" />
               <span>Painel</span>
@@ -501,7 +502,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
               para adicionar.
             </p>
           ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {snap.sensors.map((s) => {
                 const tempAlarms = snap.active_alarms.filter(
                   (a) =>
@@ -509,40 +510,33 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
                     a.sensor_rom_id === s.rom_id,
                 )
                 const alarme = tempAlarms.length > 0
+                const valor =
+                  s.ultima_leitura_c != null
+                    ? Number(s.ultima_leitura_c)
+                    : null
                 return (
                   <div
                     key={s.id}
                     className={cn(
-                      'rounded-md border p-3',
+                      'rounded-md border p-3 flex flex-col items-center',
                       alarme && 'border-red-500/60 bg-red-50/50',
                     )}
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground truncate">
-                        {s.nome}
-                      </p>
+                    <div className="w-full flex items-center justify-between gap-2 mb-1">
+                      <p className="text-xs font-medium truncate">{s.nome}</p>
                       {alarme && (
                         <Badge variant="destructive" className="text-[10px]">
                           ALARME
                         </Badge>
                       )}
                     </div>
-                    <p
-                      className={cn(
-                        'text-2xl font-semibold tabular-nums',
-                        alarme && 'text-red-700',
-                      )}
-                    >
-                      {s.ultima_leitura_c != null
-                        ? Number(s.ultima_leitura_c).toFixed(1)
-                        : '—'}
-                      <span className="text-sm text-muted-foreground ml-1">
-                        °C
-                      </span>
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">
-                      Limite {Number(s.limite_alarme_c).toFixed(0)}°C
-                    </p>
+                    <TemperatureGauge
+                      valueC={valor}
+                      limiteC={Number(s.limite_alarme_c)}
+                      histereseC={Number(s.histerese_c)}
+                      alarme={alarme}
+                      size={170}
+                    />
                   </div>
                 )
               })}

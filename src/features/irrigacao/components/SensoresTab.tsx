@@ -38,6 +38,7 @@ import {
   usePatchSensor,
 } from '../hooks/useSensors'
 import type { IrrigationTemperatureSensor, SensorRole } from '../types'
+import { TemperatureGauge } from './TemperatureGauge'
 
 type Props = {
   deviceId: string
@@ -171,24 +172,29 @@ export function SensoresTab({ deviceId, sensores, activeAlarmRomIds }: Props) {
                       />
                       <span className="truncate">{s.nome}</span>
                     </span>
-                    <span className="text-2xl font-semibold tabular-nums">
-                      {s.ultima_leitura_c != null
-                        ? `${Number(s.ultima_leitura_c).toFixed(1)}°C`
-                        : '—'}
-                    </span>
+                    {alarme && (
+                      <span className="rounded bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white">
+                        ALARME
+                      </span>
+                    )}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div className="flex justify-center py-1">
+                    <TemperatureGauge
+                      valueC={
+                        s.ultima_leitura_c != null
+                          ? Number(s.ultima_leitura_c)
+                          : null
+                      }
+                      limiteC={Number(s.limite_alarme_c)}
+                      histereseC={Number(s.histerese_c)}
+                      alarme={alarme}
+                      size={220}
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-xs pt-1 border-t">
                     <Info label="Função" value={ROLE_LABEL[s.role]} />
-                    <Info
-                      label="Limite"
-                      value={`${Number(s.limite_alarme_c).toFixed(1)}°C`}
-                    />
-                    <Info
-                      label="Histerese"
-                      value={`${Number(s.histerese_c).toFixed(1)}°C`}
-                    />
                     <Info
                       label="Status"
                       value={
@@ -199,12 +205,17 @@ export function SensoresTab({ deviceId, sensores, activeAlarmRomIds }: Props) {
                             : 'Inativo'
                       }
                     />
+                    <Info
+                      label="Histerese"
+                      value={`${Number(s.histerese_c).toFixed(1)}°C`}
+                    />
+                    <Info
+                      label="Último contato"
+                      value={fmtPt(s.ultimo_contato_em)}
+                    />
                   </div>
                   <div className="text-[10px] text-muted-foreground font-mono break-all">
                     ROM: {s.rom_id}
-                  </div>
-                  <div className="text-[10px] text-muted-foreground">
-                    Último contato: {fmtPt(s.ultimo_contato_em)}
                   </div>
                   <div className="flex items-center gap-2 pt-1">
                     <Button
