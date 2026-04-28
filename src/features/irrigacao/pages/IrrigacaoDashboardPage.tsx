@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   Clock as ClockIcon,
   Cog,
-  Construction,
   Hand,
   History,
   LayoutDashboard,
@@ -42,6 +41,7 @@ import { PumpStatusCard, type PumpRuntime } from '../components/PumpStatusCard'
 import { PumpTab } from '../components/PumpTab'
 import { SectorsTab } from '../components/SectorsTab'
 import { SystemTab } from '../components/SystemTab'
+import { TimersTab } from '../components/TimersTab'
 import { SetorCardValvula } from '../components/SetorCardValvula'
 import { useComando } from '../hooks/useComando'
 import { useDeviceStateLive } from '../hooks/useDeviceStateLive'
@@ -474,11 +474,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
           </TabsContent>
 
           <TabsContent value="timers" className="mt-0">
-            <TabPlaceholder
-              icon={<ClockIcon className="h-8 w-8" />}
-              title="Timers"
-              description="Cadastro de timers e agendamentos por setor (firmware é autoridade do tempo). Em construção — vem na próxima rodada da Fase 1.2."
-            />
+            <TimersTab deviceId={deviceId} setores={snap.sectors} />
           </TabsContent>
 
           <TabsContent value="setores" className="mt-0">
@@ -516,31 +512,6 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
 
       <ConfirmDialog state={confirm} onClose={closeConfirm} />
     </div>
-  )
-}
-
-function TabPlaceholder({
-  icon,
-  title,
-  description,
-}: {
-  icon: React.ReactNode
-  title: string
-  description: string
-}) {
-  return (
-    <Card>
-      <CardContent className="flex flex-col items-center justify-center py-12 text-center gap-3">
-        <div className="rounded-full bg-primary/10 p-4 text-primary">{icon}</div>
-        <div className="space-y-1 max-w-md">
-          <p className="text-lg font-semibold flex items-center justify-center gap-2">
-            <Construction className="h-4 w-4 text-amber-600" />
-            {title}
-          </p>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </div>
-      </CardContent>
-    </Card>
   )
 }
 
