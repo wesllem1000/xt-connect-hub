@@ -10,6 +10,7 @@ import { VerifyPage } from '@/features/auth/VerifyPage'
 import { AdicionarDispositivoPage } from '@/features/claim/pages/AdicionarDispositivoPage'
 import { ClaimErrorBoundary } from '@/features/claim/components/ClaimErrorBoundary'
 import { ClaimLandingPage } from '@/features/claim/pages/ClaimLandingPage'
+import { AutomacoesPage } from '@/features/automacoes/pages/AutomacoesPage'
 import { AceitarConvitePage } from '@/features/convites/AceitarConvitePage'
 import { ConvitesPage } from '@/features/convites/ConvitesPage'
 import { DispositivoDetailPage } from '@/features/dispositivos/DispositivoDetailPage'
@@ -66,6 +67,7 @@ export const router = createBrowserRouter([
         errorElement: <ClaimErrorBoundary />,
       },
       { path: '/dispositivos/:id', element: <DispositivoDetailPage /> },
+      { path: '/automacoes', element: <AutomacoesPage /> },
       { path: '/convites', element: <ConvitesPage /> },
       {
         path: '/admin',
