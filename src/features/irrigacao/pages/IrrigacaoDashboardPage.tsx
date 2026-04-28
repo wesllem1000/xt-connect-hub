@@ -106,6 +106,49 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
     setConfirm(null)
   }
 
+  // pumpRuntime tem que ficar antes dos early returns abaixo, senão o número
+  // de hooks varia entre o render de loading e o render com dados (React #310).
+  // Usa optional chaining no query.data porque pode ser undefined no primeiro render.
+  const stateForRuntime = (query.data?.state ?? null) as StatePayload | null
+  const pumpForRuntime = stateForRuntime?.pump ?? {}
+  const pumpStateForRuntime: PumpState = (pumpForRuntime.state as PumpState) ?? 'off'
+
+  // pumpRuntime estável entre pushes do MQTT — só recalcula quando started_at /
+  // scheduled_off_at mudam. PumpStatusCard tem tick interno de 500ms pra
+  // suavizar a contagem; passar segundos voláteis aqui causaria reset desse
+  // interno a cada 1s do tick externo.
+  const pumpRuntime: PumpRuntime | null = useMemo(() => {
+    if (pumpStateForRuntime !== 'on') return null
+    if (pumpForRuntime.scheduled_off_at) {
+      const diff = Math.max(
+        0,
+        Math.floor((new Date(pumpForRuntime.scheduled_off_at).getTime() - Date.now()) / 1000),
+      )
+      return {
+        active: true,
+        mode: 'countdown',
+        seconds: diff,
+        remainingSec: diff,
+        elapsedSec: 0,
+      }
+    }
+    if (pumpForRuntime.started_at) {
+      const diff = Math.max(
+        0,
+        Math.floor((Date.now() - new Date(pumpForRuntime.started_at).getTime()) / 1000),
+      )
+      return {
+        active: true,
+        mode: 'elapsed',
+        seconds: diff,
+        remainingSec: 0,
+        elapsedSec: diff,
+      }
+    }
+    return { active: true, mode: 'idle', seconds: 0, remainingSec: 0, elapsedSec: 0 }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pumpStateForRuntime, pumpForRuntime.scheduled_off_at, pumpForRuntime.started_at])
+
   if (query.isPending) {
     return (
       <div className="space-y-4 max-w-5xl">
@@ -132,53 +175,16 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
   }
 
   const snap = query.data!
-  const state = (snap.state ?? null) as StatePayload | null
+  const state = stateForRuntime
   const titulo = nomeAmigavel || snap.device.serial
 
-  const pump = state?.pump ?? {}
-  const pumpState: PumpState = (pump.state as PumpState) ?? 'off'
+  const pumpState: PumpState = pumpStateForRuntime
   const indicators = state?.indicators ?? {}
 
   const setorEstadoMap = new Map<number, SectorEstado>()
   for (const s of state?.sectors ?? []) {
     if (typeof s.numero === 'number' && s.estado) setorEstadoMap.set(s.numero, s.estado)
   }
-
-  // pumpRuntime estável entre pushes do MQTT — só recalcula quando started_at /
-  // scheduled_off_at mudam. PumpStatusCard tem tick interno de 500ms pra
-  // suavizar a contagem; passar segundos voláteis aqui causaria reset desse
-  // interno a cada 1s do tick externo.
-  const pumpRuntime: PumpRuntime | null = useMemo(() => {
-    if (pumpState !== 'on') return null
-    if (pump.scheduled_off_at) {
-      const diff = Math.max(
-        0,
-        Math.floor((new Date(pump.scheduled_off_at).getTime() - Date.now()) / 1000),
-      )
-      return {
-        active: true,
-        mode: 'countdown',
-        seconds: diff,
-        remainingSec: diff,
-        elapsedSec: 0,
-      }
-    }
-    if (pump.started_at) {
-      const diff = Math.max(
-        0,
-        Math.floor((Date.now() - new Date(pump.started_at).getTime()) / 1000),
-      )
-      return {
-        active: true,
-        mode: 'elapsed',
-        seconds: diff,
-        remainingSec: 0,
-        elapsedSec: diff,
-      }
-    }
-    return { active: true, mode: 'idle', seconds: 0, remainingSec: 0, elapsedSec: 0 }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pumpState, pump.scheduled_off_at, pump.started_at])
 
   const setoresHabilitados = snap.sectors.filter((s) => s.habilitado)
   const setoresAbertos = (state?.sectors ?? []).filter((s) => s.estado === 'open')
