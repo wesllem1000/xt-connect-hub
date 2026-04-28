@@ -6,153 +6,689 @@
 <title>IRR-V1 Simulator</title>
 <style>
   :root {
-    --bg: #0f172a; --panel: #1e293b; --border: #334155;
-    --text: #f1f5f9; --muted: #94a3b8; --accent: #10b981;
-    --warn: #f59e0b; --err: #ef4444; --ok: #22c55e;
+    --bg: #0a0e1a;
+    --bg-elev: #131929;
+    --panel: #1a2237;
+    --panel-2: #232b42;
+    --border: #2d3754;
+    --border-2: #3a4566;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --muted-2: #64748b;
+    --accent: #10b981;
+    --accent-2: #34d399;
+    --accent-glow: rgba(16, 185, 129, 0.35);
+    --warn: #f59e0b;
+    --warn-glow: rgba(245, 158, 11, 0.3);
+    --err: #ef4444;
+    --err-glow: rgba(239, 68, 68, 0.3);
+    --ok: #22c55e;
+    --info: #3b82f6;
+    --info-glow: rgba(59, 130, 246, 0.25);
   }
   * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: var(--bg); color: var(--text); margin: 0; padding: 16px;
-    font-size: 14px; line-height: 1.5;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', Roboto, sans-serif;
+    background: linear-gradient(180deg, #0a0e1a 0%, #0f1525 100%);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
   }
-  h1 { font-size: 18px; margin: 0 0 12px; }
-  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin: 16px 0 8px; }
-  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
-  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 2px; }
-  input, select, button, textarea { font: inherit; }
-  input, select, textarea { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; width: 100%; }
-  textarea { font-family: ui-monospace, monospace; font-size: 12px; min-height: 100px; }
-  button { background: var(--accent); color: #052e16; border: 0; border-radius: 4px; padding: 8px 14px; font-weight: 600; cursor: pointer; }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  button.danger { background: var(--err); color: white; }
-  button.warn { background: var(--warn); color: #451a03; }
-  button.ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; }
-  .row > * { flex: 1 1 150px; }
-  .stat { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
-  .stat.ok { background: var(--ok); color: #052e16; }
-  .stat.err { background: var(--err); color: white; }
-  .stat.warn { background: var(--warn); color: #451a03; }
-  .stat.off { background: var(--muted); color: var(--bg); }
-  .log { background: #020617; border: 1px solid var(--border); border-radius: 4px; padding: 8px; font-family: ui-monospace, monospace; font-size: 11px; max-height: 300px; overflow-y: auto; margin-top: 8px; }
+
+  /* Layout */
+  .app { max-width: 1100px; margin: 0 auto; padding: 16px; }
+  .header {
+    display: flex; align-items: center; gap: 12px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 16px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  }
+  .logo { font-size: 22px; }
+  .header h1 {
+    margin: 0; font-size: 16px; font-weight: 700;
+    flex: 1; min-width: 0;
+  }
+  .header .serial {
+    font-family: ui-monospace, monospace; font-size: 12px;
+    color: var(--muted); margin-left: 6px;
+  }
+  .header .right {
+    display: flex; gap: 8px; align-items: center;
+  }
+
+  .tabs {
+    display: flex; gap: 4px; margin-bottom: 16px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 4px; overflow-x: auto;
+  }
+  .tabs button {
+    background: transparent; border: 0; color: var(--muted);
+    padding: 8px 14px; border-radius: 8px; cursor: pointer;
+    font: inherit; font-weight: 500; white-space: nowrap;
+    transition: all .15s;
+  }
+  .tabs button:hover { background: var(--panel-2); color: var(--text); }
+  .tabs button.active {
+    background: var(--accent); color: #052e16; font-weight: 600;
+  }
+
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* Cards */
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin-bottom: 12px;
+  }
+  .card h2 {
+    font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.8px; color: var(--muted); margin: 0 0 10px;
+    font-weight: 600;
+  }
+  .card h3 { margin: 0 0 8px; font-size: 14px; font-weight: 600; }
+
+  /* Form controls */
+  label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; font-weight: 500; }
+  input, select, textarea {
+    background: var(--bg-elev); color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 10px; width: 100%; font: inherit;
+    transition: border-color .15s;
+  }
+  input:focus, select:focus, textarea:focus {
+    outline: 0; border-color: var(--accent);
+  }
+  input[type="checkbox"] { width: auto; }
+  textarea { font-family: ui-monospace, monospace; font-size: 12px; min-height: 80px; }
+
+  button.btn {
+    background: var(--accent); color: #052e16;
+    border: 0; border-radius: 6px; padding: 8px 14px;
+    font: inherit; font-weight: 600; cursor: pointer;
+    transition: all .15s;
+  }
+  button.btn:hover { background: var(--accent-2); }
+  button.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.btn.warn { background: var(--warn); color: #422006; }
+  button.btn.warn:hover { background: #fbbf24; }
+  button.btn.err { background: var(--err); color: white; }
+  button.btn.err:hover { background: #f87171; }
+  button.btn.ghost {
+    background: transparent; color: var(--text);
+    border: 1px solid var(--border-2);
+  }
+  button.btn.ghost:hover { background: var(--panel-2); }
+  button.btn.sm { padding: 5px 10px; font-size: 12px; }
+  button.btn.tiny { padding: 3px 8px; font-size: 11px; }
+
+  /* Status pills */
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 600;
+  }
+  .pill.ok { background: rgba(34,197,94,.15); color: var(--ok); }
+  .pill.warn { background: rgba(245,158,11,.15); color: var(--warn); }
+  .pill.err { background: rgba(239,68,68,.18); color: var(--err); }
+  .pill.info { background: rgba(59,130,246,.18); color: var(--info); }
+  .pill.off { background: rgba(148,163,184,.15); color: var(--muted); }
+  .pill .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: currentColor;
+  }
+  .pill.ok .dot, .pill.err .dot, .pill.warn .dot {
+    box-shadow: 0 0 6px currentColor;
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    50% { opacity: 0.5; }
+  }
+
+  /* Layout helpers */
+  .row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .row > * { flex: 1 1 180px; }
+  .grid { display: grid; gap: 10px; }
+  .grid.cols-2 { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .grid.cols-4 { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .grid.cols-8 { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
+  .stack { display: flex; flex-direction: column; gap: 8px; }
+  .between { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  .tiny { font-size: 11px; }
+  .mono { font-family: ui-monospace, monospace; }
+
+  /* Bomba display */
+  .pump-card {
+    display: grid; grid-template-columns: auto 1fr; gap: 24px;
+    align-items: center;
+  }
+  .pump-ring {
+    position: relative; width: 130px; height: 130px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .pump-ring::before {
+    content: ''; position: absolute; inset: 0;
+    border-radius: 50%; border: 6px solid var(--border-2);
+    transition: border-color .3s;
+  }
+  .pump-ring.on::before {
+    border-color: transparent;
+    border-top-color: var(--accent);
+    border-right-color: var(--accent);
+    box-shadow: 0 0 24px var(--accent-glow);
+    animation: spin 2s linear infinite;
+  }
+  .pump-ring.alarm::before {
+    border-color: var(--err);
+    box-shadow: 0 0 24px var(--err-glow);
+    animation: none;
+  }
+  .pump-ring.off::before {
+    border-color: var(--err);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .pump-center {
+    text-align: center; z-index: 1; pointer-events: none;
+  }
+  .pump-center .label {
+    font-size: 10px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .pump-center .big {
+    font-size: 22px; font-weight: 700; margin-top: 4px;
+    font-family: ui-monospace, monospace;
+  }
+  .pump-card.on .pump-center .big { color: var(--accent); }
+  .pump-card.off .pump-center .big { color: var(--err); }
+
+  /* Setor card */
+  .setor {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px; cursor: pointer;
+    transition: all .2s;
+    text-align: center;
+  }
+  .setor:hover { border-color: var(--border-2); }
+  .setor.open {
+    background: linear-gradient(180deg, rgba(16,185,129,0.05) 0%, rgba(16,185,129,0.18) 100%);
+    border-color: var(--accent);
+    box-shadow: 0 0 12px var(--accent-glow);
+  }
+  .setor.opening, .setor.closing, .setor.paused {
+    background: rgba(245,158,11,0.12);
+    border-color: var(--warn);
+  }
+  .setor .num { font-size: 11px; color: var(--muted); }
+  .setor .name { font-weight: 600; font-size: 13px; margin: 4px 0; }
+  .setor .estado { font-size: 11px; }
+
+  /* Sensor card */
+  .sensor-card {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px;
+    border-left: 4px solid var(--border-2);
+  }
+  .sensor-card.alert {
+    border-left-color: var(--err);
+    background: linear-gradient(90deg, rgba(239,68,68,0.08), var(--panel-2) 60%);
+  }
+  .sensor-card.ok-hot {
+    border-left-color: var(--ok);
+  }
+
+  .sensor-temp {
+    font-size: 28px; font-weight: 700;
+    font-family: ui-monospace, monospace;
+  }
+  .sensor-temp.alert { color: var(--err); }
+  .sensor-temp.warn { color: var(--warn); }
+  .sensor-temp.ok { color: var(--text); }
+
+  /* Alarm banner */
+  .alarm-banner {
+    background: linear-gradient(90deg, var(--err) 0%, #b91c1c 100%);
+    color: white; padding: 12px 16px; border-radius: 10px;
+    margin-bottom: 12px;
+    box-shadow: 0 4px 12px var(--err-glow);
+    animation: alert-blink 1.5s ease-in-out infinite;
+  }
+  @keyframes alert-blink {
+    50% { box-shadow: 0 4px 24px var(--err); }
+  }
+  .alarm-banner .row-flex {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .alarm-banner strong { display: block; margin-bottom: 2px; }
+
+  /* Log */
+  .log {
+    background: #050810; border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px;
+    font-family: ui-monospace, monospace; font-size: 11px;
+    max-height: 380px; overflow-y: auto;
+  }
   .log .tx { color: #38bdf8; }
   .log .rx { color: #a78bfa; }
   .log .err { color: var(--err); }
   .log .info { color: var(--muted); }
-  .sector-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 6px; }
-  .sector { border: 1px solid var(--border); border-radius: 4px; padding: 6px; font-size: 11px; }
-  .sector.open { background: rgba(34,197,94,.15); border-color: var(--ok); }
-  .sector.closed { background: rgba(148,163,184,.1); }
-  .sector.opening, .sector.closing, .sector.paused { background: rgba(245,158,11,.15); border-color: var(--warn); }
-  .cmd-row { display: flex; justify-content: space-between; gap: 8px; padding: 6px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .log .ok { color: var(--ok); }
+
+  /* Cmd cards */
+  .cmd-row {
+    display: flex; justify-content: space-between; gap: 8px;
+    padding: 10px; border-bottom: 1px solid var(--border);
+    font-size: 12px;
+  }
   .cmd-row:last-child { border-bottom: 0; }
   .cmd-row .actions { display: flex; gap: 4px; }
-  .cmd-row button { padding: 4px 8px; font-size: 11px; font-weight: normal; }
+
+  /* Indicators row */
+  .indicator {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 10px;
+    cursor: pointer; user-select: none;
+    font-size: 12px;
+  }
+  .indicator input { display: none; }
+  .indicator .led {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--muted-2);
+  }
+  .indicator.on .led { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+
+  hr.div { border: 0; border-top: 1px solid var(--border); margin: 12px 0; }
+
+  /* Modal/dialog */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    display: none; z-index: 100; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 20px;
+    max-width: 520px; width: 100%;
+    max-height: 90vh; overflow-y: auto;
+  }
+  .modal h2 { margin-top: 0; font-size: 16px; text-transform: none; letter-spacing: 0; color: var(--text); }
 </style>
 </head>
 <body>
 
-<h1>🌱 IRR-V1 Simulator <span id="conn-status" class="stat off">offline</span></h1>
+<div class="app">
 
-<div class="panel">
-  <h2>Conexão MQTT WSS</h2>
-  <div class="row">
-    <div><label>Broker URL</label><input id="url" value="wss://hub.xtconect.online:8884/" /></div>
-    <div><label>Username (serial)</label><input id="user" value="IRR-V1-00006" /></div>
-    <div><label>Password</label><input id="pass" type="password" /></div>
-  </div>
-  <div style="margin-top:8px; display:flex; gap:8px; align-items:center;">
-    <button id="btn-connect">Conectar</button>
-    <button id="btn-disconnect" class="ghost" disabled>Desconectar (LWT)</button>
-    <span id="conn-detail" style="color:var(--muted); font-size:12px;"></span>
+<!-- HEADER -->
+<div class="header">
+  <span class="logo">🌱</span>
+  <h1>
+    IRR-V1 Simulator
+    <span class="serial" id="serial-display">aguardando…</span>
+  </h1>
+  <div class="right">
+    <span id="conn-pill" class="pill off"><span class="dot"></span>offline</span>
+    <span id="alarm-pill" class="pill err" style="display:none;"><span class="dot"></span>ALARME</span>
+    <button class="btn ghost sm" id="btn-open-conn">⚙ Conexão</button>
   </div>
 </div>
 
-<div class="panel">
-  <h2>Bomba</h2>
-  <div class="row">
-    <div>
-      <label>Estado</label>
-      <select id="pump-state">
-        <option value="off">off</option>
-        <option value="starting">starting</option>
-        <option value="on">on</option>
-        <option value="stopping">stopping</option>
+<!-- TABS -->
+<div class="tabs" id="tabs">
+  <button data-view="painel" class="active">Painel</button>
+  <button data-view="sensores">Sensores</button>
+  <button data-view="timers">Timers</button>
+  <button data-view="eventos">Eventos</button>
+  <button data-view="logs">Logs</button>
+</div>
+
+<!-- VIEW: PAINEL -->
+<div class="view active" id="view-painel">
+
+  <!-- Alarm banner (hidden by default) -->
+  <div id="alarm-banner" style="display:none;"></div>
+
+  <!-- Modo + Bomba -->
+  <div class="card">
+    <div class="between">
+      <div>
+        <h2 style="margin-bottom:4px;">Modo de operação</h2>
+        <div id="modo-text" style="font-size:18px; font-weight:700;">MANUAL</div>
+        <div class="muted small" id="modo-hint">Comandos só executam via app/botão.</div>
+      </div>
+      <select id="modo-select" style="max-width:180px;">
+        <option value="manual">Manual</option>
+        <option value="automatico">Automático</option>
       </select>
     </div>
-    <div>
-      <label>Source</label>
-      <select id="pump-source">
-        <option value="">(null)</option>
-        <option>manual_local</option>
-        <option>manual_remote</option>
-        <option>automatic</option>
-        <option>physical_button</option>
+  </div>
+
+  <div class="card">
+    <h2>Bomba</h2>
+    <div class="pump-card" id="pump-card">
+      <div class="pump-ring off" id="pump-ring">
+        <div class="pump-center">
+          <div class="label" id="pump-label">Status</div>
+          <div class="big" id="pump-big">OFF</div>
+        </div>
+      </div>
+      <div class="stack">
+        <div><label>Source</label>
+          <select id="pump-source">
+            <option value="">(null)</option>
+            <option>manual_local</option>
+            <option>manual_remote</option>
+            <option>automatic</option>
+            <option>physical_button</option>
+          </select>
+        </div>
+        <div><label>Scheduled off em (s) — vazio = sem auto-off</label>
+          <input id="pump-off-in" type="number" placeholder="ex. 60" />
+        </div>
+        <div class="row">
+          <button class="btn sm" id="btn-pump-on">Ligar</button>
+          <button class="btn sm err" id="btn-pump-off">Desligar</button>
+          <button class="btn sm ghost" id="btn-pub-state">↻ Re-publish state</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Setores -->
+  <div class="card">
+    <div class="between">
+      <h2 style="margin:0;">Setores</h2>
+      <span class="muted tiny">Click no card pra alternar estado</span>
+    </div>
+    <div class="grid cols-8" id="setores-grid"></div>
+  </div>
+
+  <!-- Temperatura quick view -->
+  <div class="card">
+    <div class="between">
+      <h2 style="margin:0;">Temperatura</h2>
+      <button class="btn sm ghost" onclick="showTab('sensores')">Configurar →</button>
+    </div>
+    <div id="sensores-quick" class="stack" style="margin-top:8px;">
+      <p class="muted small" id="sensores-empty">
+        Nenhum sensor configurado. Vá em Sensores pra adicionar.
+      </p>
+    </div>
+  </div>
+
+  <!-- Indicators -->
+  <div class="card">
+    <h2>Indicators (firmware)</h2>
+    <div class="row">
+      <label class="indicator on" id="ind-wifi-lbl">
+        <input type="checkbox" id="ind-wifi" checked>
+        <span class="led"></span>
+        <span>wifi</span>
+      </label>
+      <label class="indicator on" id="ind-mqtt-lbl">
+        <input type="checkbox" id="ind-mqtt" checked>
+        <span class="led"></span>
+        <span>mqtt</span>
+      </label>
+      <label class="indicator on" id="ind-time-lbl">
+        <input type="checkbox" id="ind-time" checked>
+        <span class="led"></span>
+        <span>time_valid</span>
+      </label>
+    </div>
+    <p class="muted tiny" style="margin: 8px 0 0;">Mudanças nesses toggles republicam state retained.</p>
+  </div>
+
+  <!-- Comandos pendentes -->
+  <div class="card">
+    <h2>Comandos recebidos</h2>
+    <div id="cmds"></div>
+    <p class="muted tiny" style="margin: 8px 0 0;">
+      Auto-aceita e aplica state em 2s. Comandos legados sem cmd_id (ex. set_rate) são ignorados.
+    </p>
+  </div>
+
+</div>
+
+<!-- VIEW: SENSORES -->
+<div class="view" id="view-sensores">
+  <div class="card">
+    <div class="between">
+      <h3 style="margin:0;">Sensores de temperatura</h3>
+      <button class="btn sm" id="btn-add-sensor">+ Adicionar sensor</button>
+    </div>
+    <p class="muted small" style="margin:6px 0 12px;">
+      Sensor ativo + temperatura ≥ limite ⇒ desliga bomba + publica
+      <code>temp_alarm_triggered</code> + alarme visual. Reabilita
+      quando cai abaixo de <em>limite − histerese</em>.
+    </p>
+    <div id="sensores-list" class="stack"></div>
+  </div>
+</div>
+
+<!-- VIEW: TIMERS -->
+<div class="view" id="view-timers">
+  <div class="card">
+    <div class="between">
+      <div>
+        <h3 style="margin:0;">Timers locais do simulator</h3>
+        <p class="muted tiny" style="margin:4px 0 0;">
+          Independentes dos timers cadastrados na app. Disparam quando o
+          modo do dispositivo é <strong>Automático</strong>.
+        </p>
+      </div>
+      <button class="btn sm" id="btn-add-timer">+ Novo timer</button>
+    </div>
+    <div id="timers-list" class="stack" style="margin-top:12px;"></div>
+  </div>
+</div>
+
+<!-- VIEW: EVENTOS -->
+<div class="view" id="view-eventos">
+  <div class="card">
+    <h3>Publicar evento manualmente</h3>
+    <div class="row" style="margin-top:8px;">
+      <select id="event-type">
+        <option>pump_on_manual</option><option>pump_off_manual</option>
+        <option>pump_on_auto</option><option>pump_off_auto_end</option>
+        <option>pump_off_safety</option>
+        <option>sector_opened</option><option>sector_closed</option>
+        <option>safe_closure_started</option><option>safe_closure_completed</option>
+        <option>temp_alarm_triggered</option><option>temp_alarm_ack_user</option>
+        <option>temp_sensor_lost</option>
+        <option>physical_button_pressed</option><option>auto_shutoff_max_time</option>
+        <option>wifi_connected</option><option>wifi_disconnected</option>
+        <option>mqtt_connected</option><option>mqtt_disconnected</option>
+        <option>time_synced</option><option>time_invalid</option>
       </select>
+      <button class="btn" id="btn-pub-event">Publicar event (QoS 1)</button>
     </div>
-    <div>
-      <label>Scheduled off in (s)</label>
-      <input id="pump-off-in" type="number" placeholder="deixa vazio" />
+    <p class="muted small" style="margin:8px 0 0;">
+      Útil pra forçar entradas no histórico do banco.
+      Eventos automáticos (alarme, timer) já são emitidos sozinhos.
+    </p>
+  </div>
+</div>
+
+<!-- VIEW: LOGS -->
+<div class="view" id="view-logs">
+  <div class="card">
+    <div class="between">
+      <h3 style="margin:0;">Log MQTT (TX/RX)</h3>
+      <button class="btn sm ghost" id="btn-clear-log">Limpar</button>
+    </div>
+    <div id="log" class="log" style="margin-top:8px;"></div>
+  </div>
+</div>
+
+</div><!-- /app -->
+
+<!-- MODAL CONEXÃO -->
+<div class="modal-overlay" id="modal-conn">
+  <div class="modal">
+    <h2>Conexão MQTT</h2>
+    <div class="stack" style="margin-top:12px;">
+      <div><label>Broker URL</label>
+        <input id="url" value="wss://hub.xtconect.online:8884/" /></div>
+      <div><label>Username (serial)</label>
+        <input id="user" value="IRR-V1-00006" /></div>
+      <div><label>Password</label>
+        <input id="pass" type="password" /></div>
+      <div class="muted tiny">Senha gerada na ficha admin do produto. Será salva no localStorage do navegador.</div>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn" id="btn-connect">Conectar</button>
+        <button class="btn ghost" id="btn-disconnect" disabled>Desconectar (LWT)</button>
+        <button class="btn ghost" id="btn-close-conn">Fechar</button>
+      </div>
     </div>
   </div>
 </div>
 
-<div class="panel">
-  <h2>Setores (1–8)</h2>
-  <div class="sector-grid" id="sectors"></div>
-</div>
-
-<div class="panel">
-  <h2>Indicators</h2>
-  <div class="row">
-    <label><input type="checkbox" id="ind-wifi" checked> wifi</label>
-    <label><input type="checkbox" id="ind-mqtt" checked> mqtt</label>
-    <label><input type="checkbox" id="ind-time" checked> time_valid</label>
+<!-- MODAL SENSOR -->
+<div class="modal-overlay" id="modal-sensor">
+  <div class="modal">
+    <h2 id="modal-sensor-title">Sensor</h2>
+    <div class="stack" style="margin-top:12px;">
+      <div class="row">
+        <div><label>Nome</label><input id="ms-nome" maxlength="48"></div>
+        <div><label>Função</label>
+          <select id="ms-role">
+            <option value="pump">Bomba (motor)</option>
+            <option value="inverter">Inverter</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div><label>Modo</label>
+          <select id="ms-mode">
+            <option value="manual">Manual (valor fixo)</option>
+            <option value="random">Oscilação aleatória</option>
+          </select>
+        </div>
+        <div><label>Valor inicial (°C)</label>
+          <input id="ms-valor" type="number" step="0.1" value="30">
+        </div>
+      </div>
+      <div class="row">
+        <div><label>Limite alarme (°C)</label>
+          <input id="ms-limite" type="number" step="0.1" value="70">
+        </div>
+        <div><label>Histerese (°C)</label>
+          <input id="ms-histerese" type="number" step="0.1" value="3">
+        </div>
+      </div>
+      <div>
+        <label><input type="checkbox" id="ms-ativo" checked style="width:auto;margin-right:6px;">Ativo (monitora alarme)</label>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn" id="btn-save-sensor">Salvar</button>
+        <button class="btn ghost" id="btn-cancel-sensor">Cancelar</button>
+      </div>
+    </div>
   </div>
 </div>
 
-<div class="panel">
-  <h2>Publish</h2>
-  <div class="row">
-    <button id="btn-pub-state">Publish state (retained)</button>
-    <button id="btn-pub-online" class="ghost">Publish status: online (retained)</button>
-    <button id="btn-pub-offline" class="warn">Publish status: offline (retained)</button>
+<!-- MODAL TIMER -->
+<div class="modal-overlay" id="modal-timer">
+  <div class="modal">
+    <h2 id="modal-timer-title">Timer</h2>
+    <div class="stack" style="margin-top:12px;">
+      <div><label>Nome</label><input id="mt-nome" maxlength="48" placeholder="Ex.: Manhã setor 1"></div>
+      <div class="row">
+        <div><label>Alvo</label>
+          <select id="mt-alvo">
+            <option value="pump">Bomba (sem setor)</option>
+            <option value="sector">Setor (abre + bomba liga)</option>
+          </select>
+        </div>
+        <div id="mt-sector-wrap"><label>Setor</label>
+          <select id="mt-sector">
+            <option value="1">1</option><option value="2">2</option>
+            <option value="3">3</option><option value="4">4</option>
+            <option value="5">5</option><option value="6">6</option>
+            <option value="7">7</option><option value="8">8</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div><label>Horário</label><input id="mt-hora" type="time" value="06:00"></div>
+        <div><label>Duração (min)</label><input id="mt-dur" type="number" min="1" max="480" value="15"></div>
+      </div>
+      <div>
+        <label>Dias da semana</label>
+        <div id="mt-dias-row" class="row" style="gap:6px;"></div>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn" id="btn-save-timer">Salvar</button>
+        <button class="btn ghost" id="btn-cancel-timer">Cancelar</button>
+      </div>
+    </div>
   </div>
-  <h2 style="margin-top:12px;">Eventos</h2>
-  <div class="row">
-    <select id="event-type">
-      <option>pump_on_manual</option><option>pump_off_manual</option><option>pump_on_auto</option>
-      <option>pump_off_auto_end</option><option>pump_off_safety</option>
-      <option>sector_opened</option><option>sector_closed</option>
-      <option>safe_closure_started</option><option>safe_closure_completed</option>
-      <option>temp_alarm_triggered</option><option>temp_sensor_lost</option>
-      <option>physical_button_pressed</option><option>auto_shutoff_max_time</option>
-      <option>wifi_connected</option><option>wifi_disconnected</option>
-      <option>mqtt_connected</option><option>mqtt_disconnected</option>
-      <option>time_synced</option><option>time_invalid</option>
-    </select>
-    <button id="btn-pub-event">Publish event (QoS 1)</button>
-  </div>
-</div>
-
-<div class="panel">
-  <h2>Comandos recebidos</h2>
-  <div id="cmds"></div>
-  <p style="color:var(--muted); font-size:11px; margin:8px 0 0;">Subscribe <code>devices/&lt;serial&gt;/commands</code> — auto-aceita e <strong>aplica no state</strong> em 2s. Comandos legados sem <code>cmd_id</code> (ex.: <code>set_rate</code>) são ignorados.</p>
-</div>
-
-<div class="panel">
-  <h2>Log</h2>
-  <div id="log" class="log"></div>
 </div>
 
 <script src="https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js"></script>
 <script>
 (() => {
+  // ============================================================
+  //                  STATE
+  // ============================================================
+
+  const state = {
+    pump: { state: 'off', source: null, started_at: null, scheduled_off_at: null },
+    sectors: {}, // numero → { numero, estado, source, opened_at, scheduled_close_at }
+    indicators: { wifi: true, mqtt: true, time_valid: true },
+  };
+  for (let n = 1; n <= 8; n++) {
+    state.sectors[n] = { numero: n, estado: 'closed', source: null, opened_at: null, scheduled_close_at: null };
+  }
+
+  const internal = {
+    mode: 'manual', // 'manual' | 'automatico'
+    sensors: [],   // { id, role, nome, mode, valor, limite, histerese, ativo, lastAlarm }
+    timers: [],    // { id, nome, alvo, sectorN, hora, duracaoMin, diasMask, ativo, _running, _runStartedAt }
+    alarmActive: false,
+    alarmInfo: null, // { sensorId, valor, limite }
+  };
+
+  // Persistência leve no localStorage
+  const LS_KEY = 'xtsim_v1';
+  function persist() {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        url: el('url').value, user: el('user').value, pass: el('pass').value,
+        sensors: internal.sensors,
+        timers: internal.timers,
+      }));
+    } catch (_) {}
+  }
+  function restore() {
+    try {
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) return;
+      const d = JSON.parse(raw);
+      if (d.url) el('url').value = d.url;
+      if (d.user) el('user').value = d.user;
+      if (d.pass) el('pass').value = d.pass;
+      if (Array.isArray(d.sensors)) internal.sensors = d.sensors;
+      if (Array.isArray(d.timers)) {
+        internal.timers = d.timers.map(t => ({ ...t, _running: false, _runStartedAt: null }));
+      }
+    } catch (_) {}
+  }
+
+  // ============================================================
+  //                  HELPERS
+  // ============================================================
+
   const el = (id) => document.getElementById(id);
   const log = (msg, cls = 'info') => {
     const l = el('log');
+    if (!l) return;
     const t = new Date().toISOString().slice(11, 19);
     l.innerHTML = `<div class="${cls}">[${t}] ${msg}</div>` + l.innerHTML;
   };
@@ -163,257 +699,777 @@
       return v.toString(16);
     });
   };
+  const fmtTime = (totalSec) => {
+    const s = Math.max(0, Math.floor(totalSec));
+    const m = Math.floor(s / 60), r = s % 60;
+    return `${String(m).padStart(2,'0')}:${String(r).padStart(2,'0')}`;
+  };
 
-  // Render 8 setores
-  const sectorsEl = el('sectors');
-  const sectorState = {};
-  for (let n = 1; n <= 8; n++) {
-    sectorState[n] = { numero: n, estado: 'closed', source: null, opened_at: null, scheduled_close_at: null };
-    const d = document.createElement('div');
-    d.className = 'sector closed';
-    d.innerHTML = `
-      <strong>S${n}</strong>
-      <select data-numero="${n}">
-        <option value="closed">closed</option>
-        <option value="opening">opening</option>
-        <option value="open">open</option>
-        <option value="closing">closing</option>
-        <option value="paused">paused</option>
-      </select>
-    `;
-    sectorsEl.appendChild(d);
-  }
-  sectorsEl.addEventListener('change', (e) => {
-    if (e.target.tagName !== 'SELECT') return;
-    const n = parseInt(e.target.dataset.numero, 10);
-    const v = e.target.value;
-    sectorState[n].estado = v;
-    if (v === 'open' && !sectorState[n].opened_at) sectorState[n].opened_at = new Date().toISOString();
-    if (v === 'closed') { sectorState[n].opened_at = null; sectorState[n].scheduled_close_at = null; }
-    e.target.parentElement.className = 'sector ' + v;
-  });
+  // ============================================================
+  //                  MQTT
+  // ============================================================
 
-  // MQTT client state
   let client = null;
   let serial = '';
 
-  const buildStatePayload = () => {
-    const pumpState = el('pump-state').value;
-    const pumpSource = el('pump-source').value || null;
-    let scheduledOffAt = null;
-    const offIn = parseInt(el('pump-off-in').value, 10);
-    if (pumpState === 'on' && Number.isFinite(offIn) && offIn > 0) {
-      scheduledOffAt = new Date(Date.now() + offIn * 1000).toISOString();
-    }
-    return {
+  function publishState() {
+    if (!client || !client.connected) return;
+    const payload = JSON.stringify({
       protocol_version: 1,
       ts: new Date().toISOString(),
-      pump: {
-        state: pumpState,
-        source: pumpSource,
-        started_at: pumpState === 'on' ? new Date().toISOString() : null,
-        scheduled_off_at: scheduledOffAt,
-      },
-      sectors: Object.values(sectorState),
-      indicators: {
-        wifi: el('ind-wifi').checked,
-        mqtt: el('ind-mqtt').checked,
-        time_valid: el('ind-time').checked,
-      },
-    };
-  };
-
-  const publishState = () => {
-    if (!client || !client.connected) { log('não conectado', 'err'); return; }
-    const payload = JSON.stringify(buildStatePayload());
+      pump: state.pump,
+      sectors: Object.values(state.sectors),
+      indicators: state.indicators,
+    });
     client.publish(`devices/${serial}/state`, payload, { qos: 1, retain: true }, (err) => {
       if (err) log('pub state err: ' + err.message, 'err');
       else log('TX state (' + payload.length + 'B) retained', 'tx');
     });
-  };
+  }
 
-  const publishStatus = (online) => {
+  function publishStatus(online) {
     if (!client || !client.connected) return;
     const payload = online ? 'online' : 'offline';
     client.publish(`devices/${serial}/status`, payload, { qos: 1, retain: true }, (err) => {
       if (err) log('pub status err: ' + err.message, 'err');
       else log('TX status=' + payload + ' retained', 'tx');
     });
-  };
+  }
 
-  const publishEvent = () => {
-    if (!client || !client.connected) { log('não conectado', 'err'); return; }
+  function publishEvent(eventType, payload = {}, origem = 'physical_button') {
+    if (!client || !client.connected) return;
     const evt = {
-      event_uuid: uuidv4(),
-      event_type: el('event-type').value,
-      origem: 'physical_button',
-      ts: new Date().toISOString(),
-      payload: {},
+      event_uuid: uuidv4(), event_type: eventType, origem,
+      ts: new Date().toISOString(), payload,
     };
-    const payload = JSON.stringify(evt);
-    client.publish(`devices/${serial}/events`, payload, { qos: 1, retain: false }, (err) => {
+    const body = JSON.stringify(evt);
+    client.publish(`devices/${serial}/events`, body, { qos: 1, retain: false }, (err) => {
       if (err) log('pub event err: ' + err.message, 'err');
-      else log('TX event ' + evt.event_type + ' ' + evt.event_uuid.slice(0, 8), 'tx');
+      else log('TX event ' + eventType, 'tx');
     });
-  };
+  }
 
-  const publishAck = (cmdId, status, reason) => {
+  function publishAck(cmdId, status, reason) {
     if (!client || !client.connected) return;
     const ack = { cmd_id: cmdId, status, reason, ts: new Date().toISOString() };
     client.publish(`devices/${serial}/commands/ack`, JSON.stringify(ack), { qos: 1, retain: false }, (err) => {
       if (err) log('pub ack err: ' + err.message, 'err');
       else log('TX ack ' + cmdId.slice(0, 8) + ' → ' + status, 'tx');
     });
-  };
+  }
 
-  // Comando receiver + UI
+  // ============================================================
+  //                  COMMAND APPLY
+  // ============================================================
 
-  // Aplica o efeito do comando no state local (pump-state, sectors, etc.)
-  // pra simular o firmware real: depois de "executed" o estado muda e o
-  // simulator republica state retained pra app receber via MQTT.
-  // Retorna true se aplicou alguma mudança (e portanto deve republicar state).
-  const applyCommandEffect = (cmd) => {
-    const c = cmd.cmd;
-    const p = cmd.params || {};
+  function applyCmd(cmd) {
+    const c = cmd.cmd, p = cmd.params || {};
     let changed = false;
-
     if (c === 'pump_on') {
-      if (el('pump-state').value !== 'on') {
-        el('pump-state').value = 'on';
-        el('pump-source').value = 'manual_remote';
-        el('pump-off-in').value = '';
+      if (state.pump.state !== 'on') {
+        state.pump.state = 'on';
+        state.pump.source = 'manual_remote';
+        state.pump.started_at = new Date().toISOString();
+        state.pump.scheduled_off_at = null;
         changed = true;
       }
     } else if (c === 'pump_off') {
-      if (el('pump-state').value !== 'off') {
-        el('pump-state').value = 'off';
-        el('pump-source').value = '';
-        el('pump-off-in').value = '';
+      if (state.pump.state !== 'off') {
+        state.pump.state = 'off';
+        state.pump.source = null;
+        state.pump.started_at = null;
+        state.pump.scheduled_off_at = null;
         changed = true;
       }
-    } else if (c === 'sector_open' || c === 'sector_close' ||
-               c === 'sector_pause' || c === 'sector_resume') {
+    } else if (c === 'sector_open' || c === 'sector_close' || c === 'sector_pause' || c === 'sector_resume') {
       const n = parseInt(p.numero, 10);
       if (!Number.isFinite(n) || n < 1 || n > 8) return false;
       const novo = c === 'sector_open' || c === 'sector_resume' ? 'open'
-                 : c === 'sector_close' ? 'closed'
-                 : 'paused';
-      if (sectorState[n].estado !== novo) {
-        sectorState[n].estado = novo;
-        if (novo === 'open' && !sectorState[n].opened_at) {
-          sectorState[n].opened_at = new Date().toISOString();
-        }
-        if (novo === 'closed') {
-          sectorState[n].opened_at = null;
-          sectorState[n].scheduled_close_at = null;
-        }
-        const sel = sectorsEl.querySelector(`select[data-numero="${n}"]`);
-        if (sel) {
-          sel.value = novo;
-          sel.parentElement.className = 'sector ' + novo;
-        }
+                 : c === 'sector_close' ? 'closed' : 'paused';
+      if (state.sectors[n].estado !== novo) {
+        state.sectors[n].estado = novo;
+        if (novo === 'open' && !state.sectors[n].opened_at) state.sectors[n].opened_at = new Date().toISOString();
+        if (novo === 'closed') { state.sectors[n].opened_at = null; state.sectors[n].scheduled_close_at = null; }
         changed = true;
       }
     } else if (c === 'safe_closure' || c === 'factory_reset') {
-      // Fecha todos setores + desliga bomba
       for (let n = 1; n <= 8; n++) {
-        if (sectorState[n].estado !== 'closed') {
-          sectorState[n].estado = 'closed';
-          sectorState[n].opened_at = null;
-          sectorState[n].scheduled_close_at = null;
-          const sel = sectorsEl.querySelector(`select[data-numero="${n}"]`);
-          if (sel) {
-            sel.value = 'closed';
-            sel.parentElement.className = 'sector closed';
-          }
+        if (state.sectors[n].estado !== 'closed') {
+          state.sectors[n].estado = 'closed';
+          state.sectors[n].opened_at = null;
+          state.sectors[n].scheduled_close_at = null;
           changed = true;
         }
       }
-      if (el('pump-state').value !== 'off') {
-        el('pump-state').value = 'off';
-        el('pump-source').value = '';
-        el('pump-off-in').value = '';
+      if (state.pump.state !== 'off') {
+        state.pump.state = 'off';
+        state.pump.source = null;
+        state.pump.started_at = null;
+        state.pump.scheduled_off_at = null;
         changed = true;
       }
+    } else if (c === 'mode_set') {
+      const m = p.modo === 'automatico' ? 'automatico' : 'manual';
+      if (internal.mode !== m) { internal.mode = m; changed = true; }
     }
-    // mode_set / config_reload não tocam no state retained — só no banco/config.
     return changed;
-  };
+  }
 
-  const cmdsEl = el('cmds');
-  const renderCmd = (cmd) => {
-    // Comandos legados sem cmd_id (ex.: set_rate, fire-and-forget) não têm
-    // ack model do IRR-V1. Logamos como info e ignoramos.
+  // ============================================================
+  //                  COMMAND RX (UI cards)
+  // ============================================================
+
+  function renderCmd(cmd) {
     if (!cmd || !cmd.cmd_id) {
       log('RX legacy ' + (cmd && cmd.cmd ? cmd.cmd : '?') + ' (sem cmd_id, ignorado)', 'info');
       return;
     }
-
     const finishWith = (status, reason) => {
       publishAck(cmd.cmd_id, status, reason);
-      // Só "executed" reflete em mudança real do firmware.
-      if (status === 'executed' && applyCommandEffect(cmd)) {
-        publishState();
+      if (status === 'executed') {
+        const changed = applyCmd(cmd);
+        if (changed) publishState();
       }
       row.remove();
+      render();
     };
-
     const row = document.createElement('div');
     row.className = 'cmd-row';
     row.innerHTML = `
       <div>
-        <strong>${cmd.cmd}</strong> <small style="color:var(--muted)">${cmd.cmd_id.slice(0, 8)}</small>
-        <div style="color:var(--muted); font-size:11px;">params: ${JSON.stringify(cmd.params || {})}</div>
+        <strong>${cmd.cmd}</strong>
+        <small class="muted">${cmd.cmd_id.slice(0, 8)}</small>
+        <div class="muted tiny">${JSON.stringify(cmd.params || {})}</div>
       </div>
       <div class="actions">
-        <button class="ok">Executed</button>
-        <button class="warn">Refused</button>
-        <button class="danger ghost">Expire</button>
-      </div>
-    `;
+        <button class="btn tiny">Executed</button>
+        <button class="btn tiny warn">Refused</button>
+        <button class="btn tiny ghost">Expire</button>
+      </div>`;
     const [okBtn, refBtn, expBtn] = row.querySelectorAll('button');
     okBtn.onclick = () => finishWith('executed', 'ok');
     refBtn.onclick = () => finishWith('refused', 'simulated_refuse');
     expBtn.onclick = () => finishWith('expired', 'expired');
-    cmdsEl.prepend(row);
-    // Auto-ack em 2s se não clicar — também aplica o efeito.
-    setTimeout(() => {
-      if (row.parentElement) finishWith('executed', 'auto_accepted');
-    }, 2000);
+    el('cmds').prepend(row);
+    setTimeout(() => { if (row.parentElement) finishWith('executed', 'auto_accepted'); }, 2000);
+  }
+
+  // ============================================================
+  //                  ALARM CHECK / SENSORS
+  // ============================================================
+
+  function tickSensors(elapsedSec) {
+    // 1. Atualiza valor (random walk só no modo random)
+    for (const s of internal.sensors) {
+      if (s.mode === 'random' && s.ativo) {
+        const drift = (Math.random() - 0.5) * 0.6 * elapsedSec;
+        s.valor = Math.max(-10, Math.min(150, +(s.valor + drift).toFixed(1)));
+      }
+    }
+    // 2. Verifica alarme
+    let triggered = null;
+    for (const s of internal.sensors) {
+      if (!s.ativo) continue;
+      if (s.valor >= s.limite) {
+        triggered = s;
+        break;
+      }
+    }
+    if (triggered) {
+      // Se há alarme novo (não estava active ou era outro sensor) → publica evento
+      const isNew = !internal.alarmActive || (internal.alarmInfo && internal.alarmInfo.sensorId !== triggered.id);
+      internal.alarmActive = true;
+      internal.alarmInfo = { sensorId: triggered.id, sensorNome: triggered.nome, valor: triggered.valor, limite: triggered.limite, role: triggered.role };
+      // Desliga bomba se estiver ligada
+      let bombaCortada = false;
+      if (state.pump.state !== 'off') {
+        state.pump.state = 'off';
+        state.pump.source = null;
+        state.pump.started_at = null;
+        state.pump.scheduled_off_at = null;
+        bombaCortada = true;
+      }
+      if (isNew) {
+        publishEvent('temp_alarm_triggered', {
+          sensor_id: triggered.id, role: triggered.role, nome: triggered.nome,
+          temp_c: triggered.valor, limite_c: triggered.limite,
+          bomba_cortada: bombaCortada,
+        }, 'safety');
+        if (bombaCortada) publishEvent('pump_off_safety', { motivo: 'temp_alarm', sensor_id: triggered.id }, 'safety');
+        publishState();
+      }
+    } else if (internal.alarmActive) {
+      // Verifica se já caiu abaixo de limite − histerese pra rearmar
+      let stillAbove = false;
+      for (const s of internal.sensors) {
+        if (!s.ativo) continue;
+        const armaThreshold = s.limite - (s.histerese || 0);
+        if (s.valor >= armaThreshold) { stillAbove = true; break; }
+      }
+      if (!stillAbove) {
+        internal.alarmActive = false;
+        internal.alarmInfo = null;
+        publishEvent('temp_alarm_ack_user', { motivo: 'auto_clear_below_hysteresis' }, 'automatic');
+      }
+    }
+  }
+
+  // ============================================================
+  //                  TIMERS LOCAIS
+  // ============================================================
+
+  function tickTimers() {
+    if (internal.mode !== 'automatico') return;
+    const now = new Date();
+    const dia = now.getDay(); // 0=dom..6=sab
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const nowHm = `${hh}:${mm}`;
+
+    let stateChanged = false;
+
+    for (const t of internal.timers) {
+      if (!t.ativo) continue;
+      if (!(t.diasMask & (1 << dia))) continue;
+
+      if (!t._running && t.hora === nowHm && now.getSeconds() < 5) {
+        // Dispara
+        t._running = true;
+        t._runStartedAt = Date.now();
+        const offAt = new Date(Date.now() + t.duracaoMin * 60 * 1000).toISOString();
+
+        if (t.alvo === 'sector') {
+          state.sectors[t.sectorN].estado = 'open';
+          state.sectors[t.sectorN].opened_at = new Date().toISOString();
+          state.sectors[t.sectorN].source = 'automatic';
+          publishEvent('sector_opened', { numero: t.sectorN, timer_id: t.id, duracao_min: t.duracaoMin }, 'automatic');
+        }
+        // Liga bomba se está off; se já está on com scheduled_off_at, mantém o maior (mais distante).
+        if (state.pump.state !== 'on') {
+          state.pump.state = 'on';
+          state.pump.source = 'automatic';
+          state.pump.started_at = new Date().toISOString();
+          state.pump.scheduled_off_at = offAt;
+        } else if (state.pump.scheduled_off_at) {
+          if (new Date(offAt).getTime() > new Date(state.pump.scheduled_off_at).getTime()) {
+            state.pump.scheduled_off_at = offAt;
+          }
+        } else {
+          state.pump.scheduled_off_at = offAt;
+        }
+        publishEvent('pump_on_auto', { timer_id: t.id, nome: t.nome, duracao_min: t.duracaoMin }, 'automatic');
+        log(`TIMER "${t.nome}" disparou (alvo=${t.alvo === 'sector' ? 'setor ' + t.sectorN : 'bomba'}, ${t.duracaoMin}min)`, 'ok');
+        stateChanged = true;
+      }
+
+      if (t._running && t._runStartedAt && Date.now() - t._runStartedAt >= t.duracaoMin * 60 * 1000) {
+        // Termina o timer atual
+        t._running = false;
+        t._runStartedAt = null;
+        if (t.alvo === 'sector') {
+          state.sectors[t.sectorN].estado = 'closed';
+          state.sectors[t.sectorN].opened_at = null;
+          state.sectors[t.sectorN].scheduled_close_at = null;
+          publishEvent('sector_closed', { numero: t.sectorN, timer_id: t.id }, 'automatic');
+        }
+        log(`TIMER "${t.nome}" terminou (${t.duracaoMin}min)`, 'ok');
+        stateChanged = true;
+      }
+    }
+    // Após processar todos os timers, decide se a bomba deve continuar.
+    // Bomba desliga só se: nenhum timer está running E nenhum setor está aberto.
+    const algumTimerAtivo = internal.timers.some(t => t._running);
+    const algumSetorAberto = Object.values(state.sectors).some(s => s.estado === 'open' || s.estado === 'opening');
+    if (state.pump.state === 'on' && state.pump.source === 'automatic'
+        && !algumTimerAtivo && !algumSetorAberto) {
+      state.pump.state = 'off';
+      state.pump.source = null;
+      state.pump.started_at = null;
+      state.pump.scheduled_off_at = null;
+      publishEvent('pump_off_auto_end', {}, 'automatic');
+      stateChanged = true;
+    }
+    if (stateChanged) publishState();
+  }
+
+  function fireTimerNow(tid) {
+    const t = internal.timers.find(x => x.id === tid);
+    if (!t) return;
+    if (t._running) { log(`Timer "${t.nome}" já está rodando`, 'info'); return; }
+    if (internal.mode !== 'automatico') {
+      log('Modo manual — força disparo do timer mesmo assim', 'info');
+    }
+    t._running = true;
+    t._runStartedAt = Date.now();
+    if (t.alvo === 'sector') {
+      state.sectors[t.sectorN].estado = 'open';
+      state.sectors[t.sectorN].opened_at = new Date().toISOString();
+      publishEvent('sector_opened', { numero: t.sectorN, timer_id: t.id }, 'automatic');
+    }
+    state.pump.state = 'on';
+    state.pump.source = 'automatic';
+    state.pump.started_at = new Date().toISOString();
+    state.pump.scheduled_off_at = new Date(Date.now() + t.duracaoMin * 60 * 1000).toISOString();
+    publishEvent('pump_on_auto', { timer_id: t.id, nome: t.nome, duracao_min: t.duracaoMin }, 'automatic');
+    publishState();
+    log(`TIMER "${t.nome}" disparado manualmente`, 'ok');
+    render();
+  }
+
+  // ============================================================
+  //                  TICK
+  // ============================================================
+
+  let lastTick = Date.now();
+  setInterval(() => {
+    const now = Date.now();
+    const elapsed = (now - lastTick) / 1000;
+    lastTick = now;
+    tickSensors(elapsed);
+    tickTimers();
+    render();
+  }, 1000);
+
+  // ============================================================
+  //                  RENDER
+  // ============================================================
+
+  const dayLabels = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+  function render() {
+    renderHeader();
+    renderModoBomba();
+    renderSetores();
+    renderSensoresQuick();
+    renderSensoresList();
+    renderTimers();
+    renderAlarmBanner();
+    renderIndicators();
+  }
+
+  function renderHeader() {
+    el('serial-display').textContent = serial || '—';
+    const pill = el('conn-pill');
+    if (client && client.connected) {
+      pill.className = 'pill ok'; pill.innerHTML = '<span class="dot"></span>online';
+    } else {
+      pill.className = 'pill off'; pill.innerHTML = '<span class="dot"></span>offline';
+    }
+    el('alarm-pill').style.display = internal.alarmActive ? '' : 'none';
+  }
+
+  function renderModoBomba() {
+    el('modo-text').textContent = internal.mode === 'automatico' ? 'AUTOMÁTICO' : 'MANUAL';
+    el('modo-hint').textContent = internal.mode === 'automatico'
+      ? 'Timers locais disparam automaticamente.'
+      : 'Comandos só executam via app/botão.';
+    if (el('modo-select').value !== internal.mode) el('modo-select').value = internal.mode;
+
+    const ring = el('pump-ring');
+    const big = el('pump-big');
+    const lbl = el('pump-label');
+    el('pump-card').className = 'pump-card ' + state.pump.state;
+    if (state.pump.state === 'on') {
+      ring.className = internal.alarmActive ? 'pump-ring alarm' : 'pump-ring on';
+      const elapsed = state.pump.started_at ? (Date.now() - new Date(state.pump.started_at).getTime()) / 1000 : 0;
+      const off = state.pump.scheduled_off_at ? (new Date(state.pump.scheduled_off_at).getTime() - Date.now()) / 1000 : null;
+      if (off != null && off > 0) {
+        lbl.textContent = 'Desliga em';
+        big.textContent = fmtTime(off);
+      } else {
+        lbl.textContent = 'Ligada há';
+        big.textContent = fmtTime(elapsed);
+      }
+    } else {
+      ring.className = 'pump-ring off';
+      lbl.textContent = 'Status';
+      big.textContent = 'OFF';
+    }
+  }
+
+  function renderSetores() {
+    const grid = el('setores-grid');
+    grid.innerHTML = '';
+    for (let n = 1; n <= 8; n++) {
+      const s = state.sectors[n];
+      const card = document.createElement('div');
+      card.className = 'setor ' + s.estado;
+      card.innerHTML = `
+        <div class="num">#${n}</div>
+        <div class="name">Setor ${n}</div>
+        <div class="estado">${s.estado}</div>
+      `;
+      card.onclick = () => {
+        const cycle = { closed: 'open', open: 'closed', opening: 'open', closing: 'closed', paused: 'open' };
+        const novo = cycle[s.estado] || 'closed';
+        s.estado = novo;
+        if (novo === 'open' && !s.opened_at) s.opened_at = new Date().toISOString();
+        if (novo === 'closed') { s.opened_at = null; s.scheduled_close_at = null; }
+        publishEvent(novo === 'open' ? 'sector_opened' : 'sector_closed', { numero: n }, 'manual_local');
+        publishState();
+        render();
+      };
+      grid.appendChild(card);
+    }
+  }
+
+  function renderSensoresQuick() {
+    const wrap = el('sensores-quick');
+    if (internal.sensors.length === 0) {
+      wrap.innerHTML = '<p class="muted small" id="sensores-empty">Nenhum sensor configurado. Vá em Sensores pra adicionar.</p>';
+      return;
+    }
+    wrap.innerHTML = '';
+    for (const s of internal.sensors) {
+      const above = s.valor >= s.limite;
+      const close = s.valor >= s.limite - (s.histerese || 0) * 1.5 && !above;
+      const cls = !s.ativo ? '' : above ? 'alert' : close ? 'warn' : 'ok-hot';
+      const tempCls = !s.ativo ? '' : above ? 'alert' : close ? 'warn' : 'ok';
+      const row = document.createElement('div');
+      row.className = 'sensor-card ' + cls;
+      row.innerHTML = `
+        <div class="between">
+          <div>
+            <div class="small muted">${s.role} · ${s.mode === 'random' ? 'oscilação' : 'manual'}</div>
+            <div style="font-weight:600;">${s.nome}</div>
+            <div class="tiny muted">limite: ${s.limite}°C · histerese: ${s.histerese}°C${s.ativo ? '' : ' · INATIVO'}</div>
+          </div>
+          <div class="sensor-temp ${tempCls}">${s.valor.toFixed(1)}°C</div>
+        </div>`;
+      wrap.appendChild(row);
+    }
+  }
+
+  function renderSensoresList() {
+    const list = el('sensores-list');
+    list.innerHTML = '';
+    if (internal.sensors.length === 0) {
+      list.innerHTML = '<p class="muted small">Sem sensores. Clique em "+ Adicionar sensor".</p>';
+      return;
+    }
+    for (const s of internal.sensors) {
+      const above = s.valor >= s.limite && s.ativo;
+      const card = document.createElement('div');
+      card.className = 'sensor-card ' + (above ? 'alert' : '');
+      card.innerHTML = `
+        <div class="between" style="align-items:flex-start;">
+          <div style="flex:1; min-width:0;">
+            <div class="small muted">${s.role}</div>
+            <div style="font-weight:600; margin-top:2px;">${s.nome}</div>
+            <div class="tiny muted">modo: ${s.mode === 'random' ? 'oscilação aleatória' : 'manual'}</div>
+            <div class="tiny muted">limite ${s.limite}°C · histerese ${s.histerese}°C${s.ativo ? '' : ' · INATIVO'}</div>
+          </div>
+          <div class="sensor-temp ${above ? 'alert' : 'ok'}">${s.valor.toFixed(1)}°C</div>
+        </div>
+        <div class="row" style="margin-top:10px; gap:6px;">
+          <button class="btn tiny ghost" data-act="set">Setar valor</button>
+          <button class="btn tiny ghost" data-act="bump-up">+1°C</button>
+          <button class="btn tiny ghost" data-act="bump-down">-1°C</button>
+          <button class="btn tiny ghost" data-act="toggle">${s.ativo ? 'Desativar' : 'Ativar'}</button>
+          <button class="btn tiny ghost" data-act="edit">Editar</button>
+          <button class="btn tiny err" data-act="remove">Remover</button>
+        </div>`;
+      const handlers = {
+        'set': () => {
+          const v = prompt('Novo valor (°C):', String(s.valor));
+          if (v == null) return;
+          const n = parseFloat(v);
+          if (Number.isFinite(n)) { s.valor = n; persist(); render(); }
+        },
+        'bump-up': () => { s.valor = +(s.valor + 1).toFixed(1); persist(); render(); },
+        'bump-down': () => { s.valor = +(s.valor - 1).toFixed(1); persist(); render(); },
+        'toggle': () => { s.ativo = !s.ativo; persist(); render(); },
+        'edit': () => openSensorModal(s),
+        'remove': () => {
+          if (!confirm(`Remover sensor "${s.nome}"?`)) return;
+          internal.sensors = internal.sensors.filter(x => x.id !== s.id);
+          persist(); render();
+        },
+      };
+      card.querySelectorAll('button[data-act]').forEach(b => {
+        b.onclick = handlers[b.dataset.act];
+      });
+      list.appendChild(card);
+    }
+  }
+
+  function renderTimers() {
+    const list = el('timers-list');
+    list.innerHTML = '';
+    if (internal.timers.length === 0) {
+      list.innerHTML = '<p class="muted small">Sem timers locais. Clique em "+ Novo timer".</p>';
+      return;
+    }
+    for (const t of internal.timers) {
+      const dias = [];
+      for (let d = 0; d < 7; d++) if (t.diasMask & (1 << d)) dias.push(dayLabels[d]);
+      const card = document.createElement('div');
+      card.className = 'sensor-card';
+      card.innerHTML = `
+        <div class="between">
+          <div style="flex:1; min-width:0;">
+            <div style="font-weight:600;">${t.nome}</div>
+            <div class="small muted">
+              ${t.alvo === 'sector' ? 'Setor ' + t.sectorN : 'Bomba'} · ${t.hora} · ${t.duracaoMin}min
+            </div>
+            <div class="tiny muted">Dias: ${dias.join(', ') || '—'}</div>
+            ${t._running ? '<div class="tiny" style="color:var(--ok);">▶ Rodando agora</div>' : ''}
+            ${!t.ativo ? '<div class="tiny muted">INATIVO</div>' : ''}
+          </div>
+          <div class="stack" style="gap:4px;">
+            <button class="btn tiny" data-act="fire">▶ Disparar agora</button>
+            <button class="btn tiny ghost" data-act="toggle">${t.ativo ? 'Desativar' : 'Ativar'}</button>
+            <button class="btn tiny ghost" data-act="edit">Editar</button>
+            <button class="btn tiny err" data-act="remove">Remover</button>
+          </div>
+        </div>`;
+      const h = {
+        'fire': () => fireTimerNow(t.id),
+        'toggle': () => { t.ativo = !t.ativo; persist(); render(); },
+        'edit': () => openTimerModal(t),
+        'remove': () => {
+          if (!confirm(`Remover timer "${t.nome}"?`)) return;
+          internal.timers = internal.timers.filter(x => x.id !== t.id);
+          persist(); render();
+        },
+      };
+      card.querySelectorAll('button[data-act]').forEach(b => {
+        b.onclick = h[b.dataset.act];
+      });
+      list.appendChild(card);
+    }
+  }
+
+  function renderAlarmBanner() {
+    const b = el('alarm-banner');
+    if (!internal.alarmActive || !internal.alarmInfo) {
+      b.style.display = 'none';
+      return;
+    }
+    const i = internal.alarmInfo;
+    b.style.display = '';
+    b.className = 'alarm-banner';
+    b.innerHTML = `
+      <div class="row-flex">
+        <div>
+          <strong>🔥 Alarme de temperatura — bomba cortada</strong>
+          <div class="small">${i.sensorNome} (${i.role}): ${i.valor.toFixed(1)}°C ≥ ${i.limite}°C (limite)</div>
+        </div>
+        <button class="btn warn sm" id="btn-ack-alarm">Reconhecer</button>
+      </div>`;
+    el('btn-ack-alarm').onclick = () => {
+      // user ack — só publica event; alarme só rearma quando temp cair (via histerese)
+      publishEvent('temp_alarm_ack_user', { sensor_id: i.sensorId }, 'manual_app_remote');
+      log('Alarme reconhecido — banner some quando temp cair de ' + (i.limite - 0) + '°C', 'ok');
+      // Esconde banner mas mantém alarmActive até cair na histerese
+      b.style.display = 'none';
+    };
+  }
+
+  function renderIndicators() {
+    ['wifi','mqtt','time'].forEach(k => {
+      const cb = el('ind-' + k);
+      const lbl = el('ind-' + k + '-lbl');
+      lbl.classList.toggle('on', cb.checked);
+    });
+  }
+
+  // ============================================================
+  //                  TABS
+  // ============================================================
+
+  function showTab(name) {
+    document.querySelectorAll('#tabs button').forEach(b => {
+      b.classList.toggle('active', b.dataset.view === name);
+    });
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    el('view-' + name).classList.add('active');
+  }
+  window.showTab = showTab;
+  document.getElementById('tabs').addEventListener('click', (e) => {
+    if (e.target.tagName !== 'BUTTON') return;
+    showTab(e.target.dataset.view);
+  });
+
+  // ============================================================
+  //                  MODAIS
+  // ============================================================
+
+  function openModal(id) { el(id).classList.add('open'); }
+  function closeModal(id) { el(id).classList.remove('open'); }
+
+  el('btn-open-conn').onclick = () => openModal('modal-conn');
+  el('btn-close-conn').onclick = () => closeModal('modal-conn');
+
+  let editingSensorId = null;
+  function openSensorModal(s) {
+    editingSensorId = s ? s.id : null;
+    el('modal-sensor-title').textContent = s ? 'Editar sensor' : 'Novo sensor';
+    el('ms-nome').value = s ? s.nome : '';
+    el('ms-role').value = s ? s.role : 'pump';
+    el('ms-mode').value = s ? s.mode : 'manual';
+    el('ms-valor').value = s ? s.valor : 30;
+    el('ms-limite').value = s ? s.limite : 70;
+    el('ms-histerese').value = s ? s.histerese : 3;
+    el('ms-ativo').checked = s ? s.ativo : true;
+    openModal('modal-sensor');
+  }
+  el('btn-add-sensor').onclick = () => openSensorModal(null);
+  el('btn-cancel-sensor').onclick = () => closeModal('modal-sensor');
+  el('btn-save-sensor').onclick = () => {
+    const data = {
+      nome: el('ms-nome').value.trim() || 'Sensor',
+      role: el('ms-role').value,
+      mode: el('ms-mode').value,
+      valor: parseFloat(el('ms-valor').value) || 25,
+      limite: parseFloat(el('ms-limite').value) || 70,
+      histerese: parseFloat(el('ms-histerese').value) || 3,
+      ativo: el('ms-ativo').checked,
+    };
+    if (editingSensorId) {
+      const s = internal.sensors.find(x => x.id === editingSensorId);
+      if (s) Object.assign(s, data);
+    } else {
+      internal.sensors.push({ id: uuidv4(), ...data });
+    }
+    persist();
+    closeModal('modal-sensor');
+    render();
   };
 
+  let editingTimerId = null;
+  function openTimerModal(t) {
+    editingTimerId = t ? t.id : null;
+    el('modal-timer-title').textContent = t ? 'Editar timer' : 'Novo timer';
+    el('mt-nome').value = t ? t.nome : '';
+    el('mt-alvo').value = t ? t.alvo : 'pump';
+    el('mt-sector').value = t ? String(t.sectorN || 1) : '1';
+    el('mt-hora').value = t ? t.hora : '06:00';
+    el('mt-dur').value = t ? t.duracaoMin : 15;
+    const mask = t ? t.diasMask : 0b0111110; // úteis default
+    renderDayPickers(mask);
+    el('mt-sector-wrap').style.display = el('mt-alvo').value === 'sector' ? '' : 'none';
+    openModal('modal-timer');
+  }
+  function renderDayPickers(currentMask) {
+    const row = el('mt-dias-row');
+    row.innerHTML = '';
+    let mask = currentMask;
+    for (let d = 0; d < 7; d++) {
+      const b = document.createElement('button');
+      b.className = 'btn tiny ' + (mask & (1 << d) ? '' : 'ghost');
+      b.textContent = dayLabels[d];
+      b.onclick = (e) => {
+        e.preventDefault();
+        mask = mask ^ (1 << d);
+        b.className = 'btn tiny ' + (mask & (1 << d) ? '' : 'ghost');
+        b.dataset.mask = mask;
+      };
+      b.dataset.mask = mask;
+      row.appendChild(b);
+    }
+  }
+  el('mt-alvo').addEventListener('change', () => {
+    el('mt-sector-wrap').style.display = el('mt-alvo').value === 'sector' ? '' : 'none';
+  });
+  el('btn-add-timer').onclick = () => openTimerModal(null);
+  el('btn-cancel-timer').onclick = () => closeModal('modal-timer');
+  el('btn-save-timer').onclick = () => {
+    const lastBtn = el('mt-dias-row').querySelector('button:last-child');
+    const mask = lastBtn ? parseInt(lastBtn.dataset.mask, 10) : 0;
+    const data = {
+      nome: el('mt-nome').value.trim() || 'Timer',
+      alvo: el('mt-alvo').value,
+      sectorN: parseInt(el('mt-sector').value, 10) || 1,
+      hora: el('mt-hora').value,
+      duracaoMin: parseInt(el('mt-dur').value, 10) || 15,
+      diasMask: mask,
+      ativo: true,
+    };
+    if (editingTimerId) {
+      const t = internal.timers.find(x => x.id === editingTimerId);
+      if (t) Object.assign(t, data);
+    } else {
+      internal.timers.push({ id: uuidv4(), ...data, _running: false, _runStartedAt: null });
+    }
+    persist();
+    closeModal('modal-timer');
+    render();
+  };
+
+  // ============================================================
+  //                  EVENT WIRING
+  // ============================================================
+
+  el('modo-select').addEventListener('change', () => {
+    internal.mode = el('modo-select').value;
+    log('Modo alterado pra ' + internal.mode + ' (efeito: timers ' + (internal.mode === 'automatico' ? 'ativos' : 'pausados') + ')', 'info');
+    render();
+  });
+
+  el('btn-pump-on').onclick = () => {
+    state.pump.state = 'on';
+    state.pump.source = el('pump-source').value || 'manual_local';
+    state.pump.started_at = new Date().toISOString();
+    const off = parseInt(el('pump-off-in').value, 10);
+    state.pump.scheduled_off_at = (Number.isFinite(off) && off > 0)
+      ? new Date(Date.now() + off * 1000).toISOString() : null;
+    publishEvent('pump_on_manual', {}, 'manual_local');
+    publishState();
+    render();
+  };
+  el('btn-pump-off').onclick = () => {
+    state.pump.state = 'off';
+    state.pump.source = null;
+    state.pump.started_at = null;
+    state.pump.scheduled_off_at = null;
+    publishEvent('pump_off_manual', {}, 'manual_local');
+    publishState();
+    render();
+  };
+  el('btn-pub-state').onclick = () => publishState();
+  el('btn-pub-event').onclick = () => publishEvent(el('event-type').value, {}, 'physical_button');
+  el('btn-clear-log').onclick = () => { el('log').innerHTML = ''; };
+
+  ['ind-wifi', 'ind-mqtt', 'ind-time'].forEach(id => {
+    el(id).addEventListener('change', () => {
+      const k = id.replace('ind-', '').replace('time', 'time_valid');
+      state.indicators[k] = el(id).checked;
+      publishState();
+      render();
+    });
+  });
+
+  // Connection
   el('btn-connect').onclick = () => {
     if (client) { try { client.end(true); } catch(_){} client = null; }
     const url = el('url').value;
     const username = el('user').value;
     const password = el('pass').value;
     serial = username;
-    log(`conectando… ${url} as ${username}`);
+    persist();
+    log(`conectando… ${url} as ${username}`, 'info');
     client = mqtt.connect(url, {
       username, password,
-      clientId: 'xtconect-sim-' + username + '-' + Math.random().toString(36).slice(2, 8),
+      clientId: 'xtsim-' + username + '-' + Math.random().toString(36).slice(2, 8),
       will: {
-        topic: `devices/${username}/status`,
-        payload: 'offline',
+        topic: `devices/${username}/status`, payload: 'offline',
         qos: 1, retain: true,
       },
-      protocolVersion: 5,
-      reconnectPeriod: 0, // sem auto-reconnect, mostra disconnect explícito
+      protocolVersion: 5, reconnectPeriod: 0,
     });
     client.on('connect', () => {
       el('btn-connect').disabled = true;
-      el('conn-status').className = 'stat ok'; el('conn-status').textContent = 'online';
-      el('conn-detail').textContent = serial;
       el('btn-disconnect').disabled = false;
-      log('CONNACK 0', 'info');
+      log('CONNACK 0', 'ok');
       client.subscribe(`devices/${username}/commands`, { qos: 1 }, (err) => {
         if (err) log('sub commands err: ' + err.message, 'err');
         else log('SUB devices/' + username + '/commands', 'info');
       });
-      // Publica status online retained no connect (próprio firmware faria)
       publishStatus(true);
-      // Publica state inicial
       publishState();
+      closeModal('modal-conn');
+      render();
     });
     client.on('message', (topic, payload) => {
       log('RX ' + topic + ' (' + payload.length + 'B)', 'rx');
@@ -427,20 +1483,22 @@
     client.on('error', (err) => log('MQTT err: ' + err.message, 'err'));
     client.on('close', () => {
       el('btn-connect').disabled = false;
-      el('conn-status').className = 'stat off'; el('conn-status').textContent = 'offline';
       el('btn-disconnect').disabled = true;
       log('closed', 'info');
+      render();
     });
   };
   el('btn-disconnect').onclick = () => {
     if (client) { client.end(true); client = null; }
   };
-  el('btn-pub-state').onclick = publishState;
-  el('btn-pub-online').onclick = () => publishStatus(true);
-  el('btn-pub-offline').onclick = () => publishStatus(false);
-  el('btn-pub-event').onclick = publishEvent;
 
-  log('simulator ready. configure credenciais e clique Conectar.');
+  // ============================================================
+  //                  BOOT
+  // ============================================================
+
+  restore();
+  render();
+  log('simulator pronto. Configure conexão (botão ⚙) e conecte.', 'info');
 })();
 </script>
 </body>
