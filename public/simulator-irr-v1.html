@@ -746,15 +746,16 @@
     },
     botao: { tipo: 'pulso_alterna', debounce_ms: 50, assume_manual: true },
     gpio_1wire: 15,
+    // Pinout fisico v2 (2026-04-28): bomba=13, setores 12,14,27,26,25,33,32,23
     sectors: [
-      DEFAULT_SECTOR(1, 16, true),
-      DEFAULT_SECTOR(2, 17, true),
-      DEFAULT_SECTOR(3, 18, false),
-      DEFAULT_SECTOR(4, 19, false),
-      DEFAULT_SECTOR(5, 21, false),
-      DEFAULT_SECTOR(6, 22, false),
-      DEFAULT_SECTOR(7, 23, false),
-      DEFAULT_SECTOR(8, 25, false),
+      DEFAULT_SECTOR(1, 12, true),
+      DEFAULT_SECTOR(2, 14, true),
+      DEFAULT_SECTOR(3, 27, false),
+      DEFAULT_SECTOR(4, 26, false),
+      DEFAULT_SECTOR(5, 25, false),
+      DEFAULT_SECTOR(6, 33, false),
+      DEFAULT_SECTOR(7, 32, false),
+      DEFAULT_SECTOR(8, 23, false),
     ],
   });
 

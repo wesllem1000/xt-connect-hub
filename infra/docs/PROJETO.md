@@ -201,32 +201,37 @@ Portal de configuração (servido pelo próprio ESP32):
 ### 6.1 Microcontrolador
 - ESP32 ou ESP32-S3, 4 MB+ flash.
 
-### 6.2 Pinout proposto
+### 6.2 Pinout (confirmado 2026-04-28)
 
-| Função | GPIO | Lado da placa | Status |
+| Função | GPIO | Lado da placa | Notas |
 |---|---|---|---|
-| **Bomba (relé)** | 13 | A | confirmado |
-| **Setor 1 (relé)** | 12 | A | confirmado |
-| **Setor 2 (relé)** | **TBD** ⚠️ | A | dono escreveu "12" mas conflita com Setor 1 |
-| **Setor 3 (relé)** | 14 | A | confirmado |
-| **Setor 4 (relé)** | TBD | A | a definir (típico: 15 ou 27) |
-| **Setor 5 (relé)** | TBD | A | a definir |
-| **Setor 6 (relé)** | TBD | A | a definir |
-| **Setor 7 (relé)** | TBD | A | a definir |
-| **Setor 8 (relé)** | TBD | A | a definir |
-| **Botão Bomba** | TBD | B | confirmado que existe |
-| **Botão Setor 1** | TBD | B | confirmado que existe |
-| **Botão Setor 2** | TBD | B | confirmado que existe |
-| Botões setores 3-8 | — | B | **não implementados nesta versão** |
-| **DS3231 SDA** | 21 | — | confirmado (I2C) |
-| **DS3231 SCL** | 22 | — | confirmado (I2C) |
-| **DS18B20 1-Wire** | 15 | — | default da migration; revisar se conflita |
-| **LED de status** | TBD | — | a definir (típico: 2 — built-in) |
+| **Bomba (relé)** | 13 | A | active-high default |
+| **Setor 1 (relé)** | 12 | A | |
+| **Setor 2 (relé)** | 14 | A | |
+| **Setor 3 (relé)** | 27 | A | |
+| **Setor 4 (relé)** | 26 | A | |
+| **Setor 5 (relé)** | 25 | A | |
+| **Setor 6 (relé)** | 33 | A | |
+| **Setor 7 (relé)** | 32 | A | último output-capable do lado A |
+| **Setor 8 (relé)** | 23 | B | lado A esgotou em 7 outputs no ESP32 DevKit |
+| **DS18B20 (1-Wire)** | 15 | A | até 4 sensores no barramento |
+| **DS3231 SDA** | 21 | — | I2C default ESP32 |
+| **DS3231 SCL** | 22 | — | I2C default ESP32 |
+| **Botão Bomba** | 4 | B | input pull-up, debounce 50ms |
+| **Botão Setor 1** | 16 | B | input pull-up |
+| **Botão Setor 2** | 17 | B | input pull-up |
+| Botões setores 3-8 | — | — | não implementados nesta versão |
+| **LED status** | 2 | — | built-in da maioria dos boards ESP32 DevKit |
 
-> Quando confirmar os pinos faltantes, eu atualizo:
-> - Esta tabela
-> - O default em `provision_irr_v1_defaults()` no banco (migration nova)
-> - O `DEFAULT_DEVICE_CONFIG` no simulator (`public/simulator-irr-v1.html`)
+**Aplicado em**:
+- ✅ `provision_irr_v1_defaults()` (migration `022_irr_v1_pinout_v2.sql`)
+- ✅ `DEFAULT_DEVICE_CONFIG` no simulator (`public/simulator-irr-v1.html`)
+
+**Observação importante**: o **ESP é fonte de verdade do pinout** — quando
+o firmware iniciar, ele publica `config/current` retained com seus pinos
+reais e o servidor faz UPSERT. Os defaults da migration servem só pra
+provisionamento inicial e pro simulador. Se o ESP usar pinos diferentes
+em revisões futuras de placa, basta o firmware republicar `config/current`.
 
 ### 6.3 Considerações de hardware
 
