@@ -139,7 +139,7 @@
 <div class="panel">
   <h2>Comandos recebidos</h2>
   <div id="cmds"></div>
-  <p style="color:var(--muted); font-size:11px; margin:8px 0 0;">Subscribe <code>devices/&lt;serial&gt;/commands</code> — auto-acceita em 2s se nada for clicado.</p>
+  <p style="color:var(--muted); font-size:11px; margin:8px 0 0;">Subscribe <code>devices/&lt;serial&gt;/commands</code> — auto-aceita e <strong>aplica no state</strong> em 2s. Comandos legados sem <code>cmd_id</code> (ex.: <code>set_rate</code>) são ignorados.</p>
 </div>
 
 <div class="panel">
@@ -267,8 +267,97 @@
   };
 
   // Comando receiver + UI
+
+  // Aplica o efeito do comando no state local (pump-state, sectors, etc.)
+  // pra simular o firmware real: depois de "executed" o estado muda e o
+  // simulator republica state retained pra app receber via MQTT.
+  // Retorna true se aplicou alguma mudança (e portanto deve republicar state).
+  const applyCommandEffect = (cmd) => {
+    const c = cmd.cmd;
+    const p = cmd.params || {};
+    let changed = false;
+
+    if (c === 'pump_on') {
+      if (el('pump-state').value !== 'on') {
+        el('pump-state').value = 'on';
+        el('pump-source').value = 'manual_remote';
+        el('pump-off-in').value = '';
+        changed = true;
+      }
+    } else if (c === 'pump_off') {
+      if (el('pump-state').value !== 'off') {
+        el('pump-state').value = 'off';
+        el('pump-source').value = '';
+        el('pump-off-in').value = '';
+        changed = true;
+      }
+    } else if (c === 'sector_open' || c === 'sector_close' ||
+               c === 'sector_pause' || c === 'sector_resume') {
+      const n = parseInt(p.numero, 10);
+      if (!Number.isFinite(n) || n < 1 || n > 8) return false;
+      const novo = c === 'sector_open' || c === 'sector_resume' ? 'open'
+                 : c === 'sector_close' ? 'closed'
+                 : 'paused';
+      if (sectorState[n].estado !== novo) {
+        sectorState[n].estado = novo;
+        if (novo === 'open' && !sectorState[n].opened_at) {
+          sectorState[n].opened_at = new Date().toISOString();
+        }
+        if (novo === 'closed') {
+          sectorState[n].opened_at = null;
+          sectorState[n].scheduled_close_at = null;
+        }
+        const sel = sectorsEl.querySelector(`select[data-numero="${n}"]`);
+        if (sel) {
+          sel.value = novo;
+          sel.parentElement.className = 'sector ' + novo;
+        }
+        changed = true;
+      }
+    } else if (c === 'safe_closure' || c === 'factory_reset') {
+      // Fecha todos setores + desliga bomba
+      for (let n = 1; n <= 8; n++) {
+        if (sectorState[n].estado !== 'closed') {
+          sectorState[n].estado = 'closed';
+          sectorState[n].opened_at = null;
+          sectorState[n].scheduled_close_at = null;
+          const sel = sectorsEl.querySelector(`select[data-numero="${n}"]`);
+          if (sel) {
+            sel.value = 'closed';
+            sel.parentElement.className = 'sector closed';
+          }
+          changed = true;
+        }
+      }
+      if (el('pump-state').value !== 'off') {
+        el('pump-state').value = 'off';
+        el('pump-source').value = '';
+        el('pump-off-in').value = '';
+        changed = true;
+      }
+    }
+    // mode_set / config_reload não tocam no state retained — só no banco/config.
+    return changed;
+  };
+
   const cmdsEl = el('cmds');
   const renderCmd = (cmd) => {
+    // Comandos legados sem cmd_id (ex.: set_rate, fire-and-forget) não têm
+    // ack model do IRR-V1. Logamos como info e ignoramos.
+    if (!cmd || !cmd.cmd_id) {
+      log('RX legacy ' + (cmd && cmd.cmd ? cmd.cmd : '?') + ' (sem cmd_id, ignorado)', 'info');
+      return;
+    }
+
+    const finishWith = (status, reason) => {
+      publishAck(cmd.cmd_id, status, reason);
+      // Só "executed" reflete em mudança real do firmware.
+      if (status === 'executed' && applyCommandEffect(cmd)) {
+        publishState();
+      }
+      row.remove();
+    };
+
     const row = document.createElement('div');
     row.className = 'cmd-row';
     row.innerHTML = `
@@ -283,13 +372,13 @@
       </div>
     `;
     const [okBtn, refBtn, expBtn] = row.querySelectorAll('button');
-    okBtn.onclick = () => { publishAck(cmd.cmd_id, 'executed', 'ok'); row.remove(); };
-    refBtn.onclick = () => { publishAck(cmd.cmd_id, 'refused', 'simulated_refuse'); row.remove(); };
-    expBtn.onclick = () => { publishAck(cmd.cmd_id, 'expired', 'expired'); row.remove(); };
+    okBtn.onclick = () => finishWith('executed', 'ok');
+    refBtn.onclick = () => finishWith('refused', 'simulated_refuse');
+    expBtn.onclick = () => finishWith('expired', 'expired');
     cmdsEl.prepend(row);
-    // Auto-ack em 2s se não clicar
+    // Auto-ack em 2s se não clicar — também aplica o efeito.
     setTimeout(() => {
-      if (row.parentElement) { publishAck(cmd.cmd_id, 'executed', 'auto_accepted'); row.remove(); }
+      if (row.parentElement) finishWith('executed', 'auto_accepted');
     }, 2000);
   };
 
