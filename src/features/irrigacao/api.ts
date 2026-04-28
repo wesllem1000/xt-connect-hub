@@ -172,6 +172,20 @@ export async function patchSetor(
   return setor
 }
 
+export type FactoryResetResponse = {
+  ok: true
+  cmd_id: string
+  reprovisioned: true
+}
+
+export async function factoryReset(
+  deviceId: string,
+): Promise<FactoryResetResponse> {
+  return api
+    .post(`${base(deviceId)}/factory-reset`)
+    .json<FactoryResetResponse>()
+}
+
 export type PostTimerInput = {
   alvo_tipo: 'pump' | 'sector'
   alvo_id?: string | null

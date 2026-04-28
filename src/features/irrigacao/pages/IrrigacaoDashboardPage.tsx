@@ -40,6 +40,7 @@ import { HistoryTab } from '../components/HistoryTab'
 import { LogsTab } from '../components/LogsTab'
 import { PumpStatusCard, type PumpRuntime } from '../components/PumpStatusCard'
 import { PumpTab } from '../components/PumpTab'
+import { SystemTab } from '../components/SystemTab'
 import { SetorCardValvula } from '../components/SetorCardValvula'
 import { useComando } from '../hooks/useComando'
 import { useDeviceStateLive } from '../hooks/useDeviceStateLive'
@@ -500,10 +501,13 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
           </TabsContent>
 
           <TabsContent value="sistema" className="mt-0">
-            <TabPlaceholder
-              icon={<Cog className="h-8 w-8" />}
-              title="Sistema"
-              description="Configurações de sistema: data/hora, telemetria, reset de fábrica. Em construção."
+            <SystemTab
+              deviceId={deviceId}
+              config={snap.config ?? null}
+              serial={snap.device.serial}
+              modelo={snap.device.modelo}
+              timeValid={indicators.time_valid ?? null}
+              receivedAt={state?._received_at ?? null}
             />
           </TabsContent>
 
