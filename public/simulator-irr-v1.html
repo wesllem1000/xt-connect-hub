@@ -858,6 +858,26 @@
     configPubTimer = setTimeout(() => { publishConfigCurrent(); configPubTimer = null; }, 800);
   }
 
+  // Telemetria periódica de leituras de sensores. ESP real publicaria a cada
+  // ~30s; aqui usamos 5s pra UI ficar viva durante demos. Servidor faz
+  // UPDATE em irrigation_temperature_sensors.ultima_leitura_c (handler
+  // _e055), e o app refetch o snapshot a cada 15s.
+  function publishTelemetrySensors() {
+    if (!client || !client.connected) return;
+    if (internal.sensors.length === 0) return;
+    const payload = JSON.stringify({
+      protocol_version: 1,
+      ts: new Date().toISOString(),
+      readings: internal.sensors.map(s => ({
+        rom_id: s.rom_id,
+        temperature_c: typeof s.valor === 'number' ? s.valor : null,
+      })),
+    });
+    client.publish(`devices/${serial}/telemetry/sensors`, payload, { qos: 0, retain: false }, (err) => {
+      if (err) log('pub telemetry/sensors err: ' + err.message, 'err');
+    });
+  }
+
   function publishEvent(eventType, payload = {}, origem = 'physical_button') {
     if (!client || !client.connected) return;
     const evt = {
@@ -1151,6 +1171,9 @@
     tickTimers();
     render();
   }, 1000);
+
+  // Telemetria de sensores a cada 5s (ESP real seria 30s).
+  setInterval(() => publishTelemetrySensors(), 5000);
 
   // ============================================================
   //                  RENDER
