@@ -72,10 +72,20 @@ export function TemperatureGauge({
 
   const warnStartC = Math.max(minC, limiteC - histereseC)
 
-  // Zonas — tudo proporcional ao limite real
+  // Zonas — proporcional ao limite, MAS com largura visual minima pra warn
+  // (histerese de 3°C numa escala 0-100°C daria ~3° de arco, invisivel).
+  // Mantem o desenho honesto sobre limite/alarme; a "zona warn" do gauge e
+  // so um aviso visual de proximidade — a logica do alarme no firmware
+  // continua usando o warnStartC real.
+  const MIN_WARN_DEG = 14
+  const naturalWarn =
+    valueToAngle(limiteC) - valueToAngle(warnStartC)
+  const visualWarnDeg = Math.max(naturalWarn, MIN_WARN_DEG)
+
   const angOkStart = valueToAngle(minC)
-  const angOkEnd = valueToAngle(warnStartC)
-  const angWarnEnd = valueToAngle(limiteC)
+  const angAlertStart = valueToAngle(limiteC)
+  const angOkEnd = angAlertStart - visualWarnDeg // warn comeca aqui visualmente
+  const angWarnEnd = angAlertStart
   const angAlertEnd = valueToAngle(maxC)
 
   // Tick do limite (linha cruzando o arco)
