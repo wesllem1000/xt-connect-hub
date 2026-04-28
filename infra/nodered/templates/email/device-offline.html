@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Equipamento sem conexão — XT Connect Hub</title></head>
+<body style="margin:0;padding:0;background:#f4f4f4;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif">
+  <div style="max-width:520px;margin:0 auto;padding:32px 24px;background:#ffffff">
+    <div style="background:#fef3c7;border-left:4px solid #d97706;padding:16px 20px;margin:0 0 24px 0;border-radius:4px">
+      <h1 style="color:#92400e;margin:0 0 8px 0;font-size:20px">⚠ Equipamento sem conexão</h1>
+      <p style="color:#78350f;font-size:14px;margin:0;font-weight:600">{{device_name}}</p>
+    </div>
+
+    <p style="color:#222;font-size:16px;line-height:1.5;margin:0 0 16px 0">
+      Olá <strong>{{user_name}}</strong>,
+    </p>
+
+    <p style="color:#222;font-size:16px;line-height:1.5;margin:0 0 16px 0">
+      O equipamento <strong>{{device_name}}</strong> ({{device_serial}}) está
+      sem comunicação com o XT Connect Hub há mais de
+      <strong>{{tempo_offline}}</strong>.
+    </p>
+
+    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:16px 20px;margin:0 0 24px 0">
+      <p style="color:#222;font-size:14px;line-height:1.5;margin:0 0 8px 0">
+        <strong>Causas comuns:</strong>
+      </p>
+      <ul style="color:#555;font-size:13px;line-height:1.6;margin:0;padding-left:20px">
+        <li>Wi-Fi do local com problema ou roteador desligado</li>
+        <li>Internet caiu</li>
+        <li>Equipamento sem energia</li>
+        <li>Equipamento queimado / com defeito</li>
+      </ul>
+      <p style="color:#777;font-size:12px;line-height:1.5;margin:12px 0 0 0">
+        Última comunicação registrada: <strong>{{ultima_conexao}}</strong>
+      </p>
+    </div>
+
+    <p style="color:#222;font-size:14px;line-height:1.5;margin:0 0 16px 0">
+      Quando o equipamento voltar a se comunicar, o status no app vai voltar
+      automaticamente pra "Online" e <strong>nenhuma ação extra é necessária</strong>.
+      Se ele continuar sem conexão por muito tempo, vale verificar
+      presencialmente.
+    </p>
+
+    <p style="text-align:center;margin:0 0 24px 0">
+      <a href="{{link}}" style="display:inline-block;padding:14px 28px;background:#166a4c;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px">Ver no XT Connect Hub</a>
+    </p>
+
+    <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+    <p style="color:#999;font-size:12px;line-height:1.5;margin:0">
+      Você está recebendo este aviso porque é dono ou tem acesso compartilhado
+      a este equipamento. Você só recebe um aviso por episódio offline — quando
+      o equipamento voltar e cair de novo, um novo aviso será enviado.
+    </p>
+  </div>
+</body>
+</html>

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><title>Alarme de irrigação — XT Connect Hub</title></head>
+<body style="margin:0;padding:0;background:#f4f4f4;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif">
+  <div style="max-width:520px;margin:0 auto;padding:32px 24px;background:#ffffff">
+    <div style="background:#fee;border-left:4px solid #dc2626;padding:16px 20px;margin:0 0 24px 0;border-radius:4px">
+      <h1 style="color:#991b1b;margin:0 0 8px 0;font-size:20px">⚠ Alarme — {{device_name}}</h1>
+      <p style="color:#7f1d1d;font-size:14px;margin:0;font-weight:600">{{tipo_label}}</p>
+    </div>
+
+    <p style="color:#222;font-size:16px;line-height:1.5;margin:0 0 16px 0">
+      Olá <strong>{{user_name}}</strong>,
+    </p>
+
+    <p style="color:#222;font-size:16px;line-height:1.5;margin:0 0 16px 0">
+      O dispositivo <strong>{{device_name}}</strong> ({{device_serial}})
+      disparou um alarme de segurança e <strong>cortou bomba e setores
+      automaticamente</strong>.
+    </p>
+
+    <div style="background:#fff7f7;border:1px solid #fecaca;border-radius:6px;padding:16px 20px;margin:0 0 24px 0">
+      <p style="color:#222;font-size:14px;line-height:1.5;margin:0 0 8px 0">
+        <strong>Detalhes:</strong>
+      </p>
+      <p style="color:#555;font-size:14px;line-height:1.5;margin:0 0 4px 0">
+        {{message}}
+      </p>
+      <p style="color:#777;font-size:12px;line-height:1.5;margin:8px 0 0 0">
+        Disparado em <strong>{{triggered_at}}</strong>
+      </p>
+    </div>
+
+    <p style="color:#222;font-size:14px;line-height:1.5;margin:0 0 16px 0">
+      O alarme só vai limpar quando a temperatura cair abaixo do limite (com
+      histerese) no firmware. Você pode reconhecer manualmente no app pra
+      registrar que viu, mas isso não rearma a bomba sozinho.
+    </p>
+
+    <p style="text-align:center;margin:0 0 24px 0">
+      <a href="{{link}}" style="display:inline-block;padding:14px 28px;background:#166a4c;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;font-size:16px">Abrir no XT Connect Hub</a>
+    </p>
+
+    <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+    <p style="color:#999;font-size:12px;line-height:1.5;margin:0">
+      Você está recebendo isso porque é dono ou tem acesso compartilhado a esse
+      dispositivo. Para parar de receber alertas, entre em contato com o
+      administrador (preferências de notificação ainda em desenvolvimento).
+    </p>
+  </div>
+</body>
+</html>
