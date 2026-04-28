@@ -234,7 +234,12 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
     if (setorCmd.isPending) return
     const abrir = estadoFw !== 'open'
 
-    // Caso (a) do plano: fechar ÚLTIMO setor com bomba ligada.
+    // Caso (a) do plano: fechar ÚLTIMO setor com bomba ligada → safe_closure.
+    // Antes mandava só sector_close confiando que o firmware faria o pump_off
+    // por safety, mas isso não é garantido (e o simulator não fazia). Agora o
+    // próprio frontend pede o fechamento total — comando safe_closure fecha
+    // todos setores + desliga bomba na ordem segura definida pelo firmware
+    // (atrasos da config tempo_bomba_desligada_antes_fechar_valvula_s etc.).
     if (
       !abrir &&
       bombaLigada &&
@@ -243,6 +248,12 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
     ) {
       const ok = await askConfirm('close_last_sector_with_pump_on', { setorNome: s.nome })
       if (!ok) return
+      setPendingSetorNumero(s.numero)
+      setorCmd.mutate(
+        { cmd: 'safe_closure' },
+        { onSettled: () => setPendingSetorNumero(null) },
+      )
+      return
     }
 
     setPendingSetorNumero(s.numero)
