@@ -1653,6 +1653,12 @@
         if (err) log('sub commands err: ' + err.message, 'err');
         else log('SUB devices/' + username + '/commands', 'info');
       });
+      // Subscribe config/push pra receber mudanças vindas da app (ESP-real
+      // faria igual: lê retained na boot, aplica na NVS, ecoa config/current)
+      client.subscribe(`devices/${username}/config/push`, { qos: 1 }, (err) => {
+        if (err) log('sub config/push err: ' + err.message, 'err');
+        else log('SUB devices/' + username + '/config/push', 'info');
+      });
       publishStatus(true);
       publishState();
       publishConfigCurrent();
@@ -1666,6 +1672,35 @@
           const cmd = JSON.parse(payload.toString());
           renderCmd(cmd);
         } catch(e) { log('cmd JSON invalido: ' + e.message, 'err'); }
+      } else if (topic === `devices/${username}/config/push`) {
+        try {
+          const cfg = JSON.parse(payload.toString());
+          let changed = 0;
+          if (cfg.bomba && typeof cfg.bomba === 'object') {
+            const b = internal.deviceConfig.bomba;
+            ['tipo_bomba','nivel_ativo_bomba','reforco_rele_ativo'].forEach(k => {
+              if (cfg.bomba[k] !== undefined && b[k] !== cfg.bomba[k]) { b[k] = cfg.bomba[k]; changed++; }
+            });
+          }
+          if (Array.isArray(cfg.sectors)) {
+            for (const s of cfg.sectors) {
+              if (typeof s.numero !== 'number') continue;
+              const local = internal.deviceConfig.sectors.find(x => x.numero === s.numero);
+              if (!local) continue;
+              ['nome','habilitado','gpio_rele','nivel_ativo_rele'].forEach(k => {
+                if (s[k] !== undefined && local[k] !== s[k]) { local[k] = s[k]; changed++; }
+              });
+            }
+          }
+          if (changed > 0) {
+            persist();
+            log(`RX config/push aplicado (${changed} campo(s)) — ecoando config/current`, 'ok');
+            publishConfigCurrent();
+            render();
+          } else {
+            log('RX config/push (idempotente, sem mudanças)', 'info');
+          }
+        } catch(e) { log('config/push JSON invalido: ' + e.message, 'err'); }
       }
     });
     client.on('error', (err) => log('MQTT err: ' + err.message, 'err'));
