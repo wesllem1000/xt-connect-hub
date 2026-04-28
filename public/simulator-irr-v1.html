@@ -1167,20 +1167,18 @@
         publishState();
       }
     } else if (internal.alarmActive) {
-      // Verifica se já caiu abaixo de limite − histerese pra rearmar
+      // Auto-clear quando temperatura cair abaixo de limite-histerese de
+      // TODOS os sensores ativos. ack_usuario_requerido NÃO bloqueia o
+      // auto-clear — alarme = estado fisico do sensor. ACK do user e
+      // registro de "operador viu", separado da limpeza.
       let stillAbove = false;
       for (const s of internal.sensors) {
         if (!s.ativo) continue;
         const armaThreshold = s.limite - (s.histerese || 0);
         if (s.valor >= armaThreshold) { stillAbove = true; break; }
       }
-      // O alarme só é resolvido quando: temperatura caiu abaixo de
-      // limite-histerese E (se sensor exigia ack) o user enviou ack.
-      // Aqui o auto-clear só acontece pra sensores SEM ack_usuario_requerido.
-      const wasInfo = internal.alarmInfo;
-      const sensor = wasInfo ? internal.sensors.find(s => s.id === wasInfo.sensorId) : null;
-      const requiresAck = sensor ? (sensor.ack_usuario_requerido !== false) : true;
-      if (!stillAbove && !requiresAck) {
+      if (!stillAbove) {
+        const wasInfo = internal.alarmInfo;
         internal.alarmActive = false;
         internal.alarmInfo = null;
         publishEvent('temp_alarm_resolved', {
@@ -1596,22 +1594,32 @@
       return;
     }
     const i = internal.alarmInfo;
+    const sensor = internal.sensors.find(s => s.id === i.sensorId);
+    const hist = sensor ? (sensor.histerese || 0) : 0;
+    const armaThreshold = i.limite - hist;
     b.style.display = '';
     b.className = 'alarm-banner';
     b.innerHTML = `
       <div class="row-flex">
         <div>
-          <strong>🔥 Alarme de temperatura — bomba cortada</strong>
+          <strong>🔥 Alarme de temperatura — bomba e setores cortados</strong>
           <div class="small">${i.sensorNome} (${i.role}): ${i.valor.toFixed(1)}°C ≥ ${i.limite}°C (limite)</div>
+          <div class="tiny muted">Limpa sozinho quando temp cair abaixo de ${armaThreshold.toFixed(1)}°C${i.acked ? ' · ACK registrado' : ''}</div>
         </div>
-        <button class="btn warn sm" id="btn-ack-alarm">Reconhecer</button>
+        ${i.acked ? '' : '<button class="btn warn sm" id="btn-ack-alarm">Reconhecer</button>'}
       </div>`;
+    if (i.acked) return;
     el('btn-ack-alarm').onclick = () => {
-      // user ack — só publica event; alarme só rearma quando temp cair (via histerese)
-      publishEvent('temp_alarm_ack_user', { sensor_id: i.sensorId }, 'manual_app_remote');
-      log('Alarme reconhecido — banner some quando temp cair de ' + (i.limite - 0) + '°C', 'ok');
-      // Esconde banner mas mantém alarmActive até cair na histerese
-      b.style.display = 'none';
+      // ACK = registro de "operador viu". Não limpa o alarme — alarme só
+      // some quando a temperatura cair abaixo de limite-histerese.
+      publishEvent('temp_alarm_ack_user', {
+        sensor_id: i.sensorId,
+        rom_id: i.rom_id,
+      }, 'manual_app_remote');
+      log('ACK registrado. Alarme só limpa quando temp cair abaixo de ' +
+          (i.limite - (internal.sensors.find(s => s.id === i.sensorId)?.histerese || 0)).toFixed(1) +
+          '°C', 'ok');
+      i.acked = true; // marca pro render esconder o botao "Reconhecer"
     };
   }
 
