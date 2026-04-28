@@ -340,6 +340,7 @@
 <!-- TABS -->
 <div class="tabs" id="tabs">
   <button data-view="painel" class="active">Painel</button>
+  <button data-view="dispositivo">Dispositivo</button>
   <button data-view="sensores">Sensores</button>
   <button data-view="timers">Timers</button>
   <button data-view="eventos">Eventos</button>
@@ -452,6 +453,55 @@
     </p>
   </div>
 
+</div>
+
+<!-- VIEW: DISPOSITIVO (config local — fonte de verdade do firmware) -->
+<div class="view" id="view-dispositivo">
+  <div class="card">
+    <div class="between">
+      <div>
+        <h3 style="margin:0;">Configuração local do dispositivo</h3>
+        <p class="muted tiny" style="margin:4px 0 0;">
+          Simula a NVS do ESP. <strong>Esta é a fonte da verdade</strong> —
+          o backend e a app só refletem o que está aqui (publicado em
+          <code>devices/&lt;serial&gt;/config/current</code> retained).
+        </p>
+      </div>
+      <button class="btn sm" id="btn-pub-config">↑ Publicar agora</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Bomba</h3>
+    <div class="grid cols-2" style="margin-top:8px;">
+      <div><label>Tipo</label>
+        <select id="cfg-tipo-bomba">
+          <option value="monofasica">Monofásica</option>
+          <option value="inverter">Inverter</option>
+        </select>
+      </div>
+      <div><label>Nível ativo do relé</label>
+        <select id="cfg-nivel-bomba">
+          <option value="high">Alto (HIGH liga)</option>
+          <option value="low">Baixo (LOW liga)</option>
+        </select>
+      </div>
+      <div><label>Reforço de relé</label>
+        <select id="cfg-reforco">
+          <option value="false">Inativo</option>
+          <option value="true">Ativo</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="between">
+      <h3 style="margin:0;">Setores instalados (1–8)</h3>
+      <span class="muted tiny">Marque os habilitados — só esses aparecem na app.</span>
+    </div>
+    <div id="cfg-setores-list" class="stack" style="margin-top:10px;"></div>
+  </div>
 </div>
 
 <!-- VIEW: SENSORES -->
@@ -647,12 +697,34 @@
     state.sectors[n] = { numero: n, estado: 'closed', source: null, opened_at: null, scheduled_close_at: null };
   }
 
+  // Defaults da NVS — o ESP de verdade carregaria isso do flash na boot.
+  // Aqui simulamos com 8 slots, 2 habilitados por padrão (igual aos defaults
+  // da função provision_irr_v1_defaults do banco — alinha primeira boot).
+  const DEFAULT_DEVICE_CONFIG = () => ({
+    bomba: {
+      tipo_bomba: 'monofasica',
+      nivel_ativo_bomba: 'high',
+      reforco_rele_ativo: false,
+    },
+    sectors: [
+      { numero: 1, nome: 'Setor 1', habilitado: true,  gpio_rele: 16, nivel_ativo_rele: 'high' },
+      { numero: 2, nome: 'Setor 2', habilitado: true,  gpio_rele: 17, nivel_ativo_rele: 'high' },
+      { numero: 3, nome: 'Setor 3', habilitado: false, gpio_rele: 18, nivel_ativo_rele: 'high' },
+      { numero: 4, nome: 'Setor 4', habilitado: false, gpio_rele: 19, nivel_ativo_rele: 'high' },
+      { numero: 5, nome: 'Setor 5', habilitado: false, gpio_rele: 21, nivel_ativo_rele: 'high' },
+      { numero: 6, nome: 'Setor 6', habilitado: false, gpio_rele: 22, nivel_ativo_rele: 'high' },
+      { numero: 7, nome: 'Setor 7', habilitado: false, gpio_rele: 23, nivel_ativo_rele: 'high' },
+      { numero: 8, nome: 'Setor 8', habilitado: false, gpio_rele: 25, nivel_ativo_rele: 'high' },
+    ],
+  });
+
   const internal = {
     mode: 'manual', // 'manual' | 'automatico'
     sensors: [],   // { id, role, nome, mode, valor, limite, histerese, ativo, lastAlarm }
     timers: [],    // { id, nome, alvo, sectorN, hora, duracaoMin, diasMask, ativo, _running, _runStartedAt }
     alarmActive: false,
     alarmInfo: null, // { sensorId, valor, limite }
+    deviceConfig: DEFAULT_DEVICE_CONFIG(),
   };
 
   // Persistência leve no localStorage
@@ -663,6 +735,7 @@
         url: el('url').value, user: el('user').value, pass: el('pass').value,
         sensors: internal.sensors,
         timers: internal.timers,
+        deviceConfig: internal.deviceConfig,
       }));
     } catch (_) {}
   }
@@ -677,6 +750,9 @@
       if (Array.isArray(d.sensors)) internal.sensors = d.sensors;
       if (Array.isArray(d.timers)) {
         internal.timers = d.timers.map(t => ({ ...t, _running: false, _runStartedAt: null }));
+      }
+      if (d.deviceConfig && d.deviceConfig.bomba && Array.isArray(d.deviceConfig.sectors)) {
+        internal.deviceConfig = d.deviceConfig;
       }
     } catch (_) {}
   }
@@ -734,6 +810,27 @@
       if (err) log('pub status err: ' + err.message, 'err');
       else log('TX status=' + payload + ' retained', 'tx');
     });
+  }
+
+  function publishConfigCurrent() {
+    if (!client || !client.connected) return;
+    const payload = JSON.stringify({
+      protocol_version: 1,
+      ts: new Date().toISOString(),
+      bomba: internal.deviceConfig.bomba,
+      sectors: internal.deviceConfig.sectors,
+    });
+    client.publish(`devices/${serial}/config/current`, payload, { qos: 1, retain: true }, (err) => {
+      if (err) log('pub config/current err: ' + err.message, 'err');
+      else log('TX config/current (' + payload.length + 'B) retained', 'tx');
+    });
+  }
+
+  // Debounce pra evitar spam de publish em mudanças sucessivas no form.
+  let configPubTimer = null;
+  function scheduleConfigPublish() {
+    if (configPubTimer) clearTimeout(configPubTimer);
+    configPubTimer = setTimeout(() => { publishConfigCurrent(); configPubTimer = null; }, 800);
   }
 
   function publishEvent(eventType, payload = {}, origem = 'physical_button') {
@@ -1043,8 +1140,68 @@
     renderSensoresQuick();
     renderSensoresList();
     renderTimers();
+    renderDeviceConfig();
     renderAlarmBanner();
     renderIndicators();
+  }
+
+  function renderDeviceConfig() {
+    // Bomba selects
+    el('cfg-tipo-bomba').value = internal.deviceConfig.bomba.tipo_bomba;
+    el('cfg-nivel-bomba').value = internal.deviceConfig.bomba.nivel_ativo_bomba;
+    el('cfg-reforco').value = internal.deviceConfig.bomba.reforco_rele_ativo ? 'true' : 'false';
+
+    // Setores
+    const list = el('cfg-setores-list');
+    list.innerHTML = '';
+    for (const s of internal.deviceConfig.sectors) {
+      const row = document.createElement('div');
+      row.className = 'sensor-card';
+      row.innerHTML = `
+        <div class="row" style="align-items:flex-end;">
+          <div style="flex:0 0 60px;">
+            <label>#</label>
+            <div style="font-weight:700; font-size:18px; padding:7px 0;">${s.numero}</div>
+          </div>
+          <div style="flex:2 1 200px;">
+            <label>Nome</label>
+            <input data-num="${s.numero}" data-field="nome" value="${s.nome.replace(/"/g,'&quot;')}" maxlength="48">
+          </div>
+          <div style="flex:0 0 130px;">
+            <label>Habilitado</label>
+            <select data-num="${s.numero}" data-field="habilitado">
+              <option value="true" ${s.habilitado ? 'selected' : ''}>Sim</option>
+              <option value="false" ${!s.habilitado ? 'selected' : ''}>Não</option>
+            </select>
+          </div>
+          <div style="flex:0 0 100px;">
+            <label>GPIO</label>
+            <input type="number" data-num="${s.numero}" data-field="gpio_rele" value="${s.gpio_rele}" min="0" max="48">
+          </div>
+          <div style="flex:0 0 130px;">
+            <label>Nível ativo</label>
+            <select data-num="${s.numero}" data-field="nivel_ativo_rele">
+              <option value="high" ${s.nivel_ativo_rele === 'high' ? 'selected' : ''}>HIGH</option>
+              <option value="low" ${s.nivel_ativo_rele === 'low' ? 'selected' : ''}>LOW</option>
+            </select>
+          </div>
+        </div>`;
+      list.appendChild(row);
+    }
+  }
+
+  function applyDeviceConfigChange(num, field, raw) {
+    const s = internal.deviceConfig.sectors.find(x => x.numero === num);
+    if (!s) return;
+    if (field === 'habilitado') s.habilitado = raw === 'true';
+    else if (field === 'gpio_rele') {
+      const n = Number(raw);
+      if (Number.isFinite(n)) s.gpio_rele = n;
+    }
+    else if (field === 'nivel_ativo_rele') s.nivel_ativo_rele = raw === 'low' ? 'low' : 'high';
+    else if (field === 'nome') s.nome = String(raw).slice(0, 48);
+    persist();
+    scheduleConfigPublish();
   }
 
   function renderHeader() {
@@ -1407,6 +1564,36 @@
     render();
   });
 
+  // Device config — bomba
+  el('cfg-tipo-bomba').addEventListener('change', () => {
+    internal.deviceConfig.bomba.tipo_bomba = el('cfg-tipo-bomba').value;
+    persist(); scheduleConfigPublish();
+  });
+  el('cfg-nivel-bomba').addEventListener('change', () => {
+    internal.deviceConfig.bomba.nivel_ativo_bomba = el('cfg-nivel-bomba').value;
+    persist(); scheduleConfigPublish();
+  });
+  el('cfg-reforco').addEventListener('change', () => {
+    internal.deviceConfig.bomba.reforco_rele_ativo = el('cfg-reforco').value === 'true';
+    persist(); scheduleConfigPublish();
+  });
+
+  // Device config — setores (delegação de evento, captura input/change)
+  el('cfg-setores-list').addEventListener('input', (e) => {
+    const n = parseInt(e.target.dataset.num, 10);
+    const f = e.target.dataset.field;
+    if (!Number.isFinite(n) || !f) return;
+    applyDeviceConfigChange(n, f, e.target.value);
+  });
+  el('cfg-setores-list').addEventListener('change', (e) => {
+    const n = parseInt(e.target.dataset.num, 10);
+    const f = e.target.dataset.field;
+    if (!Number.isFinite(n) || !f) return;
+    applyDeviceConfigChange(n, f, e.target.value);
+  });
+
+  el('btn-pub-config').onclick = () => publishConfigCurrent();
+
   el('btn-pump-on').onclick = () => {
     state.pump.state = 'on';
     state.pump.source = el('pump-source').value || 'manual_local';
@@ -1468,6 +1655,7 @@
       });
       publishStatus(true);
       publishState();
+      publishConfigCurrent();
       closeModal('modal-conn');
       render();
     });
