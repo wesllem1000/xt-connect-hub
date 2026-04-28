@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils'
 
 import { BombaCommandButton } from '../components/BombaCommandButton'
 import { IndicadoresStatusBar } from '../components/IndicadoresStatusBar'
+import { HistoryTab } from '../components/HistoryTab'
 import { LogsTab } from '../components/LogsTab'
 import { PumpStatusCard, type PumpRuntime } from '../components/PumpStatusCard'
 import { PumpTab } from '../components/PumpTab'
@@ -495,11 +496,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
           </TabsContent>
 
           <TabsContent value="historico" className="mt-0">
-            <TabPlaceholder
-              icon={<History className="h-8 w-8" />}
-              title="Histórico"
-              description="Histórico de eventos, comandos e alarmes do dispositivo. Em construção."
-            />
+            <HistoryTab deviceId={deviceId} />
           </TabsContent>
 
           <TabsContent value="sistema" className="mt-0">
