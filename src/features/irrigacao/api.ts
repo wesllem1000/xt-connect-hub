@@ -105,6 +105,7 @@ export type ComandoResponse = {
   expires_at: string
 }
 
+/** Endpoint legado fire-and-forget (mantido por retrocompat). */
 export async function postComando(
   deviceId: string,
   cmd: IrrCmd,
@@ -113,6 +114,41 @@ export async function postComando(
   return api
     .post(`${base(deviceId)}/comandos`, { json: { cmd, params } })
     .json<ComandoResponse>()
+}
+
+export type AckStatus =
+  | 'accepted'
+  | 'executed'
+  | 'refused'
+  | 'expired'
+  | 'requires_decision'
+  | 'requires_confirmation'
+
+export type ComandoSyncResponse = {
+  cmd_id: string
+  ack_status?: AckStatus
+  ack_code?: string | null
+  ack_message?: string | null
+  result_payload?: unknown
+}
+
+/**
+ * Endpoint síncrono (Fase 1.6 — _e051): bloqueia até o dispositivo responder
+ * o ack via MQTT (`devices/<serial>/commands/ack`) ou estourar 10s de timeout.
+ *
+ * Códigos:
+ *   - 200 → ack chegou (ver ack_status pra desfecho)
+ *   - 503 → device offline (não publica)
+ *   - 504 → timeout (publicou mas não veio ack em 10s)
+ */
+export async function postComandoSync(
+  deviceId: string,
+  cmd: IrrCmd,
+  params: Record<string, unknown> = {},
+): Promise<ComandoSyncResponse> {
+  return api
+    .post(`${base(deviceId)}/comandos/sync`, { json: { cmd, params } })
+    .json<ComandoSyncResponse>()
 }
 
 export async function patchConfig(
