@@ -672,9 +672,25 @@
           </select>
         </div>
       </div>
-      <div class="row">
+      <div>
+        <label>Tipo</label>
+        <select id="mt-tipo">
+          <option value="fixed">Fixo (1 disparo no horário, dura X min)</option>
+          <option value="cyclic_window">Cíclico em janela (on/off entre hora_inicio..hora_fim)</option>
+          <option value="cyclic_continuous">Cíclico contínuo (on/off 24h)</option>
+        </select>
+      </div>
+      <div class="row" id="mt-row-fixed">
         <div><label>Horário</label><input id="mt-hora" type="time" value="06:00"></div>
         <div><label>Duração (min)</label><input id="mt-dur" type="number" min="1" max="480" value="15"></div>
+      </div>
+      <div class="row" id="mt-row-window" style="display:none;">
+        <div><label>Início</label><input id="mt-hora-ini" type="time" value="06:00"></div>
+        <div><label>Fim</label><input id="mt-hora-fim" type="time" value="18:00"></div>
+      </div>
+      <div class="row" id="mt-row-cycle" style="display:none;">
+        <div><label>Liga por (min)</label><input id="mt-on-min" type="number" min="1" max="1440" value="5"></div>
+        <div><label>Fica off (min)</label><input id="mt-off-min" type="number" min="1" max="1440" value="25"></div>
       </div>
       <div>
         <label>Dias da semana</label>
@@ -1215,53 +1231,103 @@
 
     let stateChanged = false;
 
+    // Helpers: ligar/desligar setor+bomba pelos timers
+    function timerLigar(t, durMin) {
+      const setorNum = t.alvo_tipo === 'sector' ? t.sector_numero : null;
+      const offAt = new Date(Date.now() + durMin * 60 * 1000).toISOString();
+      if (t.alvo_tipo === 'sector' && setorNum && state.sectors[setorNum]) {
+        state.sectors[setorNum].estado = 'open';
+        state.sectors[setorNum].opened_at = new Date().toISOString();
+        state.sectors[setorNum].source = 'automatic';
+        publishEvent('sector_opened', { numero: setorNum, timer_id: t.id, duracao_min: durMin }, 'automatic');
+      }
+      if (state.pump.state !== 'on') {
+        state.pump.state = 'on';
+        state.pump.source = 'automatic';
+        state.pump.started_at = new Date().toISOString();
+        state.pump.scheduled_off_at = offAt;
+      } else if (state.pump.scheduled_off_at) {
+        if (new Date(offAt).getTime() > new Date(state.pump.scheduled_off_at).getTime()) {
+          state.pump.scheduled_off_at = offAt;
+        }
+      } else {
+        state.pump.scheduled_off_at = offAt;
+      }
+      publishEvent('pump_on_auto', { timer_id: t.id, nome: t.nome, duracao_min: durMin }, 'automatic');
+      t._running = true;
+      t._runStartedAt = Date.now();
+    }
+    function timerDesligar(t) {
+      const setorNum = t.alvo_tipo === 'sector' ? t.sector_numero : null;
+      if (t.alvo_tipo === 'sector' && setorNum && state.sectors[setorNum]) {
+        state.sectors[setorNum].estado = 'closed';
+        state.sectors[setorNum].opened_at = null;
+        state.sectors[setorNum].scheduled_close_at = null;
+        publishEvent('sector_closed', { numero: setorNum, timer_id: t.id }, 'automatic');
+      }
+      t._running = false;
+      t._runStartedAt = null;
+    }
+
     for (const t of internal.timers) {
       if (!t.ativo || t.pausado) continue;
-      if (t.tipo !== 'fixed') continue; // simulator so executa fixed por simplicidade
       if (!(t.dias_semana & (1 << dia))) continue;
-      const hora = (t.hora_inicio || '').slice(0, 5);
-      const dur = t.duracao_min || 0;
-      if (!hora || dur <= 0) continue;
       const setorNum = t.alvo_tipo === 'sector' ? t.sector_numero : null;
       const alvoLabel = t.alvo_tipo === 'sector' ? ('setor ' + setorNum) : 'bomba';
 
-      if (!t._running && hora === nowHm && now.getSeconds() < 5) {
-        t._running = true;
-        t._runStartedAt = Date.now();
-        const offAt = new Date(Date.now() + dur * 60 * 1000).toISOString();
-
-        if (t.alvo_tipo === 'sector' && setorNum && state.sectors[setorNum]) {
-          state.sectors[setorNum].estado = 'open';
-          state.sectors[setorNum].opened_at = new Date().toISOString();
-          state.sectors[setorNum].source = 'automatic';
-          publishEvent('sector_opened', { numero: setorNum, timer_id: t.id, duracao_min: dur }, 'automatic');
+      // ============ CYCLIC ============
+      if (t.tipo === 'cyclic_window' || t.tipo === 'cyclic_continuous') {
+        const onMin = t.on_minutes || 0;
+        const offMin = t.off_minutes || 0;
+        if (onMin <= 0) continue;
+        // janela: window restringe; continuous = 24h
+        let inWindow = true;
+        if (t.tipo === 'cyclic_window') {
+          const ini = (t.hora_inicio || '').slice(0, 5);
+          const fim = (t.hora_fim || '').slice(0, 5);
+          if (!ini || !fim) { inWindow = false; }
+          else if (ini <= fim) { inWindow = ini <= nowHm && nowHm < fim; }
+          else { inWindow = nowHm >= ini || nowHm < fim; } // janela cruza meia-noite
         }
-        if (state.pump.state !== 'on') {
-          state.pump.state = 'on';
-          state.pump.source = 'automatic';
-          state.pump.started_at = new Date().toISOString();
-          state.pump.scheduled_off_at = offAt;
-        } else if (state.pump.scheduled_off_at) {
-          if (new Date(offAt).getTime() > new Date(state.pump.scheduled_off_at).getTime()) {
-            state.pump.scheduled_off_at = offAt;
+        if (!inWindow) {
+          if (t._running) {
+            timerDesligar(t);
+            log(`TIMER "${t.nome}" saiu da janela — desligado`, 'info');
+            stateChanged = true;
           }
-        } else {
-          state.pump.scheduled_off_at = offAt;
+          t._restingSince = null;
+          continue;
         }
-        publishEvent('pump_on_auto', { timer_id: t.id, nome: t.nome, duracao_min: dur }, 'automatic');
+        const elapsedMin = t._runStartedAt ? (Date.now() - t._runStartedAt) / 60000 : 0;
+        const restingMin = t._restingSince ? (Date.now() - t._restingSince) / 60000 : Infinity;
+        if (t._running && elapsedMin >= onMin) {
+          timerDesligar(t);
+          t._restingSince = Date.now();
+          log(`TIMER "${t.nome}" ${onMin}min ON terminou — entrando em ${offMin}min OFF`, 'ok');
+          stateChanged = true;
+        } else if (!t._running && restingMin >= offMin) {
+          timerLigar(t, onMin);
+          t._restingSince = null;
+          log(`TIMER "${t.nome}" ciclo ON (${alvoLabel}, ${onMin}min)`, 'ok');
+          stateChanged = true;
+        }
+        continue;
+      }
+
+      // ============ FIXED ============
+      if (t.tipo !== 'fixed') continue;
+      const hora = (t.hora_inicio || '').slice(0, 5);
+      const dur = t.duracao_min || 0;
+      if (!hora || dur <= 0) continue;
+
+      if (!t._running && hora === nowHm && now.getSeconds() < 5) {
+        timerLigar(t, dur);
         log(`TIMER "${t.nome}" disparou (${alvoLabel}, ${dur}min)`, 'ok');
         stateChanged = true;
       }
 
       if (t._running && t._runStartedAt && Date.now() - t._runStartedAt >= dur * 60 * 1000) {
-        t._running = false;
-        t._runStartedAt = null;
-        if (t.alvo_tipo === 'sector' && setorNum && state.sectors[setorNum]) {
-          state.sectors[setorNum].estado = 'closed';
-          state.sectors[setorNum].opened_at = null;
-          state.sectors[setorNum].scheduled_close_at = null;
-          publishEvent('sector_closed', { numero: setorNum, timer_id: t.id }, 'automatic');
-        }
+        timerDesligar(t);
         log(`TIMER "${t.nome}" terminou (${dur}min)`, 'ok');
         stateChanged = true;
       }
@@ -1719,19 +1785,32 @@
   };
 
   let editingTimerId = null;
+  function updateTimerModalFields() {
+    const tipo = el('mt-tipo').value;
+    el('mt-row-fixed').style.display = tipo === 'fixed' ? '' : 'none';
+    el('mt-row-window').style.display = tipo === 'cyclic_window' ? '' : 'none';
+    el('mt-row-cycle').style.display = (tipo === 'cyclic_window' || tipo === 'cyclic_continuous') ? '' : 'none';
+    el('mt-sector-wrap').style.display = el('mt-alvo').value === 'sector' ? '' : 'none';
+  }
   function openTimerModal(t) {
     editingTimerId = t ? t.id : null;
     el('modal-timer-title').textContent = t ? 'Editar timer' : 'Novo timer';
     el('mt-nome').value = t ? t.nome : '';
     el('mt-alvo').value = t ? t.alvo_tipo : 'pump';
     el('mt-sector').value = t ? String(t.sector_numero || 1) : '1';
+    el('mt-tipo').value = t ? (t.tipo || 'fixed') : 'fixed';
     el('mt-hora').value = t ? ((t.hora_inicio || '').slice(0, 5) || '06:00') : '06:00';
     el('mt-dur').value = t ? (t.duracao_min || 15) : 15;
+    el('mt-hora-ini').value = t ? ((t.hora_inicio || '').slice(0, 5) || '06:00') : '06:00';
+    el('mt-hora-fim').value = t ? ((t.hora_fim || '').slice(0, 5) || '18:00') : '18:00';
+    el('mt-on-min').value = t ? (t.on_minutes || 5) : 5;
+    el('mt-off-min').value = t ? (t.off_minutes || 25) : 25;
     const mask = t ? (t.dias_semana || 0b0111110) : 0b0111110;
     renderDayPickers(mask);
-    el('mt-sector-wrap').style.display = el('mt-alvo').value === 'sector' ? '' : 'none';
+    updateTimerModalFields();
     openModal('modal-timer');
   }
+  el('mt-tipo').addEventListener('change', updateTimerModalFields);
   function renderDayPickers(currentMask) {
     const row = el('mt-dias-row');
     row.innerHTML = '';
@@ -1750,30 +1829,53 @@
       row.appendChild(b);
     }
   }
-  el('mt-alvo').addEventListener('change', () => {
-    el('mt-sector-wrap').style.display = el('mt-alvo').value === 'sector' ? '' : 'none';
-  });
+  el('mt-alvo').addEventListener('change', updateTimerModalFields);
   el('btn-add-timer').onclick = () => openTimerModal(null);
   el('btn-cancel-timer').onclick = () => closeModal('modal-timer');
   el('btn-save-timer').onclick = () => {
     const lastBtn = el('mt-dias-row').querySelector('button:last-child');
     const mask = lastBtn ? parseInt(lastBtn.dataset.mask, 10) : 0;
     const alvo = el('mt-alvo').value;
-    const data = {
+    const tipo = el('mt-tipo').value;
+    const baseData = {
       nome: el('mt-nome').value.trim() || 'Timer',
       alvo_tipo: alvo,
       sector_numero: alvo === 'sector' ? (parseInt(el('mt-sector').value, 10) || 1) : null,
-      tipo: 'fixed',
-      hora_inicio: el('mt-hora').value,
-      hora_fim: null,
-      duracao_min: parseInt(el('mt-dur').value, 10) || 15,
-      on_minutes: null,
-      off_minutes: null,
+      tipo,
       dias_semana: mask,
       ativo: true,
       pausado: false,
       observacao: null,
     };
+    let data;
+    if (tipo === 'fixed') {
+      data = {
+        ...baseData,
+        hora_inicio: el('mt-hora').value,
+        hora_fim: null,
+        duracao_min: parseInt(el('mt-dur').value, 10) || 15,
+        on_minutes: null,
+        off_minutes: null,
+      };
+    } else if (tipo === 'cyclic_window') {
+      data = {
+        ...baseData,
+        hora_inicio: el('mt-hora-ini').value,
+        hora_fim: el('mt-hora-fim').value,
+        duracao_min: null,
+        on_minutes: parseInt(el('mt-on-min').value, 10) || 5,
+        off_minutes: parseInt(el('mt-off-min').value, 10) || 25,
+      };
+    } else { // cyclic_continuous
+      data = {
+        ...baseData,
+        hora_inicio: null,
+        hora_fim: null,
+        duracao_min: null,
+        on_minutes: parseInt(el('mt-on-min').value, 10) || 5,
+        off_minutes: parseInt(el('mt-off-min').value, 10) || 25,
+      };
+    }
     if (editingTimerId) {
       const t = internal.timers.find(x => x.id === editingTimerId);
       if (t) Object.assign(t, data);
