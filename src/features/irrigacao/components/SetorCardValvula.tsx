@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 
+import { SectorStatusIndicator } from './SectorStatusIndicator'
 import type { IrrigationSector } from '../types'
 
 type EstadoVisual = 'desabilitado' | 'fechada' | 'aberta' | 'abrindo' | 'fechando' | 'pausada'
@@ -31,25 +32,26 @@ type Props = {
 function deriveEstado(s: IrrigationSector): EstadoVisual {
   if (!s.habilitado) return 'desabilitado'
   if (s.pausado) return 'pausada'
-  // Fase 1 mock: sem MQTT live, assume fechada por default.
   return 'fechada'
 }
 
-const colorMap: Record<EstadoVisual, { ring: string; fill: string; badge: string; label: string }> = {
-  desabilitado: { ring: 'stroke-muted-foreground/30', fill: 'fill-muted/20', badge: 'bg-muted text-muted-foreground', label: 'Desabilitado' },
-  fechada:      { ring: 'stroke-slate-400', fill: 'fill-slate-100', badge: 'bg-slate-400 text-white hover:bg-slate-400', label: 'Fechada' },
-  abrindo:      { ring: 'stroke-emerald-500 animate-pulse', fill: 'fill-emerald-50', badge: 'bg-emerald-400 text-white hover:bg-emerald-400', label: 'Abrindo' },
-  aberta:       { ring: 'stroke-emerald-600', fill: 'fill-emerald-100', badge: 'bg-emerald-600 text-white hover:bg-emerald-600', label: 'Aberta' },
-  fechando:     { ring: 'stroke-amber-500 animate-pulse', fill: 'fill-amber-50', badge: 'bg-amber-500 text-white hover:bg-amber-500', label: 'Fechando' },
-  pausada:      { ring: 'stroke-amber-500', fill: 'fill-amber-50', badge: 'bg-amber-500 text-white hover:bg-amber-500', label: 'Pausada' },
+const labelMap: Record<EstadoVisual, { badge: string; label: string }> = {
+  desabilitado: { badge: 'bg-muted text-muted-foreground', label: 'Desabilitado' },
+  fechada: { badge: 'bg-slate-400 text-white hover:bg-slate-400', label: 'Fechada' },
+  abrindo: { badge: 'bg-emerald-400 text-white hover:bg-emerald-400 animate-pulse', label: 'Abrindo' },
+  aberta: { badge: 'bg-emerald-600 text-white hover:bg-emerald-600', label: 'Aberta' },
+  fechando: { badge: 'bg-amber-500 text-white hover:bg-amber-500 animate-pulse', label: 'Fechando' },
+  pausada: { badge: 'bg-amber-500 text-white hover:bg-amber-500', label: 'Pausada' },
 }
 
 export function SetorCardValvula({ setor, estadoLive, onClick, disabled, pending }: Props) {
   const estado: EstadoVisual = estadoLive
     ? (FIRMWARE_TO_VISUAL[estadoLive as EstadoFirmware] ?? (estadoLive as EstadoVisual))
     : deriveEstado(setor)
-  const c = colorMap[estado]
+  const meta = labelMap[estado]
   const clickable = Boolean(onClick) && setor.habilitado && !disabled
+  // SectorStatusIndicator: enche se aberta/abrindo, esvazia caso contrário.
+  const indicatorOpen = estado === 'aberta' || estado === 'abrindo'
 
   return (
     <Card
@@ -72,26 +74,12 @@ export function SetorCardValvula({ setor, estadoLive, onClick, disabled, pending
         disabled && 'opacity-75',
       )}
     >
-      <CardContent className="p-4 flex items-center gap-3">
-        <svg viewBox="0 0 48 48" className="h-14 w-14 shrink-0" aria-hidden>
-          {/* Válvula: círculo externo (corpo) + haste superior + indicador interno */}
-          <circle cx="24" cy="26" r="16" className={cn(c.fill, c.ring)} strokeWidth="2.5" />
-          <rect x="22" y="4" width="4" height="10" className={cn(c.fill, c.ring)} strokeWidth="1.5" />
-          {estado === 'aberta' || estado === 'abrindo' ? (
-            <circle cx="24" cy="26" r="6" className="fill-emerald-500" />
-          ) : estado === 'pausada' ? (
-            <>
-              <rect x="20" y="21" width="2.5" height="10" className="fill-amber-600" />
-              <rect x="25.5" y="21" width="2.5" height="10" className="fill-amber-600" />
-            </>
-          ) : (
-            <line x1="15" y1="26" x2="33" y2="26" stroke="currentColor" strokeWidth="2" className="text-slate-400" />
-          )}
-        </svg>
+      <CardContent className="p-4 flex items-center gap-4">
+        <SectorStatusIndicator isOpen={indicatorOpen} size={88} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <p className="font-medium text-sm truncate">{setor.nome}</p>
-            <Badge className={cn('shrink-0', c.badge)}>{c.label}</Badge>
+            <Badge className={cn('shrink-0', meta.badge)}>{meta.label}</Badge>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5 font-mono">
             #{setor.numero} · GPIO {setor.gpio_rele}

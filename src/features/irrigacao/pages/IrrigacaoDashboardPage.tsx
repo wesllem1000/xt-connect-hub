@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -35,8 +35,8 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import { cn } from '@/lib/utils'
 
 import { BombaCommandButton } from '../components/BombaCommandButton'
-import { BombaSvgAnimada } from '../components/BombaSvgAnimada'
 import { IndicadoresStatusBar } from '../components/IndicadoresStatusBar'
+import { PumpStatusCard, type PumpRuntime } from '../components/PumpStatusCard'
 import { SetorCardValvula } from '../components/SetorCardValvula'
 import { useComando } from '../hooks/useComando'
 import { useDeviceStateLive } from '../hooks/useDeviceStateLive'
@@ -144,13 +144,41 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
     if (typeof s.numero === 'number' && s.estado) setorEstadoMap.set(s.numero, s.estado)
   }
 
-  const counterMode: 'ligada_ha' | 'desliga_em' | null =
-    pumpState === 'on' && pump.scheduled_off_at
-      ? 'desliga_em'
-      : pumpState === 'on' && pump.started_at
-      ? 'ligada_ha'
-      : null
-  const counterSeconds = computeCounterSeconds(pumpState, pump)
+  // pumpRuntime estável entre pushes do MQTT — só recalcula quando started_at /
+  // scheduled_off_at mudam. PumpStatusCard tem tick interno de 500ms pra
+  // suavizar a contagem; passar segundos voláteis aqui causaria reset desse
+  // interno a cada 1s do tick externo.
+  const pumpRuntime: PumpRuntime | null = useMemo(() => {
+    if (pumpState !== 'on') return null
+    if (pump.scheduled_off_at) {
+      const diff = Math.max(
+        0,
+        Math.floor((new Date(pump.scheduled_off_at).getTime() - Date.now()) / 1000),
+      )
+      return {
+        active: true,
+        mode: 'countdown',
+        seconds: diff,
+        remainingSec: diff,
+        elapsedSec: 0,
+      }
+    }
+    if (pump.started_at) {
+      const diff = Math.max(
+        0,
+        Math.floor((Date.now() - new Date(pump.started_at).getTime()) / 1000),
+      )
+      return {
+        active: true,
+        mode: 'elapsed',
+        seconds: diff,
+        remainingSec: 0,
+        elapsedSec: diff,
+      }
+    }
+    return { active: true, mode: 'idle', seconds: 0, remainingSec: 0, elapsedSec: 0 }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pumpState, pump.scheduled_off_at, pump.started_at])
 
   const setoresHabilitados = snap.sectors.filter((s) => s.habilitado)
   const setoresAbertos = (state?.sectors ?? []).filter((s) => s.estado === 'open')
@@ -328,10 +356,10 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
           <CardTitle className="text-base">Bomba</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col sm:flex-row items-center gap-6">
-          <BombaSvgAnimada
-            ligada={bombaLigada}
-            mode={counterMode}
-            seconds={counterSeconds}
+          <PumpStatusCard
+            pumpOn={bombaLigada}
+            manualMode={!isAuto}
+            pumpRuntime={pumpRuntime}
           />
           <div className="flex-1 space-y-3 w-full">
             <div className="grid gap-3 sm:grid-cols-2 text-sm">
@@ -618,19 +646,6 @@ function BackButton({ onClick }: { onClick: () => void }) {
       Voltar
     </Button>
   )
-}
-
-function computeCounterSeconds(pumpState: string, pump: StatePump): number {
-  if (pumpState !== 'on') return 0
-  if (pump.scheduled_off_at) {
-    const diff = (new Date(pump.scheduled_off_at).getTime() - Date.now()) / 1000
-    return Math.max(0, Math.floor(diff))
-  }
-  if (pump.started_at) {
-    const diff = (Date.now() - new Date(pump.started_at).getTime()) / 1000
-    return Math.max(0, Math.floor(diff))
-  }
-  return 0
 }
 
 function ConfirmDialog({
