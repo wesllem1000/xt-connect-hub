@@ -792,6 +792,11 @@
         sensors: internal.sensors,
         timers: internal.timers,
         deviceConfig: internal.deviceConfig,
+        // Alarme tem que persistir: se o user fechar o navegador com alarme
+        // ativo e voltar depois, o banner deve continuar (alinhado com o
+        // banco, que so resolve com ACK explicito).
+        alarmActive: internal.alarmActive,
+        alarmInfo: internal.alarmInfo,
       }));
     } catch (_) {}
   }
@@ -819,6 +824,8 @@
           .filter(Boolean)
           .map(t => ({ ...t, _running: false, _runStartedAt: null }));
       }
+      if (typeof d.alarmActive === 'boolean') internal.alarmActive = d.alarmActive;
+      if (d.alarmInfo && typeof d.alarmInfo === 'object') internal.alarmInfo = d.alarmInfo;
       if (d.deviceConfig && d.deviceConfig.bomba && Array.isArray(d.deviceConfig.sectors)) {
         // Merge com defaults pra preencher campos novos que nao existiam em
         // configs antigas (atrasos, botao, gpio_1wire, etc).
@@ -1052,6 +1059,18 @@
     } else if (c === 'mode_set') {
       const m = p.modo === 'automatico' ? 'automatico' : 'manual';
       if (internal.mode !== m) { internal.mode = m; changed = true; }
+    } else if (c === 'temp_alarm_clear') {
+      // Backend confirma que ACK do app resolveu o alarme; limpa estado local
+      // pra que o banner do simulator desapareca tambem.
+      const targetRom = p.rom_id || null;
+      if (internal.alarmActive) {
+        if (!targetRom || (internal.alarmInfo && internal.alarmInfo.rom_id === targetRom)) {
+          internal.alarmActive = false;
+          internal.alarmInfo = null;
+          changed = true;
+          log('Alarme limpo via comando (' + (p.source || 'app') + ')', 'ok');
+        }
+      }
     }
     return changed;
   }
@@ -1069,7 +1088,7 @@
       publishAck(cmd.cmd_id, status, reason);
       if (status === 'executed') {
         const changed = applyCmd(cmd);
-        if (changed) publishState();
+        if (changed) { persist(); publishState(); }
       }
       row.remove();
       render();
@@ -1092,7 +1111,14 @@
     refBtn.onclick = () => finishWith('refused', 'simulated_refuse');
     expBtn.onclick = () => finishWith('expired', 'expired');
     el('cmds').prepend(row);
-    setTimeout(() => { if (row.parentElement) finishWith('executed', 'auto_accepted'); }, 2000);
+    // temp_alarm_clear é resposta a ACK do app — aceita imediatamente sem
+    // o delay de 2s normal pra outros comandos. UX de alarme tem que ser
+    // rapida.
+    if (cmd.cmd === 'temp_alarm_clear') {
+      finishWith('executed', 'auto_accepted_alarm_clear');
+    } else {
+      setTimeout(() => { if (row.parentElement) finishWith('executed', 'auto_accepted'); }, 2000);
+    }
   }
 
   // ============================================================
@@ -1151,6 +1177,7 @@
         if (t._running) { t._running = false; t._runStartedAt = null; }
       }
       if (isNew) {
+        persist();
         publishEvent('temp_alarm_triggered', {
           sensor_id: triggered.id, rom_id: triggered.rom_id,
           role: triggered.role, nome: triggered.nome,
@@ -1166,27 +1193,12 @@
         }
         publishState();
       }
-    } else if (internal.alarmActive) {
-      // Auto-clear quando temperatura cair abaixo de limite-histerese de
-      // TODOS os sensores ativos. ack_usuario_requerido NÃO bloqueia o
-      // auto-clear — alarme = estado fisico do sensor. ACK do user e
-      // registro de "operador viu", separado da limpeza.
-      let stillAbove = false;
-      for (const s of internal.sensors) {
-        if (!s.ativo) continue;
-        const armaThreshold = s.limite - (s.histerese || 0);
-        if (s.valor >= armaThreshold) { stillAbove = true; break; }
-      }
-      if (!stillAbove) {
-        const wasInfo = internal.alarmInfo;
-        internal.alarmActive = false;
-        internal.alarmInfo = null;
-        publishEvent('temp_alarm_resolved', {
-          motivo: 'auto_clear_below_hysteresis',
-          rom_id: wasInfo ? wasInfo.rom_id : null,
-        }, 'automatic');
-      }
     }
+    // Alarme so e limpo via ACK explicito (botao Reconhecer no simulator
+    // ou no XT Connect). Mesmo com a temperatura caindo abaixo da
+    // histerese, internal.alarmActive permanece true ate o operador
+    // confirmar — pedido do dono pra garantir que ele veja a notificacao
+    // mesmo voltando depois.
   }
 
   // ============================================================
@@ -1595,31 +1607,30 @@
     }
     const i = internal.alarmInfo;
     const sensor = internal.sensors.find(s => s.id === i.sensorId);
-    const hist = sensor ? (sensor.histerese || 0) : 0;
-    const armaThreshold = i.limite - hist;
+    const tempAtual = sensor ? sensor.valor : i.valor;
     b.style.display = '';
     b.className = 'alarm-banner';
     b.innerHTML = `
       <div class="row-flex">
         <div>
           <strong>🔥 Alarme de temperatura — bomba e setores cortados</strong>
-          <div class="small">${i.sensorNome} (${i.role}): ${i.valor.toFixed(1)}°C ≥ ${i.limite}°C (limite)</div>
-          <div class="tiny muted">Limpa sozinho quando temp cair abaixo de ${armaThreshold.toFixed(1)}°C${i.acked ? ' · ACK registrado' : ''}</div>
+          <div class="small">${i.sensorNome} (${i.role}): pico ${i.valor.toFixed(1)}°C ≥ ${i.limite}°C (limite). Atual: ${tempAtual.toFixed(1)}°C</div>
+          <div class="tiny muted">Aguardando reconhecimento (no simulador ou no XT Connect) pra limpar.</div>
         </div>
-        ${i.acked ? '' : '<button class="btn warn sm" id="btn-ack-alarm">Reconhecer</button>'}
+        <button class="btn warn sm" id="btn-ack-alarm">Reconhecer</button>
       </div>`;
-    if (i.acked) return;
     el('btn-ack-alarm').onclick = () => {
-      // ACK = registro de "operador viu". Não limpa o alarme — alarme só
-      // some quando a temperatura cair abaixo de limite-histerese.
+      // ACK = limpa o alarme. Backend recebe temp_alarm_ack_user e marca
+      // resolved_at no banco; XT Connect refletira via refetch do snapshot.
       publishEvent('temp_alarm_ack_user', {
         sensor_id: i.sensorId,
         rom_id: i.rom_id,
       }, 'manual_app_remote');
-      log('ACK registrado. Alarme só limpa quando temp cair abaixo de ' +
-          (i.limite - (internal.sensors.find(s => s.id === i.sensorId)?.histerese || 0)).toFixed(1) +
-          '°C', 'ok');
-      i.acked = true; // marca pro render esconder o botao "Reconhecer"
+      log('Alarme reconhecido localmente — backend resolve no banco', 'ok');
+      internal.alarmActive = false;
+      internal.alarmInfo = null;
+      persist();
+      render();
     };
   }
 
