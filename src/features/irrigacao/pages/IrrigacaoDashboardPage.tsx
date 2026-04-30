@@ -555,6 +555,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
             <SensoresTab
               deviceId={deviceId}
               sensores={snap.sensors}
+              busRomIds={snap.bus_rom_ids ?? []}
               activeAlarmRomIds={
                 new Set(
                   snap.active_alarms

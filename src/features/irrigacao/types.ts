@@ -87,6 +87,7 @@ export type IrrigationTemperatureSensor = {
   histerese_c: number
   ack_usuario_requerido: boolean
   ativo: boolean
+  presente: boolean
   ultima_leitura_c: number | null
   ultimo_contato_em: string | null
   criado_em: string
@@ -171,6 +172,9 @@ export type IrrigationSnapshot = {
   sectors: IrrigationSector[]
   timers: IrrigationTimer[]
   sensors: IrrigationTemperatureSensor[]
+  /** ROM IDs DS18B20 detectados pelo firmware no barramento agora.
+   *  UI usa pra computar "sensores detectados" = bus_rom_ids \ sensors[].rom_id. */
+  bus_rom_ids: string[]
   active_alarms: IrrigationAlarme[]
   state: DeviceStatePayload | null
 }

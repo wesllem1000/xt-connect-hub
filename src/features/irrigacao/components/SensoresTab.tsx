@@ -1,5 +1,12 @@
-import { useEffect, useState } from 'react'
-import { Loader2, Plus, Save, Thermometer, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import {
+  Loader2,
+  PlugZap,
+  Save,
+  Thermometer,
+  Trash2,
+  WifiOff,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
@@ -43,6 +50,9 @@ import { TemperatureGauge } from './TemperatureGauge'
 type Props = {
   deviceId: string
   sensores: IrrigationTemperatureSensor[]
+  /** ROM IDs detectados pelo firmware no barramento agora (auto-descoberta).
+   *  Os que não estão em `sensores[].rom_id` viram a seção "Sensores detectados". */
+  busRomIds?: string[]
   activeAlarmRomIds?: Set<string>
 }
 
@@ -99,11 +109,19 @@ function fmtPt(iso: string | null | undefined): string {
   })
 }
 
-export function SensoresTab({ deviceId, sensores, activeAlarmRomIds }: Props) {
+export function SensoresTab({
+  deviceId,
+  sensores,
+  busRomIds,
+  activeAlarmRomIds,
+}: Props) {
   const [editing, setEditing] = useState<IrrigationTemperatureSensor | null>(
     null,
   )
-  const [creating, setCreating] = useState(false)
+  /** Quando preenchido, abre o form de criação com o rom_id pré-preenchido (e
+   *  bloqueado). É o único caminho de criar sensor agora — não há mais campo
+   *  livre de ROM no form. */
+  const [provisioningRomId, setProvisioningRomId] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<
     IrrigationTemperatureSensor | null
   >(null)
@@ -116,36 +134,78 @@ export function SensoresTab({ deviceId, sensores, activeAlarmRomIds }: Props) {
     a.criado_em.localeCompare(b.criado_em),
   )
 
-  const limitReached = sensores.length >= 4
+  /** ROM IDs detectados pelo firmware que ainda não foram configurados. */
+  const detectedRomIds = useMemo(() => {
+    const configured = new Set(sensores.map((s) => s.rom_id.toUpperCase()))
+    return (busRomIds ?? [])
+      .map((r) => r.toUpperCase())
+      .filter((r) => !configured.has(r))
+  }, [busRomIds, sensores])
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-xs text-muted-foreground">
-          Sensores DS18B20 1-Wire monitoram temperatura. Cadastros aqui são
-          empurrados ao firmware via{' '}
-          <code>devices/&lt;serial&gt;/config/push</code>; o firmware reconcilia
-          com o scan físico do barramento e devolve o conjunto autoritativo em{' '}
-          <code>config/current</code>. Limite: 4 por dispositivo.
-        </p>
-        <Button
-          size="sm"
-          onClick={() => setCreating(true)}
-          disabled={limitReached || createMut.isPending}
-        >
-          <Plus className="h-4 w-4 mr-1" />
-          Adicionar
-        </Button>
-      </div>
+      <p className="text-xs text-muted-foreground">
+        Sensores DS18B20 1-Wire são detectados automaticamente quando você
+        conecta no barramento. Aparecem em <strong>Sensores detectados</strong>{' '}
+        — basta clicar em "Configurar" pra dar nome e função. Limite: 4 por
+        dispositivo.
+      </p>
 
+      {/* Seção 1: Sensores detectados (não configurados ainda) */}
+      {detectedRomIds.length > 0 && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <PlugZap className="h-4 w-4 text-amber-600" />
+            <h3 className="text-sm font-medium">
+              Sensores detectados ({detectedRomIds.length})
+            </h3>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {detectedRomIds.map((rom) => (
+              <Card
+                key={rom}
+                className="border-amber-500/40 bg-amber-50/30 dark:bg-amber-950/10"
+              >
+                <CardContent className="p-4 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Thermometer className="h-5 w-5 text-amber-600" />
+                    <p className="font-medium text-sm">Sensor sem nome</p>
+                  </div>
+                  <p className="text-[10px] font-mono text-muted-foreground break-all">
+                    ROM: {rom}
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => setProvisioningRomId(rom)}
+                    disabled={
+                      createMut.isPending || sensores.length >= 4
+                    }
+                    className="w-full"
+                  >
+                    Configurar este sensor
+                  </Button>
+                  {sensores.length >= 4 && (
+                    <p className="text-[10px] text-red-600">
+                      Limite de 4 sensores atingido. Remova um pra configurar
+                      este.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Seção 2: Sensores configurados */}
       {ordered.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             <Thermometer className="h-12 w-12 mx-auto mb-3 opacity-50" />
             <p>Nenhum sensor cadastrado.</p>
             <p className="text-sm mt-1">
-              Clique em <strong>Adicionar</strong> para cadastrar um sensor de
-              temperatura.
+              Conecte um DS18B20 no barramento 1-Wire e ele vai aparecer em{' '}
+              <strong>Sensores detectados</strong> em até 30s.
             </p>
           </CardContent>
         </Card>
@@ -153,10 +213,17 @@ export function SensoresTab({ deviceId, sensores, activeAlarmRomIds }: Props) {
         <div className="grid gap-3 sm:grid-cols-2">
           {ordered.map((s) => {
             const alarme = activeAlarmRomIds?.has(s.rom_id) ?? false
+            const desconectado = s.presente === false
             return (
               <Card
                 key={s.id}
-                className={alarme ? 'border-red-500/60' : undefined}
+                className={
+                  alarme
+                    ? 'border-red-500/60'
+                    : desconectado
+                      ? 'border-red-500/40 bg-red-50/30 dark:bg-red-950/10'
+                      : undefined
+                }
               >
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center justify-between gap-2">
@@ -165,9 +232,11 @@ export function SensoresTab({ deviceId, sensores, activeAlarmRomIds }: Props) {
                         className={
                           alarme
                             ? 'h-5 w-5 text-red-600'
-                            : s.ativo
-                              ? 'h-5 w-5 text-emerald-600'
-                              : 'h-5 w-5 opacity-50'
+                            : desconectado
+                              ? 'h-5 w-5 text-red-500 opacity-70'
+                              : s.ativo
+                                ? 'h-5 w-5 text-emerald-600'
+                                : 'h-5 w-5 opacity-50'
                         }
                       />
                       <span className="truncate">{s.nome}</span>
@@ -175,6 +244,12 @@ export function SensoresTab({ deviceId, sensores, activeAlarmRomIds }: Props) {
                     {alarme && (
                       <span className="rounded bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white">
                         ALARME
+                      </span>
+                    )}
+                    {!alarme && desconectado && (
+                      <span className="rounded bg-red-600 px-2 py-0.5 text-[10px] font-bold text-white inline-flex items-center gap-1">
+                        <WifiOff className="h-3 w-3" />
+                        DESCONECTADO
                       </span>
                     )}
                   </CardTitle>
@@ -244,12 +319,13 @@ export function SensoresTab({ deviceId, sensores, activeAlarmRomIds }: Props) {
       )}
 
       <SensorFormDialog
-        open={creating || editing !== null}
+        open={provisioningRomId !== null || editing !== null}
         sensor={editing}
+        provisioningRomId={provisioningRomId}
         pending={createMut.isPending || patchMut.isPending}
         onClose={() => {
           setEditing(null)
-          setCreating(false)
+          setProvisioningRomId(null)
         }}
         onSubmit={async (data, isCreate) => {
           if (!isCreate && editing) {
@@ -260,7 +336,7 @@ export function SensoresTab({ deviceId, sensores, activeAlarmRomIds }: Props) {
               nome: data.nome!,
               role: data.role!,
               nome_custom: data.nome_custom ?? null,
-              rom_id: data.rom_id ?? null,
+              rom_id: provisioningRomId,
               limite_alarme_c: data.limite_alarme_c!,
               histerese_c: data.histerese_c,
               ack_usuario_requerido: data.ack_usuario_requerido,
@@ -268,7 +344,7 @@ export function SensoresTab({ deviceId, sensores, activeAlarmRomIds }: Props) {
             })
           }
           setEditing(null)
-          setCreating(false)
+          setProvisioningRomId(null)
         }}
       />
 
@@ -335,12 +411,14 @@ type FormSubmitData = Partial<{
 function SensorFormDialog({
   open,
   sensor,
+  provisioningRomId,
   pending,
   onClose,
   onSubmit,
 }: {
   open: boolean
   sensor: IrrigationTemperatureSensor | null
+  provisioningRomId: string | null
   pending: boolean
   onClose: () => void
   onSubmit: (data: FormSubmitData, isCreate: boolean) => Promise<void>
@@ -350,8 +428,12 @@ function SensorFormDialog({
   // Re-sincroniza o form quando o dialog abre ou o sensor sendo editado muda.
   useEffect(() => {
     if (!open) return
-    setForm(sensor ? fromSensor(sensor) : EMPTY_FORM)
-  }, [open, sensor])
+    if (sensor) {
+      setForm(fromSensor(sensor))
+    } else {
+      setForm({ ...EMPTY_FORM, rom_id: provisioningRomId ?? '' })
+    }
+  }, [open, sensor, provisioningRomId])
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((s) => ({ ...s, [k]: v }))
@@ -381,9 +463,9 @@ function SensorFormDialog({
       ativo: form.ativo,
     }
     if (!sensor) {
-      // Em create, só envia rom_id se usuário tiver preenchido. Vazio →
-      // backend gera 'pending-<uuid>' e o ESP sobrescreve via config/current.
-      data.rom_id = form.rom_id.trim() || null
+      // Em create, rom_id sempre vem do provisioningRomId (sensor detectado pelo
+      // firmware). Não há mais campo livre — o pai do dialog garante isso.
+      data.rom_id = provisioningRomId
     }
     try {
       await onSubmit(data, !sensor)
@@ -402,12 +484,12 @@ function SensorFormDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
-            {sensor ? 'Editar sensor' : 'Novo sensor de temperatura'}
+            {sensor ? 'Editar sensor' : 'Configurar sensor detectado'}
           </DialogTitle>
           <DialogDescription>
             {sensor
               ? 'Mudanças são empurradas ao firmware via config/push.'
-              : 'Cadastra um sensor DS18B20. Se você não tem o ROM ID, deixe vazio — o firmware preenche depois.'}
+              : 'Dê um nome e configure a função do sensor. O firmware vai começar a publicar a temperatura assim que salvar.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -478,16 +560,19 @@ function SensorFormDialog({
             </div>
           </div>
 
-          {!sensor && (
+          {!sensor && provisioningRomId && (
             <div className="space-y-1">
-              <Label>ROM ID (opcional, formato 28-XXXXXXXXXXXX)</Label>
+              <Label>ROM ID (detectado pelo firmware)</Label>
               <Input
-                value={form.rom_id}
-                onChange={(e) => set('rom_id', e.target.value)}
-                disabled={pending}
-                placeholder="Vazio → firmware preenche depois"
-                className="font-mono text-xs"
+                value={provisioningRomId}
+                readOnly
+                disabled
+                className="font-mono text-xs bg-muted"
               />
+              <p className="text-[10px] text-muted-foreground">
+                Identificador único do DS18B20 lido do barramento 1-Wire — não
+                editável.
+              </p>
             </div>
           )}
 

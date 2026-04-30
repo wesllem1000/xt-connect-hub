@@ -38,7 +38,7 @@ const path = require('path');
 
 const FLOWS = '/opt/xtconect/nodered/data/flows.json';
 const BACKUPS = '/opt/xtconect/backups';
-const MARKER = 'FULL CONFIG LOOP v5';
+const MARKER = 'FULL CONFIG LOOP v6';
 
 // Helper de access — mesmo padrao usado em todos os funcs
 const ACCESS_HELPER = `async function checkDeviceAccess(pool, deviceId, user) {
@@ -271,11 +271,30 @@ try {
   if (chk.access === 'share' && chk.permissao !== 'controle') {
     msg.statusCode=403; msg.payload={error:'sem permissao'}; return [msg, null];
   }
-  if (!romId) romId = 'pending-' + crypto.randomUUID();
+  // Auto-descoberta DS18B20: rom_id obrigatorio e tem que estar no
+  // barramento atual reportado pelo firmware (irrigation_configs.bus_rom_ids).
+  if (!romId) {
+    msg.statusCode=422;
+    msg.payload={error:'rom_id obrigatorio. Selecione um sensor detectado pelo firmware.'};
+    return [msg, null];
+  }
+  romId = romId.toUpperCase();
+  const busQ = await pool.query('SELECT bus_rom_ids FROM irrigation_configs WHERE device_id=$1', [device.id]);
+  const bus = (busQ.rowCount > 0 && Array.isArray(busQ.rows[0].bus_rom_ids))
+    ? busQ.rows[0].bus_rom_ids.map(function(x){ return String(x).toUpperCase(); }) : [];
+  if (!bus.includes(romId)) {
+    msg.statusCode=422;
+    msg.payload={
+      error:'rom_id_nao_detectado',
+      message:'Esse sensor nao esta no barramento agora. Conecte o DS18B20 fisicamente e aguarde o scan periodico (~30s) — ele aparecera em "Sensores detectados".',
+      bus_rom_ids: bus
+    };
+    return [msg, null];
+  }
   const r = await pool.query(
     \`INSERT INTO irrigation_temperature_sensors
-       (device_id, rom_id, nome, role, nome_custom, limite_alarme_c, histerese_c, ack_usuario_requerido, ativo)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       (device_id, rom_id, nome, role, nome_custom, limite_alarme_c, histerese_c, ack_usuario_requerido, ativo, presente)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE)
      RETURNING *\`,
     [device.id, romId, nome, role, nomeCustom, limite, histerese, ack, ativo]
   );
@@ -635,36 +654,72 @@ try {
     }
   }
 
+  // 3.1 bus_rom_ids — auto-descoberta DS18B20 (firmware 0.6.1+)
+  // Aceita o array em cfg.bus_rom_ids. Persiste em irrigation_configs pra
+  // alimentar a UX "sensores detectados — clique pra configurar".
+  if (Array.isArray(cfg.bus_rom_ids)) {
+    const bus = cfg.bus_rom_ids
+      .filter(function(x){ return typeof x === 'string' && x.trim().length > 0; })
+      .map(function(x){ return x.trim().toUpperCase(); });
+    try {
+      await pool.query(
+        'UPDATE irrigation_configs SET bus_rom_ids=$2::text[] WHERE device_id=$1',
+        [deviceId, bus]
+      );
+    } catch(e) { node.warn('config/current bus_rom_ids: ' + e.message); }
+  }
+
   // 4. Sensores — UPSERT por (device_id, rom_id) + DELETE ausentes (igual v3)
+  // Aceita 'temperature_sensors' (firmware 0.6.1+) OU 'sensors' (versao antiga).
   let sensorsSync = 0, sensorsDel = 0;
-  if (Array.isArray(cfg.sensors)) {
+  const sensorsArr = Array.isArray(cfg.temperature_sensors) ? cfg.temperature_sensors :
+                     (Array.isArray(cfg.sensors) ? cfg.sensors : null);
+  if (sensorsArr) {
     const incomingRoms = [];
-    for (const s of cfg.sensors) {
+    for (const s of sensorsArr) {
       if (!s || typeof s.rom_id !== 'string' || !s.rom_id) continue;
       if (s.role !== 'pump' && s.role !== 'inverter' && s.role !== 'custom') continue;
       if (!Number.isFinite(Number(s.limite_alarme_c))) continue;
-      incomingRoms.push(s.rom_id);
+      const romId = s.rom_id.trim().toUpperCase();
+      incomingRoms.push(romId);
       const nome = (typeof s.nome === 'string' && s.nome.trim()) ? s.nome.trim().slice(0, 96) : 'Sensor';
       const limite = Number(s.limite_alarme_c);
       const histerese = Number.isFinite(Number(s.histerese_c)) ? Number(s.histerese_c) : 5;
       const ack = s.ack_usuario_requerido !== false;
       const ativo = s.ativo !== false;
+      // Novos campos do firmware 0.6.1+: presente bool, ultima_leitura_c numeric.
+      const presente = (s.presente === true) || (typeof s.ultima_leitura_c === 'number');
+      const ultLeitura = (typeof s.ultima_leitura_c === 'number' && isFinite(s.ultima_leitura_c))
+        ? Number(s.ultima_leitura_c) : null;
       try {
-        const ex = await pool.query('SELECT id FROM irrigation_temperature_sensors WHERE device_id=$1 AND rom_id=$2 LIMIT 1', [deviceId, s.rom_id]);
+        const ex = await pool.query('SELECT id FROM irrigation_temperature_sensors WHERE device_id=$1 AND rom_id=$2 LIMIT 1', [deviceId, romId]);
         if (ex.rowCount > 0) {
           await pool.query(
-            \`UPDATE irrigation_temperature_sensors SET nome=$3, role=$4, limite_alarme_c=$5, histerese_c=$6, ack_usuario_requerido=$7, ativo=$8 WHERE device_id=$1 AND rom_id=$2\`,
-            [deviceId, s.rom_id, nome, s.role, limite, histerese, ack, ativo]
+            \`UPDATE irrigation_temperature_sensors
+                SET nome=$3, role=$4, limite_alarme_c=$5, histerese_c=$6,
+                    ack_usuario_requerido=$7, ativo=$8,
+                    presente=$9,
+                    ultima_leitura_c = COALESCE($10, ultima_leitura_c),
+                    ultimo_contato_em = CASE WHEN $9 THEN NOW() ELSE ultimo_contato_em END
+              WHERE device_id=$1 AND rom_id=$2\`,
+            [deviceId, romId, nome, s.role, limite, histerese, ack, ativo, presente, ultLeitura]
           );
         } else {
           await pool.query(
-            \`INSERT INTO irrigation_temperature_sensors (device_id, rom_id, nome, role, limite_alarme_c, histerese_c, ack_usuario_requerido, ativo) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)\`,
-            [deviceId, s.rom_id, nome, s.role, limite, histerese, ack, ativo]
+            \`INSERT INTO irrigation_temperature_sensors
+               (device_id, rom_id, nome, role, limite_alarme_c, histerese_c,
+                ack_usuario_requerido, ativo, presente, ultima_leitura_c, ultimo_contato_em)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, CASE WHEN $9 THEN NOW() ELSE NULL END)\`,
+            [deviceId, romId, nome, s.role, limite, histerese, ack, ativo, presente, ultLeitura]
           );
         }
         sensorsSync++;
       } catch(e) { node.warn('config/current sensor ' + s.rom_id + ': ' + e.message); }
     }
+    // NOTA: o DELETE em cascata abaixo so dispara quando o firmware envia o
+    // array temperature_sensors[] explicitamente. Sensores SO no bus_rom_ids
+    // (detectados, ainda nao configurados) NAO viram registros aqui — sao
+    // apenas listados em irrigation_configs.bus_rom_ids pra UI.
     try {
       let delRes;
       if (incomingRoms.length === 0) {
