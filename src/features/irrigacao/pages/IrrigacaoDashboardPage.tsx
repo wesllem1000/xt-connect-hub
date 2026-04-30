@@ -420,6 +420,11 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
                     Aguardando state do dispositivo — botão pode não refletir estado real.
                   </p>
                 )}
+                {state && !bombaLigada && setoresAbertos.length === 0 && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    Abra ao menos um setor antes de ligar a bomba (proteção contra funcionamento a seco).
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -726,10 +731,10 @@ function ConfirmDialog({
   let dismissOnly = false
 
   if (kind === 'pump_on_without_sector') {
-    title = 'Nenhum setor aberto'
+    title = 'Abra um setor antes de ligar a bomba'
     description =
-      'Ligar a bomba sem nenhum setor aberto pode causar bomba seca e danificar o equipamento. Abra um setor primeiro.'
-    confirmLabel = 'Entendi'
+      'Bombear sem nenhum setor aberto causa funcionamento a seco e pode danificar o motor / pré-pressostato. Volte ao painel principal, abra ao menos um setor que tenha vazão suficiente, e só então ligue a bomba.'
+    confirmLabel = 'Ok, vou abrir um setor'
     dismissOnly = true
   } else if (kind === 'pump_off_with_open_sector') {
     title = 'Desligar bomba com setor aberto?'

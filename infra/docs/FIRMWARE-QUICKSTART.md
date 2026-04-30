@@ -412,4 +412,62 @@ firmware contra o broker de produção (ou faça broker local pra dev).
 
 ---
 
+## Bugs encontrados em campo (2026-04-30, IRR-V1-00008)
+
+Primeiro teste real ponta-a-ponta da placa do protótipo 2026-04-28 com o broker de produção. Conexão MQTT subiu de primeira, 8 setores foram descobertos pela UI, comandos `sector_open`/`sector_close`/`pump_on`/`pump_off`/`mode_set`/`set_rate` funcionaram local e remoto, telemetria a cada 2s sem falha. Bugs menores que ficaram pra próximo ciclo:
+
+### B1. Timestamps `[NaN:NaN]` em logs antes do SNTP
+
+**Sintoma:** todas linhas do log da página `/log` aparecem com prefixo `[NaN:NaN]` em vez de `[HH:MM]`. O segundo campo (uptime `mm:ss.ms`) está correto.
+
+**Causa provável:** o ring-buffer do logger formata o timestamp absoluto sem checar se SNTP já sincronizou — quando `time(NULL)` ainda é 0/inválido, o `gmtime`/`localtime` produz NaN.
+
+**Fix esperado:**
+- Antes do sync, mostrar `[--:--]` em vez de `[NaN:NaN]`.
+- Manter o uptime monotônico como segundo campo (já está certo).
+- Bloquear PUB de telemetria/eventos com `ts` ISO até NTP fechar (já é regra; reforçar).
+
+### B2. `source=` vazio em desligamentos secundários
+
+**Sintoma:** quando uma ação dispara cascata (ex.: `sector_close` que ao fechar último setor leva a `pump_off`, ou `pump_off` que ao desligar leva a `sector_closed` por safety), o evento secundário sai com `source=` em branco — só o evento primário tem `source=manual_remote`/`manual_local`.
+
+```
+01:35.7 I SETOR    3 OFF source=             ← vazio
+02:10.3 I BOMBA    OFF source=               ← vazio (cascata de set fechado)
+02:11.0 I SETOR    1 OFF source=             ← vazio
+```
+
+**Fix esperado:** propagar a `source` original pelas chamadas em cascata. Na cascata o origem semântico continua sendo do gatilho original (`manual_local`/`manual_remote`/`auto_timer`/`safety_alarm`), não vazio.
+
+Isso afeta auditoria/histórico no Influx e a UI de timeline de eventos.
+
+### B3. Linhas duplicadas / triplicadas no `/log`
+
+**Sintoma:** ao copiar o conteúdo da página `/log`, algumas linhas aparecem 2× e 3× em sequência:
+
+```
+02:50.2 I TELEM    PUB ... -> OK
+02:52.2 I TELEM    PUB ... -> OK
+02:50.2 I TELEM    PUB ... -> OK   ← duplicada
+02:52.2 I TELEM    PUB ... -> OK   ← duplicada
+```
+
+**Causa provável:** wraparound do ring buffer renderizado sem deduplicar, ou o handler HTTP da `/log` está concatenando o buffer 2× quando o cliente faz refresh durante a escrita.
+
+**Fix esperado:**
+- Snapshot atomico do ring buffer (mutex/section) antes de renderizar.
+- Cada entry tem um sequence number monotônico — render ordena por seq e dedup por seq.
+
+### B4. Implementar `requires_confirmation` para `pump_on` sem setor (spec §6.2)
+
+**Estado atual:** o front já bloqueia `pump_on` quando nenhum setor está aberto. O firmware não tem chance de avaliar.
+
+**Estado especificado:** firmware deve retornar `ack_status=requires_confirmation` + `ack_code=CONFIRMATION_NEEDED` se receber `pump_on` (sem `force=true`) com todos os setores fechados, e aceitar o reenvio com `params.force = true`.
+
+**Por que importa:** modo manutenção / bancada (sangrar linha, teste de pré-pressostato) precisa do override. UI hoje só dá modal informativo "Ok, vou abrir um setor" — mas a spec já prevê o caminho `force=true` quando a UI implementar o botão "Ligar mesmo assim".
+
+**Fix esperado no firmware:** rejeitar `pump_on` sem `force` quando `count(setores_open) == 0`, retornando `requires_confirmation`. Aceitar `pump_on {force: true}` mesmo sem setor aberto (com proteção de tempo curto + `pump_off_safety` se nada abrir em N segundos).
+
+---
+
 **Pronto. Use `PROTOCOLO-IOT.md` para detalhes; este documento é só para começar a codar rápido.**
