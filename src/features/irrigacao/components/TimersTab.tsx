@@ -89,13 +89,16 @@ function shortHm(t: string | null): string {
 }
 
 function summaryLabel(t: IrrigationTimer): string {
+  const dur = t.duracao_s ? `${t.duracao_s}s` : `${t.duracao_min ?? '?'} min`
+  const on = t.on_seconds ? `${t.on_seconds}s` : `${t.on_minutes}m`
+  const off = t.off_seconds ? `${t.off_seconds}s` : `${t.off_minutes}m`
   if (t.tipo === 'fixed') {
-    return `${shortHm(t.hora_inicio)} por ${t.duracao_min ?? '?'} min`
+    return `${shortHm(t.hora_inicio)} por ${dur}`
   }
   if (t.tipo === 'cyclic_window') {
-    return `${shortHm(t.hora_inicio)}–${shortHm(t.hora_fim)} · ${t.on_minutes}m on / ${t.off_minutes}m off`
+    return `${shortHm(t.hora_inicio)}–${shortHm(t.hora_fim)} · ${on} on / ${off} off`
   }
-  return `24h · ${t.on_minutes}m on / ${t.off_minutes}m off`
+  return `24h · ${on} on / ${off} off`
 }
 
 const TIPO_LABEL: Record<TimerTipo, string> = {
@@ -104,6 +107,8 @@ const TIPO_LABEL: Record<TimerTipo, string> = {
   cyclic_continuous: 'Cíclico (24h)',
 }
 
+type Unidade = 'min' | 's'
+
 type FormState = {
   alvo_tipo: TimerAlvoTipo
   alvo_id: string | null
@@ -111,9 +116,11 @@ type FormState = {
   nome: string
   hora_inicio: string
   hora_fim: string
-  duracao_min: number
-  on_minutes: number
-  off_minutes: number
+  // Valores brutos digitados; a unidade decide se vão como *_min ou *_seconds.
+  duracao: number
+  on: number
+  off: number
+  unidade: Unidade
   dias_mask: number
   observacao: string
 }
@@ -126,15 +133,22 @@ function defaultForm(): FormState {
     nome: '',
     hora_inicio: '06:00',
     hora_fim: '08:00',
-    duracao_min: 30,
-    on_minutes: 5,
-    off_minutes: 10,
+    duracao: 30,
+    on: 5,
+    off: 10,
+    unidade: 'min',
     dias_mask: PRESET_DIAS.uteis,
     observacao: '',
   }
 }
 
 function fromTimer(t: IrrigationTimer): FormState {
+  // Se o timer existente foi salvo em segundos, mostra em segundos. Caso contrário,
+  // minutos.
+  const usingSeconds =
+    (t.duracao_s ?? 0) > 0 ||
+    (t.on_seconds ?? 0) > 0 ||
+    (t.off_seconds ?? 0) > 0
   return {
     alvo_tipo: t.alvo_tipo,
     alvo_id: t.alvo_id,
@@ -142,9 +156,10 @@ function fromTimer(t: IrrigationTimer): FormState {
     nome: t.nome,
     hora_inicio: shortHm(t.hora_inicio) || '06:00',
     hora_fim: shortHm(t.hora_fim) || '08:00',
-    duracao_min: t.duracao_min ?? 30,
-    on_minutes: t.on_minutes ?? 5,
-    off_minutes: t.off_minutes ?? 10,
+    duracao: usingSeconds ? (t.duracao_s ?? 30) : (t.duracao_min ?? 30),
+    on: usingSeconds ? (t.on_seconds ?? 30) : (t.on_minutes ?? 5),
+    off: usingSeconds ? (t.off_seconds ?? 15) : (t.off_minutes ?? 10),
+    unidade: usingSeconds ? 's' : 'min',
     dias_mask: t.dias_semana,
     observacao: t.observacao ?? '',
   }
@@ -160,17 +175,34 @@ function toInput(f: FormState, overlap_confirmed = false): PostTimerInput {
     observacao: f.observacao.trim() || undefined,
     overlap_confirmed,
   }
+  // Manda o par escolhido preenchido e o outro como null (firmware/banco
+  // ignoram null). Isso evita ambiguidade ao editar timers depois.
+  const inSeconds = f.unidade === 's'
   if (f.tipo === 'fixed') {
     base.hora_inicio = f.hora_inicio
-    base.duracao_min = f.duracao_min
-  } else if (f.tipo === 'cyclic_window') {
-    base.hora_inicio = f.hora_inicio
-    base.hora_fim = f.hora_fim
-    base.on_minutes = f.on_minutes
-    base.off_minutes = f.off_minutes
+    if (inSeconds) {
+      base.duracao_s = f.duracao
+      base.duracao_min = null
+    } else {
+      base.duracao_min = f.duracao
+      base.duracao_s = null
+    }
   } else {
-    base.on_minutes = f.on_minutes
-    base.off_minutes = f.off_minutes
+    if (f.tipo === 'cyclic_window') {
+      base.hora_inicio = f.hora_inicio
+      base.hora_fim = f.hora_fim
+    }
+    if (inSeconds) {
+      base.on_seconds = f.on
+      base.off_seconds = f.off
+      base.on_minutes = null
+      base.off_minutes = null
+    } else {
+      base.on_minutes = f.on
+      base.off_minutes = f.off
+      base.on_seconds = null
+      base.off_seconds = null
+    }
   }
   return base
 }
@@ -599,6 +631,26 @@ export function TimersTab({ deviceId, setores }: Props) {
               </Select>
             </div>
 
+            {/* Toggle de unidade — visível pra qualquer tipo (fica acima dos campos numéricos). */}
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground">Unidade dos tempos</Label>
+              <Select
+                value={form.unidade}
+                onValueChange={(v) =>
+                  setForm((f) => ({ ...f, unidade: v as Unidade }))
+                }
+                disabled={busy}
+              >
+                <SelectTrigger className="h-8 w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="min">Minutos</SelectItem>
+                  <SelectItem value="s">Segundos</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Campos por tipo */}
             {form.tipo === 'fixed' && (
               <div className="grid gap-3 sm:grid-cols-2">
@@ -614,16 +666,16 @@ export function TimersTab({ deviceId, setores }: Props) {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Duração (min)</Label>
+                  <Label>Duração ({form.unidade === 's' ? 'seg' : 'min'})</Label>
                   <Input
                     type="number"
                     min={1}
-                    max={480}
-                    value={form.duracao_min}
+                    max={form.unidade === 's' ? 86400 : 480}
+                    value={form.duracao}
                     onChange={(e) =>
                       setForm((f) => ({
                         ...f,
-                        duracao_min: Number(e.target.value),
+                        duracao: Number(e.target.value),
                       }))
                     }
                     disabled={busy}
@@ -657,32 +709,32 @@ export function TimersTab({ deviceId, setores }: Props) {
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>On (min)</Label>
+                  <Label>On ({form.unidade === 's' ? 'seg' : 'min'})</Label>
                   <Input
                     type="number"
                     min={1}
-                    max={120}
-                    value={form.on_minutes}
+                    max={form.unidade === 's' ? 86400 : 120}
+                    value={form.on}
                     onChange={(e) =>
                       setForm((f) => ({
                         ...f,
-                        on_minutes: Number(e.target.value),
+                        on: Number(e.target.value),
                       }))
                     }
                     disabled={busy}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Off (min)</Label>
+                  <Label>Off ({form.unidade === 's' ? 'seg' : 'min'})</Label>
                   <Input
                     type="number"
                     min={0}
-                    max={1440}
-                    value={form.off_minutes}
+                    max={form.unidade === 's' ? 86400 : 1440}
+                    value={form.off}
                     onChange={(e) =>
                       setForm((f) => ({
                         ...f,
-                        off_minutes: Number(e.target.value),
+                        off: Number(e.target.value),
                       }))
                     }
                     disabled={busy}
@@ -694,32 +746,32 @@ export function TimersTab({ deviceId, setores }: Props) {
             {form.tipo === 'cyclic_continuous' && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1">
-                  <Label>On (min)</Label>
+                  <Label>On ({form.unidade === 's' ? 'seg' : 'min'})</Label>
                   <Input
                     type="number"
                     min={1}
-                    max={120}
-                    value={form.on_minutes}
+                    max={form.unidade === 's' ? 86400 : 120}
+                    value={form.on}
                     onChange={(e) =>
                       setForm((f) => ({
                         ...f,
-                        on_minutes: Number(e.target.value),
+                        on: Number(e.target.value),
                       }))
                     }
                     disabled={busy}
                   />
                 </div>
                 <div className="space-y-1">
-                  <Label>Off (min)</Label>
+                  <Label>Off ({form.unidade === 's' ? 'seg' : 'min'})</Label>
                   <Input
                     type="number"
                     min={0}
-                    max={1440}
-                    value={form.off_minutes}
+                    max={form.unidade === 's' ? 86400 : 1440}
+                    value={form.off}
                     onChange={(e) =>
                       setForm((f) => ({
                         ...f,
-                        off_minutes: Number(e.target.value),
+                        off: Number(e.target.value),
                       }))
                     }
                     disabled={busy}

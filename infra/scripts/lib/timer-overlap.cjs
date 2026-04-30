@@ -47,9 +47,20 @@ function expandTimer(t) {
     };
   }
 
+  // Quando o user definiu o timer em segundos (campos *_seconds), converte pra
+  // minutos pra fins de overlap detection (precisao em minutos é suficiente —
+  // dois timers separados por 30s ainda contam como overlap se compartilham o
+  // mesmo minuto). Math.ceil pra nao subestimar a duracao.
+  const durMin = (Number.isFinite(t.duracao_s) && t.duracao_s > 0)
+    ? Math.ceil(t.duracao_s / 60) : t.duracao_min;
+  const onMin = (Number.isFinite(t.on_seconds) && t.on_seconds > 0)
+    ? Math.ceil(t.on_seconds / 60) : t.on_minutes;
+  const offMin = (Number.isFinite(t.off_seconds) && t.off_seconds > 0)
+    ? Math.ceil(t.off_seconds / 60) : t.off_minutes;
+
   if (t.tipo === 'fixed') {
     const start = hmToMin(t.hora_inicio);
-    const dur = t.duracao_min;
+    const dur = durMin;
     if (start == null || !Number.isFinite(dur) || dur <= 0) return { is_continuous: false, windows: [] };
     const end = Math.min(1440, start + dur);
     return {
@@ -61,8 +72,8 @@ function expandTimer(t) {
   if (t.tipo === 'cyclic_window') {
     const wStart = hmToMin(t.hora_inicio);
     const wEnd = hmToMin(t.hora_fim);
-    const on = t.on_minutes;
-    const off = t.off_minutes;
+    const on = onMin;
+    const off = offMin;
     if (wStart == null || wEnd == null || !Number.isFinite(on) || !Number.isFinite(off) || on <= 0 || off < 0) {
       return { is_continuous: false, windows: [] };
     }

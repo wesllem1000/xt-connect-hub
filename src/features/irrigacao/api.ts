@@ -193,9 +193,12 @@ export type PostTimerInput = {
   nome: string
   hora_inicio?: string
   hora_fim?: string
-  duracao_min?: number
-  on_minutes?: number
-  off_minutes?: number
+  duracao_min?: number | null
+  on_minutes?: number | null
+  off_minutes?: number | null
+  duracao_s?: number | null
+  on_seconds?: number | null
+  off_seconds?: number | null
   dias_semana: number
   observacao?: string
   overlap_confirmed?: boolean

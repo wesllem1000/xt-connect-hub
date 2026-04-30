@@ -81,8 +81,8 @@ export function SetorCardValvula({ setor, estadoLive, onClick, disabled, pending
             <p className="font-medium text-sm truncate">{setor.nome}</p>
             <Badge className={cn('shrink-0', meta.badge)}>{meta.label}</Badge>
           </div>
-          <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-            #{setor.numero} · GPIO {setor.gpio_rele}
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Setor {setor.numero}
           </p>
         </div>
         {pending && (

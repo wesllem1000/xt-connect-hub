@@ -64,6 +64,9 @@ export type IrrigationTimer = {
   duracao_min: number | null
   on_minutes: number | null
   off_minutes: number | null
+  duracao_s: number | null
+  on_seconds: number | null
+  off_seconds: number | null
   dias_semana: number
   overlap_confirmed: boolean
   observacao: string | null

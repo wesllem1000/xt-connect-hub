@@ -38,7 +38,7 @@ const path = require('path');
 
 const FLOWS = '/opt/xtconect/nodered/data/flows.json';
 const BACKUPS = '/opt/xtconect/backups';
-const MARKER = 'FULL CONFIG LOOP v4';
+const MARKER = 'FULL CONFIG LOOP v5';
 
 // Helper de access — mesmo padrao usado em todos os funcs
 const ACCESS_HELPER = `async function checkDeviceAccess(pool, deviceId, user) {
@@ -82,8 +82,9 @@ async function buildConfigPushMsg(pool, deviceUuid) {
       \`SELECT id, alvo_tipo, alvo_id, tipo, nome, ativo, pausado,
               hora_inicio::text AS hora_inicio,
               hora_fim::text AS hora_fim,
-              duracao_min, on_minutes, off_minutes, dias_semana,
-              overlap_confirmed, observacao
+              duracao_min, on_minutes, off_minutes,
+              duracao_s, on_seconds, off_seconds,
+              dias_semana, overlap_confirmed, observacao
          FROM irrigation_timers WHERE device_id=$1 ORDER BY criado_em\`,
       [deviceUuid]
     );
@@ -139,6 +140,9 @@ async function buildConfigPushMsg(pool, deviceUuid) {
           duracao_min: t.duracao_min,
           on_minutes: t.on_minutes,
           off_minutes: t.off_minutes,
+          duracao_s: t.duracao_s,
+          on_seconds: t.on_seconds,
+          off_seconds: t.off_seconds,
           dias_semana: t.dias_semana,
           observacao: t.observacao,
         };
@@ -402,7 +406,7 @@ try {
     msg.statusCode=403; msg.payload={error:'sem permissao'}; return [msg, null];
   }
   const existing = await pool.query(
-    'SELECT id, alvo_tipo, alvo_id, tipo, nome, ativo, hora_inicio::text, hora_fim::text, duracao_min, on_minutes, off_minutes, dias_semana FROM irrigation_timers WHERE device_id=$1 AND ativo=TRUE',
+    'SELECT id, alvo_tipo, alvo_id, tipo, nome, ativo, hora_inicio::text, hora_fim::text, duracao_min, on_minutes, off_minutes, duracao_s, on_seconds, off_seconds, dias_semana FROM irrigation_timers WHERE device_id=$1 AND ativo=TRUE',
     [device.id]
   );
   const result = overlap.detectOverlap(existing.rows, body);
@@ -421,12 +425,14 @@ try {
       \`INSERT INTO irrigation_timers
          (device_id, alvo_tipo, alvo_id, tipo, nome, ativo, pausado,
           hora_inicio, hora_fim, duracao_min, on_minutes, off_minutes,
+          duracao_s, on_seconds, off_seconds,
           dias_semana, overlap_confirmed, observacao)
-       VALUES ($1,$2,$3,$4,$5,TRUE,FALSE,$6,$7,$8,$9,$10,$11,$12,$13)
+       VALUES ($1,$2,$3,$4,$5,TRUE,FALSE,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        RETURNING *\`,
       [device.id, body.alvo_tipo, body.alvo_id || null, body.tipo, body.nome,
        body.hora_inicio || null, body.hora_fim || null, body.duracao_min || null,
        body.on_minutes || null, body.off_minutes || null,
+       body.duracao_s || null, body.on_seconds || null, body.off_seconds || null,
        body.dias_semana, body.overlap_confirmed === true, body.observacao || null]
     );
     msg.statusCode = 201; msg.payload = { timer: r.rows[0] };
@@ -456,7 +462,8 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 if (!UUID_RE.test(timerId)) { msg.statusCode=400; msg.payload={error:'timer_id invalido'}; return [msg, null]; }
 const body = msg.payload || {};
 const ALLOWED = ['nome','ativo','pausado','hora_inicio','hora_fim','duracao_min',
-                  'on_minutes','off_minutes','dias_semana','observacao','overlap_confirmed'];
+                  'on_minutes','off_minutes','duracao_s','on_seconds','off_seconds',
+                  'dias_semana','observacao','overlap_confirmed'];
 const sets = []; const params = [];
 let idx = 0;
 for (const k of Object.keys(body)) {
@@ -695,6 +702,7 @@ try {
       const tId = t.id; // pode ser null/undefined → INSERT novo
       const cols = ['alvo_tipo','alvo_id','tipo','nome','ativo','pausado',
                     'hora_inicio','hora_fim','duracao_min','on_minutes','off_minutes',
+                    'duracao_s','on_seconds','off_seconds',
                     'dias_semana','observacao'];
       const vals = [
         t.alvo_tipo, alvoId, t.tipo, t.nome.trim().slice(0, 96),
@@ -703,6 +711,9 @@ try {
         Number.isFinite(t.duracao_min) ? t.duracao_min : null,
         Number.isFinite(t.on_minutes) ? t.on_minutes : null,
         Number.isFinite(t.off_minutes) ? t.off_minutes : null,
+        Number.isFinite(t.duracao_s) ? t.duracao_s : null,
+        Number.isFinite(t.on_seconds) ? t.on_seconds : null,
+        Number.isFinite(t.off_seconds) ? t.off_seconds : null,
         t.dias_semana,
         (typeof t.observacao === 'string' && t.observacao.trim()) ? t.observacao : null,
       ];
@@ -718,16 +729,16 @@ try {
             incomingIds.push(tId);
           } else {
             const r = await pool.query(
-              \`INSERT INTO irrigation_timers (id, device_id, alvo_tipo, alvo_id, tipo, nome, ativo, pausado, hora_inicio, hora_fim, duracao_min, on_minutes, off_minutes, dias_semana, observacao)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id\`,
+              \`INSERT INTO irrigation_timers (id, device_id, alvo_tipo, alvo_id, tipo, nome, ativo, pausado, hora_inicio, hora_fim, duracao_min, on_minutes, off_minutes, duracao_s, on_seconds, off_seconds, dias_semana, observacao)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING id\`,
               [tId, deviceId, ...vals]
             );
             incomingIds.push(r.rows[0].id);
           }
         } else {
           const r = await pool.query(
-            \`INSERT INTO irrigation_timers (device_id, alvo_tipo, alvo_id, tipo, nome, ativo, pausado, hora_inicio, hora_fim, duracao_min, on_minutes, off_minutes, dias_semana, observacao)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id\`,
+            \`INSERT INTO irrigation_timers (device_id, alvo_tipo, alvo_id, tipo, nome, ativo, pausado, hora_inicio, hora_fim, duracao_min, on_minutes, off_minutes, duracao_s, on_seconds, off_seconds, dias_semana, observacao)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17) RETURNING id\`,
             [deviceId, ...vals]
           );
           incomingIds.push(r.rows[0].id);
@@ -805,13 +816,16 @@ function main() {
     if (!n) { console.error('Faltando node: ' + t.id); process.exit(2); }
   }
 
-  // Handler config/current
+  // Handler config/current — aceita marker antigo (v2/v3) ou versão anterior do
+  // próprio _e056 (config/current handler usa mesmo MARKER do resto do flow).
   const handlerCurrent = flows.find(n =>
     n && n.type === 'function' && typeof n.func === 'string' &&
-    (n.func.includes('ESP CONFIG SYNC v3') || n.func.includes('ESP CONFIG SYNC v2'))
+    (n.func.includes('ESP CONFIG SYNC v3') ||
+     n.func.includes('ESP CONFIG SYNC v2') ||
+     (typeof n.name === 'string' && n.name.includes('config/current sync')))
   );
   if (!handlerCurrent) {
-    console.error('Handler config/current (v2/v3) nao encontrado. Rode _e052/_e052b primeiro.');
+    console.error('Handler config/current nao encontrado. Rode _e052/_e052b primeiro.');
     process.exit(2);
   }
 
@@ -829,7 +843,7 @@ function main() {
     console.log('  patch ' + t.id + ' (outputs=' + t.out + ')');
   }
   handlerCurrent.func = FN_CONFIG_CURRENT;
-  handlerCurrent.name = 'config/current sync (full v4)';
+  handlerCurrent.name = 'config/current sync (full v5)';
   console.log('  patch handler config/current id=' + handlerCurrent.id);
 
   const tmp = FLOWS + '.tmp';
