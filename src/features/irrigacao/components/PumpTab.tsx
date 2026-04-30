@@ -153,7 +153,9 @@ export function PumpTab({ deviceId, config, disabled }: Props) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="monofasica">Monofásica</SelectItem>
-                  <SelectItem value="inverter">Inverter</SelectItem>
+                  <SelectItem value="bifasica">Bifásica</SelectItem>
+                  <SelectItem value="trifasica">Trifásica</SelectItem>
+                  <SelectItem value="inverter">Inverter (frequência)</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">

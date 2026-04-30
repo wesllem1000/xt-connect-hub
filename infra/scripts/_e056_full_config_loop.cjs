@@ -38,7 +38,7 @@ const path = require('path');
 
 const FLOWS = '/opt/xtconect/nodered/data/flows.json';
 const BACKUPS = '/opt/xtconect/backups';
-const MARKER = 'FULL CONFIG LOOP v6';
+const MARKER = 'FULL CONFIG LOOP v7';
 
 // Helper de access — mesmo padrao usado em todos os funcs
 const ACCESS_HELPER = `async function checkDeviceAccess(pool, deviceId, user) {
@@ -96,6 +96,7 @@ async function buildConfigPushMsg(pool, deviceUuid) {
       protocol_version: 1,
       ts: new Date().toISOString(),
       modo_operacao: cfg.modo_operacao,
+      sectorization_enabled: cfg.sectorization_enabled !== false,
       bomba: {
         tipo_bomba: cfg.tipo_bomba,
         nivel_ativo_bomba: cfg.nivel_ativo_bomba,
@@ -162,7 +163,8 @@ if (!pool) { msg.statusCode=503; msg.payload={error:'db not ready'}; return [msg
 ${ACCESS_HELPER}
 ${BUILD_PUSH_FN}
 const body = msg.payload || {};
-const ALLOWED = ['modo_operacao','tipo_bomba','reforco_rele_ativo','nivel_ativo_bomba',
+const ALLOWED = ['modo_operacao','sectorization_enabled',
+                  'tipo_bomba','reforco_rele_ativo','nivel_ativo_bomba',
                   'atraso_abrir_valvula_antes_bomba_s','tempo_bomba_desligada_antes_fechar_valvula_s',
                   'atraso_religar_bomba_apos_fechamento_s','tempo_max_continuo_bomba_min',
                   'tempo_max_manual_local_min','tempo_max_manual_remoto_sem_internet_min',
@@ -591,9 +593,13 @@ try {
   if (cfg.modo_operacao && (cfg.modo_operacao === 'manual' || cfg.modo_operacao === 'automatico')) {
     pushSet('modo_operacao', cfg.modo_operacao);
   }
+  // sectorization_enabled — top-level no payload do firmware.
+  if (typeof cfg.sectorization_enabled === 'boolean') {
+    pushSet('sectorization_enabled', cfg.sectorization_enabled);
+  }
   if (cfg.bomba && typeof cfg.bomba === 'object') {
     const b = cfg.bomba;
-    pushSet('tipo_bomba', b.tipo_bomba, v => v === 'monofasica' || v === 'inverter');
+    pushSet('tipo_bomba', b.tipo_bomba, v => v === 'monofasica' || v === 'bifasica' || v === 'trifasica' || v === 'inverter');
     pushSet('nivel_ativo_bomba', b.nivel_ativo_bomba, v => v === 'high' || v === 'low');
     pushSet('reforco_rele_ativo', b.reforco_rele_ativo, v => typeof v === 'boolean');
     pushSet('atraso_abrir_valvula_antes_bomba_s', b.atraso_abrir_valvula_antes_bomba_s, v => Number.isFinite(v));

@@ -1,7 +1,7 @@
 // E4.1 — tipos do módulo IRR-V1
 
 export type IrrigationModoOperacao = 'manual' | 'automatico'
-export type TipoBomba = 'monofasica' | 'inverter'
+export type TipoBomba = 'monofasica' | 'bifasica' | 'trifasica' | 'inverter'
 export type NivelAtivo = 'high' | 'low'
 export type TipoBotaoFisico =
   | 'pulso_alterna'
@@ -13,6 +13,8 @@ export type IrrigationConfig = {
   device_id: string
   protocol_version: number
   modo_operacao: IrrigationModoOperacao
+  /** Modo bomba standalone (sem setores). Default true preserva comportamento. */
+  sectorization_enabled: boolean
   tipo_bomba: TipoBomba
   reforco_rele_ativo: boolean
   nivel_ativo_bomba: NivelAtivo

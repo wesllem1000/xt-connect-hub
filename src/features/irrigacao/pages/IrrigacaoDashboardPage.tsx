@@ -212,11 +212,18 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
   const bombaLigada = pumpState === 'on' || pumpState === 'stopping'
   const algumaOperacaoAtiva = bombaLigada || setoresAbertos.length > 0
 
+  // sectorization_enabled: default true preserva comportamento. Quando false,
+  // o device opera como bomba standalone (sem valvulas) — UI esconde grade e
+  // aba Setores, e bomba liga sem exigir setor aberto.
+  const sectorizationEnabled = snap.config?.sectorization_enabled !== false
+
   const modoOperacao: IrrigationModoOperacao = snap.config?.modo_operacao ?? 'manual'
   const isAuto = modoOperacao === 'automatico'
   const modoPending = modeCmd.isPending
 
   async function beforePumpOn(): Promise<boolean> {
+    // Em modo standalone (sem setorização) não tem o que checar — manda direto.
+    if (!sectorizationEnabled) return true
     if (setoresAbertos.length === 0) {
       const wantsForce = await askConfirm('pump_on_without_sector')
       if (wantsForce) {
@@ -337,10 +344,12 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
               <ClockIcon className="h-4 w-4" />
               <span>Timers</span>
             </TabsTrigger>
-            <TabsTrigger value="setores" className="gap-1.5">
-              <Sliders className="h-4 w-4" />
-              <span>Setores</span>
-            </TabsTrigger>
+            {sectorizationEnabled && (
+              <TabsTrigger value="setores" className="gap-1.5">
+                <Sliders className="h-4 w-4" />
+                <span>Setores</span>
+              </TabsTrigger>
+            )}
             <TabsTrigger value="sensores" className="gap-1.5">
               <Thermometer className="h-4 w-4" />
               <span>Sensores</span>
@@ -408,6 +417,11 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
               <Info label="Max contínuo" value={`${snap.config?.tempo_max_continuo_bomba_min ?? 120} min`} />
               <Info label="Reforço relé" value={snap.config?.reforco_rele_ativo ? 'Ativo' : 'Inativo'} />
             </div>
+            {!sectorizationEnabled && (
+              <p className="text-xs text-muted-foreground italic">
+                Bomba em modo standalone — sem setorização. Liga/desliga direto, sem válvulas.
+              </p>
+            )}
             {!isAuto && (
               <div className="pt-1">
                 <BombaCommandButton
@@ -421,60 +435,65 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
                     Aguardando state do dispositivo — botão pode não refletir estado real.
                   </p>
                 )}
-                {state && !bombaLigada && setoresAbertos.length === 0 && (
-                  <p className="text-xs text-amber-600 mt-1">
-                    Abra ao menos um setor antes de ligar a bomba (proteção contra funcionamento a seco).
-                  </p>
-                )}
+                {sectorizationEnabled &&
+                  state &&
+                  !bombaLigada &&
+                  setoresAbertos.length === 0 && (
+                    <p className="text-xs text-amber-600 mt-1">
+                      Abra ao menos um setor antes de ligar a bomba (proteção contra funcionamento a seco).
+                    </p>
+                  )}
               </div>
             )}
           </div>
         </CardContent>
       </Card>
 
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium">
-            Setores{' '}
-            <span className="text-muted-foreground">
-              ({setoresHabilitados.length} ativo{setoresHabilitados.length === 1 ? '' : 's'})
-            </span>
-          </h3>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setActiveTab('setores')}
-          >
-            <Settings className="h-4 w-4 mr-1" />
-            Configurar
-          </Button>
-        </div>
+      {sectorizationEnabled && (
+        <section className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium">
+              Setores{' '}
+              <span className="text-muted-foreground">
+                ({setoresHabilitados.length} ativo{setoresHabilitados.length === 1 ? '' : 's'})
+              </span>
+            </h3>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setActiveTab('setores')}
+            >
+              <Settings className="h-4 w-4 mr-1" />
+              Configurar
+            </Button>
+          </div>
 
-        {setoresHabilitados.length === 0 ? (
-          <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
-            Nenhum setor habilitado. Ative os setores na tela técnica.
-          </div>
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {setoresHabilitados.map((s: IrrigationSector) => {
-              const estadoFw = setorEstadoMap.get(s.numero)
-              const transientFw = estadoFw === 'opening' || estadoFw === 'closing'
-              const pendingThis = pendingSetorNumero === s.numero
-              const clickable = !isAuto && !transientFw && !setorCmd.isPending
-              return (
-                <SetorCardValvula
-                  key={s.id}
-                  setor={s}
-                  estadoLive={estadoFw}
-                  disabled={!clickable}
-                  pending={pendingThis}
-                  onClick={clickable ? () => handleSetorClick(s) : undefined}
-                />
-              )
-            })}
-          </div>
-        )}
-      </section>
+          {setoresHabilitados.length === 0 ? (
+            <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
+              Nenhum setor habilitado. Ative os setores na tela técnica.
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {setoresHabilitados.map((s: IrrigationSector) => {
+                const estadoFw = setorEstadoMap.get(s.numero)
+                const transientFw = estadoFw === 'opening' || estadoFw === 'closing'
+                const pendingThis = pendingSetorNumero === s.numero
+                const clickable = !isAuto && !transientFw && !setorCmd.isPending
+                return (
+                  <SetorCardValvula
+                    key={s.id}
+                    setor={s}
+                    estadoLive={estadoFw}
+                    disabled={!clickable}
+                    pending={pendingThis}
+                    onClick={clickable ? () => handleSetorClick(s) : undefined}
+                  />
+                )
+              })}
+            </div>
+          )}
+        </section>
+      )}
 
       <Card>
         <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
