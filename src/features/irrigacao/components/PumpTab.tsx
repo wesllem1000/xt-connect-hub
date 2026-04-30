@@ -144,7 +144,14 @@ export function PumpTab({ deviceId, config, disabled }: Props) {
             <div className="space-y-1">
               <Label>Tipo</Label>
               <Select
-                value={form.tipo_bomba}
+                // O firmware normaliza bifasica/trifasica → inverter. Mostramos
+                // só 2 opções no UI e mapeamos legados pra "inverter" no display.
+                value={
+                  form.tipo_bomba === 'bifasica' ||
+                  form.tipo_bomba === 'trifasica'
+                    ? 'inverter'
+                    : form.tipo_bomba
+                }
                 onValueChange={(v) => set('tipo_bomba', v as TipoBomba)}
                 disabled={disabled || mutation.isPending}
               >
@@ -153,11 +160,16 @@ export function PumpTab({ deviceId, config, disabled }: Props) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="monofasica">Monofásica</SelectItem>
-                  <SelectItem value="bifasica">Bifásica</SelectItem>
-                  <SelectItem value="trifasica">Trifásica</SelectItem>
                   <SelectItem value="inverter">Inverter (frequência)</SelectItem>
                 </SelectContent>
               </Select>
+              {(config?.tipo_bomba === 'bifasica' ||
+                config?.tipo_bomba === 'trifasica') && (
+                <p className="text-xs text-amber-600">
+                  Legado bi/trifásica — apresentado como Inverter. Salvar volta
+                  pra Inverter no banco.
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
                 Define o comportamento de partida e parada da bomba.
               </p>
