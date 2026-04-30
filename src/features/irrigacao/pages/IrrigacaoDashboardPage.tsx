@@ -217,10 +217,11 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
   const modoPending = modeCmd.isPending
 
   async function beforePumpOn(): Promise<boolean> {
-    // Firmware recusa hard → só informa usuário. Bloqueia commando antes dele
-    // tocar no MQTT.
     if (setoresAbertos.length === 0) {
-      await askConfirm('pump_on_without_sector')
+      const wantsForce = await askConfirm('pump_on_without_sector')
+      if (wantsForce) {
+        forceCmd.mutate({ cmd: 'pump_on', params: { force: true } })
+      }
       return false
     }
     return true
@@ -727,15 +728,17 @@ function ConfirmDialog({
   let title = ''
   let description = ''
   let confirmLabel: string | null = 'Confirmar'
+  let cancelLabel = 'Cancelar'
   let destructive = false
   let dismissOnly = false
 
   if (kind === 'pump_on_without_sector') {
-    title = 'Abra um setor antes de ligar a bomba'
+    title = 'Ligar bomba sem setor aberto?'
     description =
-      'Bombear sem nenhum setor aberto causa funcionamento a seco e pode danificar o motor / pré-pressostato. Volte ao painel principal, abra ao menos um setor que tenha vazão suficiente, e só então ligue a bomba.'
-    confirmLabel = 'Ok, vou abrir um setor'
-    dismissOnly = true
+      'Bombear sem nenhum setor aberto causa funcionamento a seco e pode danificar o motor / pré-pressostato. Em uso normal, abra ao menos um setor primeiro. Use "Ligar mesmo assim" só em manutenção, sangria de linha ou teste de bancada.'
+    confirmLabel = 'Ligar mesmo assim (manutenção)'
+    cancelLabel = 'Ok, vou abrir um setor'
+    destructive = true
   } else if (kind === 'pump_off_with_open_sector') {
     title = 'Desligar bomba com setor aberto?'
     description = `Há ${extra?.abertos ?? 0} setor(es) aberto(s). Desligar a bomba agora vai interromper a irrigação nesses setores. Continuar?`
@@ -773,7 +776,7 @@ function ConfirmDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           {!dismissOnly && (
-            <AlertDialogCancel onClick={() => onClose(false)}>Cancelar</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => onClose(false)}>{cancelLabel}</AlertDialogCancel>
           )}
           <AlertDialogAction
             onClick={() => onClose(true)}
