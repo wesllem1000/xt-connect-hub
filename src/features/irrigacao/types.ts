@@ -128,6 +128,13 @@ export type IrrigationEventType =
   | 'timer_created' | 'timer_edited' | 'timer_paused' | 'timer_reactivated' | 'timer_removed'
   | 'temp_alarm_triggered' | 'temp_alarm_ack_user' | 'temp_sensor_lost'
   | 'physical_button_pressed' | 'auto_shutoff_max_time'
+  // fw 0.17 — VFD events (Sebastião)
+  | 'vfd_comm_lost' | 'vfd_comm_restored' | 'vfd_setpoint_failed' | 'vfd_brownout'
+  // fw 0.16 — eventos novos
+  | 'factory_reset_executed' | 'burst_ended'
+  | 'timer_run_now' | 'timer_skip_armed' | 'timer_skipped'
+  | 'firmware_update_attempted' | 'firmware_update_succeeded'
+  | 'firmware_update_failed' | 'firmware_update_validated'
 
 export type EventOrigem =
   | 'automatic' | 'manual_app_local' | 'manual_app_remote'
@@ -206,6 +213,8 @@ export type DeviceStatePayload = {
     scheduled_close_at?: string | null
   }>
   indicators?: { wifi?: boolean; mqtt?: boolean; time_valid?: boolean }
+  /** Firmware version reportada pelo ESP no state retained. Canônico em fw 0.17.3+. */
+  fw_version?: string
   last_event_uuid?: string
   _received_at?: string
 }

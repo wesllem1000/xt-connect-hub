@@ -14,8 +14,12 @@ import {
   Sliders,
   Terminal,
   Thermometer,
+  Upload,
   UserPlus,
 } from 'lucide-react'
+
+import { useAuthStore } from '@/stores/auth'
+import { AtualizarFirmwareTab } from '@/features/admin/firmware/AtualizarFirmwareTab'
 
 import {
   AlertDialog,
@@ -38,6 +42,8 @@ import { cn } from '@/lib/utils'
 
 import { ShareDialog } from '@/features/dispositivos/ShareDialog'
 import { BombaCommandButton } from '../components/BombaCommandButton'
+import { PumpPowerQuickSlider } from '../components/PumpPowerQuickSlider'
+import { RunningTimerBanner } from '../components/RunningTimerBanner'
 import {
   ComandoDecisionDialog,
   type DecisionState,
@@ -78,14 +84,30 @@ type StatePump = {
   scheduled_off_at?: string | null
   effective_power_pct?: number | null
   target_power_pct?: number | null
+  /** Nome do timer atualmente em execução (fw 0.17+). null se manual. */
+  active_timer_name?: string | null
+  active_timer_id?: string | null
 }
 
 type StateSector = {
   numero?: number
+  /** Schema legado (fw < 0.17.3): "open" | "closed" | "opening" | "closing" | "paused" */
   estado?: SectorEstado
+  /** Schema novo (fw 0.17.3+): bool. Use getSectorEstado() pra normalizar. */
+  open?: boolean
   source?: string | null
   opened_at?: string | null
   scheduled_close_at?: string | null
+  /** Nome do timer que abriu o setor (fw 0.17+). null se manual. */
+  active_timer_name?: string | null
+}
+
+/** Compat fw < 0.17.3 (estado string) e 0.17.3+ (open bool). */
+function getSectorEstado(s: StateSector | undefined): SectorEstado | undefined {
+  if (!s) return undefined
+  if (s.estado) return s.estado
+  if (typeof s.open === 'boolean') return s.open ? 'open' : 'closed'
+  return undefined
 }
 
 type StatePayload = {
@@ -93,6 +115,10 @@ type StatePayload = {
   sectors?: StateSector[]
   indicators?: { wifi?: boolean; mqtt?: boolean; time_valid?: boolean }
   _received_at?: string
+  /** Modo canônico (fw 0.17.3+ — antes vinha só em config/current.modo_operacao). */
+  modo?: 'manual' | 'automatico'
+  /** Versão do firmware (fw 0.17.3+) */
+  fw_version?: string
 }
 
 type Props = {
@@ -128,6 +154,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, 
   const navigate = useNavigate()
   const query = useIrrigationSnapshot(deviceId)
   const serial = query.data?.device.serial
+  const isAdmin = useAuthStore((s) => s.user?.role === 'admin')
   useDeviceStateLive(serial, deviceId)
   const presence = useDeviceStatus(serial, {
     online: initialOnline ?? false,
@@ -245,13 +272,14 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, 
   const setorRuntimeMap = new Map<number, StateSector>()
   for (const s of state?.sectors ?? []) {
     if (typeof s.numero === 'number') {
-      if (s.estado) setorEstadoMap.set(s.numero, s.estado)
+      const est = getSectorEstado(s)
+      if (est) setorEstadoMap.set(s.numero, est)
       setorRuntimeMap.set(s.numero, s)
     }
   }
 
   const setoresHabilitados = snap.sectors.filter((s) => s.habilitado)
-  const setoresAbertos = (state?.sectors ?? []).filter((s) => s.estado === 'open')
+  const setoresAbertos = (state?.sectors ?? []).filter((s) => getSectorEstado(s) === 'open')
   const bombaLigada = pumpState === 'on' || pumpState === 'stopping'
   const algumaOperacaoAtiva = bombaLigada || setoresAbertos.length > 0
 
@@ -269,7 +297,12 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, 
     !snap.sectors.some((s) => s.habilitado) &&
     !snap.timers.some((t) => t.alvo_tipo === 'sector')
 
-  const modoOperacao: IrrigationModoOperacao = snap.config?.modo_operacao ?? 'manual'
+  // Fonte primária = state.modo (fw 0.17.3+, event-driven via MQTT retained).
+  // Fallback = config/current.modo_operacao (pra devices em fw < 0.17.3 ou enquanto state não chega).
+  const modoOperacao: IrrigationModoOperacao =
+    (state?.modo as IrrigationModoOperacao | undefined) ??
+    snap.config?.modo_operacao ??
+    'manual'
   const isAuto = modoOperacao === 'automatico'
   const modoPending = modeCmd.isPending
 
@@ -397,6 +430,19 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, 
         </div>
       </header>
 
+      {/* Banner: modo automático ativo (orienta usuário que ações manuais
+          podem ser sobrescritas pelos timers) */}
+      {isAuto && (
+        <div className="bg-emerald-50 dark:bg-emerald-950/30 border-b border-emerald-200 dark:border-emerald-900">
+          <div className="max-w-5xl mx-auto px-3 sm:px-6 py-2 flex items-center gap-2 text-xs sm:text-sm text-emerald-900 dark:text-emerald-300">
+            <Cog className="h-4 w-4 shrink-0 animate-spin-slow" />
+            <span>
+              <strong>Modo automático ativo</strong> — sistema operando pelos timers programados. Ações manuais podem ser sobrescritas.
+            </span>
+          </div>
+        </div>
+      )}
+
       {isOwner && (
         <ShareDialog
           dispositivoId={deviceId}
@@ -451,6 +497,12 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, 
               <Terminal className="h-4 w-4" />
               <span>Logs</span>
             </TabsTrigger>
+            {isAdmin && (
+              <TabsTrigger value="atualizar" className="gap-1.5">
+                <Upload className="h-4 w-4" />
+                <span>Atualizar</span>
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="painel" className="space-y-6 mt-0 tab-fade-in">
@@ -492,6 +544,12 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, 
             pumpRuntime={pumpRuntime}
           />
           <div className="flex-1 space-y-3 w-full">
+            {/* Banner "Em execução" — só aparece quando bomba ON via auto com timer ativo */}
+            <RunningTimerBanner
+              activeTimerName={pumpForRuntime.active_timer_name ?? null}
+              scheduledOffAt={pumpForRuntime.scheduled_off_at ?? null}
+              pumpOn={bombaLigada}
+            />
             <div className="grid gap-3 sm:grid-cols-2 text-sm">
               <Info label="Modo" value={snap.config?.modo_operacao ?? 'manual'} />
               <Info label="Tipo" value={snap.config?.tipo_bomba ?? 'monofasica'} />
@@ -504,6 +562,14 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, 
               targetPowerPct={pumpForRuntime.target_power_pct ?? null}
             />
             <VfdLiveCard serial={serial} />
+            {!isAuto && (
+              <PumpPowerQuickSlider
+                deviceId={deviceId}
+                currentPct={snap.config?.pump_power_pct}
+                isInverter={snap.config?.tipo_bomba === 'inverter'}
+                online={presence.online}
+              />
+            )}
             {!sectorizationEnabled && (
               <p className="text-xs text-muted-foreground italic">
                 Bomba em modo standalone — sem setorização. Liga/desliga direto, sem válvulas.
@@ -572,7 +638,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, 
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {setoresHabilitados.map((s: IrrigationSector) => {
                 const runtime = setorRuntimeMap.get(s.numero)
-                const estadoFw = runtime?.estado ?? setorEstadoMap.get(s.numero)
+                const estadoFw = getSectorEstado(runtime) ?? setorEstadoMap.get(s.numero)
                 const transientFw = estadoFw === 'opening' || estadoFw === 'closing'
                 const pendingThis = pendingSetorNumero === s.numero
                 const clickable = !isAuto && !transientFw && !setorCmd.isPending
@@ -583,6 +649,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, 
                     estadoLive={estadoFw}
                     sourceLive={runtime?.source ?? null}
                     scheduledCloseAtLive={runtime?.scheduled_close_at ?? null}
+                    activeTimerName={runtime?.active_timer_name ?? null}
                     disabled={!clickable}
                     pending={pendingThis}
                     onClick={clickable ? () => handleSetorClick(s) : undefined}
@@ -675,6 +742,15 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, 
 
           </TabsContent>
 
+          <TabsContent value="inversor" className="mt-0 tab-fade-in">
+            <InverterTab
+              deviceId={deviceId}
+              serial={serial}
+              config={snap.config}
+              isInverter={snap.config?.tipo_bomba === 'inverter'}
+            />
+          </TabsContent>
+
           <TabsContent value="timers" className="mt-0 tab-fade-in">
             <TimersTab deviceId={deviceId} setores={snap.sectors} />
           </TabsContent>
@@ -733,6 +809,17 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, 
           <TabsContent value="logs" className="mt-0 tab-fade-in">
             <LogsTab deviceId={deviceId} />
           </TabsContent>
+
+          {isAdmin && serial && (
+            <TabsContent value="atualizar" className="mt-0 tab-fade-in">
+              <AtualizarFirmwareTab
+                deviceId={deviceId}
+                serial={serial}
+                hwTarget="irr-v1"
+                currentFwVersion={snap.state?.fw_version ?? null}
+              />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
 
