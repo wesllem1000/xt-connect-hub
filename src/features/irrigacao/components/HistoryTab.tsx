@@ -10,6 +10,7 @@ import {
   Settings,
   ShieldAlert,
   Wifi,
+  Zap,
 } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -30,6 +31,7 @@ type Category =
   | 'mqtt'
   | 'seguranca'
   | 'sistema'
+  | 'inversor'
 
 type FilterValue = 'tudo' | Category
 
@@ -43,6 +45,7 @@ const CATEGORY_CONFIG: Record<
   mqtt: { label: 'MQTT', icon: Radio, color: 'text-purple-500' },
   seguranca: { label: 'Alertas', icon: ShieldAlert, color: 'text-destructive' },
   sistema: { label: 'Sistema', icon: Settings, color: 'text-muted-foreground' },
+  inversor: { label: 'Inversor', icon: Zap, color: 'text-orange-500' },
 }
 
 const FILTERS: { value: FilterValue; label: string }[] = [
@@ -53,6 +56,7 @@ const FILTERS: { value: FilterValue; label: string }[] = [
   { value: 'mqtt', label: 'MQTT' },
   { value: 'seguranca', label: 'Alertas' },
   { value: 'sistema', label: 'Sistema' },
+  { value: 'inversor', label: 'Inversor' },
 ]
 
 function categorize(
@@ -99,6 +103,22 @@ function categorize(
     case 'time_synced':
     case 'time_invalid':
       return 'sistema'
+    case 'vfd_comm_lost':
+    case 'vfd_comm_restored':
+    case 'vfd_setpoint_failed':
+    case 'vfd_brownout':
+      return 'inversor'
+    case 'firmware_update_attempted':
+    case 'firmware_update_succeeded':
+    case 'firmware_update_failed':
+    case 'firmware_update_validated':
+    case 'factory_reset_executed':
+      return 'sistema'
+    case 'timer_run_now':
+    case 'timer_skip_armed':
+    case 'timer_skipped':
+    case 'burst_ended':
+      return 'automacao'
     default:
       return 'sistema'
   }
@@ -171,6 +191,34 @@ function describe(ev: IrrigationEvent): string {
       return `Botão físico pressionado`
     case 'auto_shutoff_max_time':
       return `Auto-desligamento por tempo máximo`
+    // VFD events (fw 0.17+)
+    case 'vfd_comm_lost':
+      return `Comunicação RS485 com inversor perdida`
+    case 'vfd_comm_restored':
+      return `Comunicação RS485 com inversor restaurada`
+    case 'vfd_setpoint_failed':
+      return `Falha ao escrever setpoint no inversor (3 tentativas)`
+    case 'vfd_brownout':
+      return `Tensão DC do inversor abaixo do mínimo (brownout)`
+    // Firmware update events (fw 0.16+)
+    case 'firmware_update_attempted':
+      return `Atualização de firmware iniciada`
+    case 'firmware_update_succeeded':
+      return `Atualização de firmware concluída`
+    case 'firmware_update_failed':
+      return `Atualização de firmware falhou`
+    case 'firmware_update_validated':
+      return `Firmware validado após reboot`
+    case 'factory_reset_executed':
+      return `Reset de fábrica executado`
+    case 'burst_ended':
+      return `Modo burst encerrado`
+    case 'timer_run_now':
+      return `Timer disparado manualmente`
+    case 'timer_skip_armed':
+      return `Próxima execução do timer marcada pra pular`
+    case 'timer_skipped':
+      return `Próxima execução do timer pulada`
     default:
       return ev.event_type
   }

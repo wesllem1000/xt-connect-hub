@@ -123,6 +123,8 @@ type FormState = {
   unidade: Unidade
   dias_mask: number
   observacao: string
+  /** Override de potência (5..100). 0 = usa a global do device. */
+  power: number
 }
 
 function defaultForm(): FormState {
@@ -139,6 +141,7 @@ function defaultForm(): FormState {
     unidade: 'min',
     dias_mask: PRESET_DIAS.uteis,
     observacao: '',
+    power: 0,
   }
 }
 
@@ -162,6 +165,7 @@ function fromTimer(t: IrrigationTimer): FormState {
     unidade: usingSeconds ? 's' : 'min',
     dias_mask: t.dias_semana,
     observacao: t.observacao ?? '',
+    power: t.power_pct_override != null ? Number(t.power_pct_override) : 0,
   }
 }
 
@@ -174,6 +178,8 @@ function toInput(f: FormState, overlap_confirmed = false): PostTimerInput {
     dias_semana: f.dias_mask,
     observacao: f.observacao.trim() || undefined,
     overlap_confirmed,
+    // 0 = "usar global"; firmware aceita 5..100 (Sebastião)
+    power_pct_override: f.power >= 5 ? f.power : null,
   }
   // Manda o par escolhido preenchido e o outro como null (firmware/banco
   // ignoram null). Isso evita ambiguidade ao editar timers depois.
@@ -443,6 +449,12 @@ export function TimersTab({ deviceId, setores }: Props) {
                         {!t.ativo && (
                           <Badge variant="secondary" className="text-[10px]">
                             Inativo
+                          </Badge>
+                        )}
+                        {t.power_pct_override != null && Number(t.power_pct_override) >= 5 && (
+                          <Badge className="text-[10px] bg-emerald-600 hover:bg-emerald-600 gap-0.5">
+                            <span aria-hidden>⚡</span>
+                            {Number(t.power_pct_override)}%
                           </Badge>
                         )}
                       </div>
@@ -779,6 +791,38 @@ export function TimersTab({ deviceId, setores }: Props) {
                 </div>
               </div>
             )}
+
+            {/* Potência override (slider 0..100; 0 = usa global) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-sm font-medium">
+                  Potência durante o timer
+                </Label>
+                <span className="font-mono text-sm tabular-nums">
+                  {form.power === 0
+                    ? <span className="text-muted-foreground text-xs">usa global</span>
+                    : <>{form.power}<span className="text-muted-foreground text-xs ml-0.5">%</span></>}
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={5}
+                value={form.power}
+                disabled={busy}
+                onChange={(e) => setForm((f) => ({ ...f, power: Number(e.target.value) }))}
+                className="w-full accent-emerald-600 h-2 cursor-pointer disabled:opacity-50"
+                aria-label="Potência durante o timer"
+              />
+              <div className="flex justify-between text-[10px] text-muted-foreground">
+                <span>0% (global)</span>
+                <span>100%</span>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Override da potência da bomba enquanto o timer roda. Valores entre 5–100% sobrescrevem o global; 0% mantém o padrão configurado em <strong>Inversor</strong>.
+              </p>
+            </div>
 
             {/* Dias da semana */}
             <div className="space-y-2">

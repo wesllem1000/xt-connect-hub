@@ -1,4 +1,4 @@
-import { Clock, Gauge, Loader2, Timer } from 'lucide-react'
+import { Clock, Loader2, Timer, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 
 import { cn } from '@/lib/utils'
@@ -27,6 +27,8 @@ type Props = {
   sourceLive?: string | null
   /** Próximo fechamento programado (timer/duração). */
   scheduledCloseAtLive?: string | null
+  /** Nome do timer que abriu este setor (fw 0.17+ via state.sectors[].active_timer_name). */
+  activeTimerName?: string | null
   onClick?: () => void
   /** Card desabilitado (mutation global em voo ou estado transiente do firmware). */
   disabled?: boolean
@@ -89,6 +91,7 @@ export function SetorCardValvula({
   setor,
   estadoLive,
   sourceLive,
+  activeTimerName,
   scheduledCloseAtLive,
   onClick,
   disabled,
@@ -105,7 +108,10 @@ export function SetorCardValvula({
   const timerControlled = isTimerSource(sourceLive)
   const remaining = useCountdown(isOpenLike ? scheduledCloseAtLive ?? null : null)
   const showCountdown = isOpenLike && remaining != null && remaining > 0
-  const showPower = setor.power_pct != null
+  // Badge "Override" só aparece quando power_pct é explicitamente override (5..99).
+  // power_pct = 100 (default) cai pro global do device — sem override (regra firmware 0.17.1+).
+  const power = setor.power_pct != null ? Number(setor.power_pct) : null
+  const showPower = power != null && power >= 5 && power < 100
 
   return (
     <Card
@@ -135,7 +141,17 @@ export function SetorCardValvula({
             <p className="font-medium text-sm truncate">{setor.nome}</p>
             <Badge className={cn('shrink-0', meta.badge)}>{meta.label}</Badge>
           </div>
-          <p className="text-xs text-muted-foreground">Setor {setor.numero}</p>
+          <p className="text-xs text-muted-foreground">
+            Setor {setor.numero}
+            {activeTimerName && (
+              <span className="ml-1 inline-flex items-center gap-0.5">
+                · <span aria-hidden>🤖</span>
+                <span className="font-medium text-emerald-700 dark:text-emerald-400 truncate max-w-[140px] inline-block align-bottom">
+                  {activeTimerName}
+                </span>
+              </span>
+            )}
+          </p>
 
           {(timerControlled || showCountdown || showPower) && (
             <div className="flex flex-wrap items-center gap-1.5 pt-1">
@@ -160,11 +176,11 @@ export function SetorCardValvula({
               {showPower && (
                 <Badge
                   variant="outline"
-                  className="h-5 px-1.5 gap-1 text-[10px] font-mono tabular-nums"
-                  title="Potência configurada do inverter para este setor (fw 0.16+)"
+                  className="h-5 px-1.5 gap-1 text-[10px] font-mono tabular-nums border-emerald-500/60 text-emerald-700 dark:text-emerald-400"
+                  title={`Override de potência neste setor: ${power}%. Quando este setor está aberto, a bomba roda em ${power}% em vez do padrão global.`}
                 >
-                  <Gauge className="h-3 w-3" />
-                  {setor.power_pct}%
+                  <Zap className="h-3 w-3" />
+                  Override {power}%
                 </Badge>
               )}
             </div>
@@ -177,7 +193,7 @@ export function SetorCardValvula({
                   'absolute inset-y-0 left-0 rounded-full transition-all duration-500',
                   isOpenLike ? 'bg-emerald-500' : 'bg-muted-foreground/40',
                 )}
-                style={{ width: `${Math.max(0, Math.min(100, setor.power_pct ?? 0))}%` }}
+                style={{ width: `${Math.max(0, Math.min(100, power ?? 0))}%` }}
               />
             </div>
           )}

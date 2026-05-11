@@ -100,6 +100,8 @@ export type IrrCmd =
   | 'pump_on' | 'pump_off'
   | 'sector_open' | 'sector_close' | 'sector_pause' | 'sector_resume'
   | 'mode_set' | 'safe_closure' | 'config_reload' | 'factory_reset'
+  | 'pump_set_power' | 'timer_run_now' | 'timer_skip_next'
+  | 'set_rate' | 'temp_alarm_clear' | 'request_update'
 
 export type ComandoResponse = {
   cmd_id: string
@@ -204,6 +206,9 @@ export type PostTimerInput = {
   dias_semana: number
   observacao?: string
   overlap_confirmed?: boolean
+  /** Potência em % (5..100) que override o pump_power_pct global durante o timer.
+   *  null/omitido = usa o global. Coluna NUMERIC no DB. */
+  power_pct_override?: number | null
 }
 
 export async function postTimer(deviceId: string, input: PostTimerInput) {

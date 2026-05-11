@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
+  Zap,
   Clock as ClockIcon,
   Cog,
   Hand,
@@ -46,6 +47,7 @@ import { HistoryTab } from '../components/HistoryTab'
 import { LogsTab } from '../components/LogsTab'
 import { PumpStatusCard, type PumpRuntime } from '../components/PumpStatusCard'
 import { PumpVfdTile } from '../components/PumpVfdTile'
+import { VfdLiveCard } from '../components/VfdLiveCard'
 import { AlarmsBanner } from '../components/AlarmsBanner'
 import { PumpTab } from '../components/PumpTab'
 import { SectorsTab } from '../components/SectorsTab'
@@ -53,6 +55,7 @@ import { SensoresTab } from '../components/SensoresTab'
 import { TemperatureGauge } from '../components/TemperatureGauge'
 import { SystemTab } from '../components/SystemTab'
 import { TimersTab } from '../components/TimersTab'
+import { InverterTab } from '../components/InverterTab'
 import { SetorCardValvula } from '../components/SetorCardValvula'
 import { useComando } from '../hooks/useComando'
 import { useDeviceStateLive } from '../hooks/useDeviceStateLive'
@@ -414,6 +417,10 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, 
               <LayoutDashboard className="h-4 w-4" />
               <span>Painel</span>
             </TabsTrigger>
+            <TabsTrigger value="inversor" className="gap-1.5" disabled={snap.config?.tipo_bomba !== 'inverter'}>
+              <Zap className="h-4 w-4" />
+              <span>Inversor</span>
+            </TabsTrigger>
             <TabsTrigger value="timers" className="gap-1.5">
               <ClockIcon className="h-4 w-4" />
               <span>Timers</span>
@@ -496,6 +503,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, 
               effectivePowerPct={pumpForRuntime.effective_power_pct ?? null}
               targetPowerPct={pumpForRuntime.target_power_pct ?? null}
             />
+            <VfdLiveCard serial={serial} />
             {!sectorizationEnabled && (
               <p className="text-xs text-muted-foreground italic">
                 Bomba em modo standalone — sem setorização. Liga/desliga direto, sem válvulas.

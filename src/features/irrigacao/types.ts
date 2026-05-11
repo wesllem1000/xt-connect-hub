@@ -30,6 +30,16 @@ export type IrrigationConfig = {
   gpio_1wire: number
   criado_em: string
   atualizado_em: string
+  /** Inverter: potencia padrao manual 5..100 % */
+  pump_power_pct: number | null
+  /** Inverter: frequencia maxima P0_10 em Hz (30..120) */
+  pump_p0_10_hz: number | null
+  /** Inverter: sentido de rotacao */
+  pump_direction: 'FWD' | 'REV' | null
+  /** Inverter: rampa de subida 0.1..30s */
+  pump_accel_s: number | null
+  /** Inverter: rampa de descida 0.1..30s */
+  pump_decel_s: number | null
 }
 
 export type IrrigationSector = {
