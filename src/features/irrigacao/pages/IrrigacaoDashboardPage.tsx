@@ -13,6 +13,7 @@ import {
   Sliders,
   Terminal,
   Thermometer,
+  UserPlus,
 } from 'lucide-react'
 
 import {
@@ -34,6 +35,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { cn } from '@/lib/utils'
 
+import { ShareDialog } from '@/features/dispositivos/ShareDialog'
 import { BombaCommandButton } from '../components/BombaCommandButton'
 import {
   ComandoDecisionDialog,
@@ -43,6 +45,7 @@ import { IndicadoresStatusBar } from '../components/IndicadoresStatusBar'
 import { HistoryTab } from '../components/HistoryTab'
 import { LogsTab } from '../components/LogsTab'
 import { PumpStatusCard, type PumpRuntime } from '../components/PumpStatusCard'
+import { PumpVfdTile } from '../components/PumpVfdTile'
 import { AlarmsBanner } from '../components/AlarmsBanner'
 import { PumpTab } from '../components/PumpTab'
 import { SectorsTab } from '../components/SectorsTab'
@@ -54,6 +57,12 @@ import { SetorCardValvula } from '../components/SetorCardValvula'
 import { useComando } from '../hooks/useComando'
 import { useDeviceStateLive } from '../hooks/useDeviceStateLive'
 import { useIrrigationSnapshot } from '../hooks/useSnapshot'
+import { useDeviceStatus } from '@/hooks/useDeviceStatus'
+import { useDeviceSensorsLive } from '../hooks/useDeviceSensorsLive'
+import { RealtimeBurstControl } from '../components/RealtimeBurstControl'
+import { RateConfigCard } from '../components/RateConfigCard'
+import { TemperatureHistoryDialog } from '../components/TemperatureHistoryDialog'
+import { formatFireAt, getNextTimerEvents } from '../utils/formatters'
 import type { IrrigationModoOperacao, IrrigationSector } from '../types'
 
 type PumpState = 'off' | 'starting' | 'on' | 'stopping'
@@ -64,9 +73,17 @@ type StatePump = {
   source?: string | null
   started_at?: string | null
   scheduled_off_at?: string | null
+  effective_power_pct?: number | null
+  target_power_pct?: number | null
 }
 
-type StateSector = { numero?: number; estado?: SectorEstado }
+type StateSector = {
+  numero?: number
+  estado?: SectorEstado
+  source?: string | null
+  opened_at?: string | null
+  scheduled_close_at?: string | null
+}
 
 type StatePayload = {
   pump?: StatePump
@@ -78,6 +95,17 @@ type StatePayload = {
 type Props = {
   deviceId: string
   nomeAmigavel?: string | null
+  /** Semente do online vinda da API; MQTT subscribe sobrescreve live. */
+  initialOnline?: boolean
+  initialLastSeenAt?: string | null
+  /** Controle: owner OU shared com permissao=controle. */
+  canCommand?: boolean
+  /** Taxa default em segundos (telemetry_interval_s da API). */
+  defaultRateS?: number
+  /** Se true, mostra o botão Compartilhar (só dono compartilha). */
+  isOwner?: boolean
+  /** Nome do dispositivo pra exibir no ShareDialog. */
+  dispositivoNome?: string
 }
 
 type ConfirmKind =
@@ -93,17 +121,25 @@ type ConfirmState = {
   resolve: (ok: boolean) => void
 }
 
-export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
+export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel, initialOnline, initialLastSeenAt, canCommand = false, defaultRateS = 30, isOwner = false, dispositivoNome }: Props) {
   const navigate = useNavigate()
   const query = useIrrigationSnapshot(deviceId)
   const serial = query.data?.device.serial
   useDeviceStateLive(serial, deviceId)
+  const presence = useDeviceStatus(serial, {
+    online: initialOnline ?? false,
+    lastSeenAt: initialLastSeenAt ?? null,
+  })
+  const liveSensors = useDeviceSensorsLive(serial)
+  const [historyRomId, setHistoryRomId] = useState<string | null>(null)
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
 
   const [activeTab, setActiveTab] = useState<string>('painel')
   const [decision, setDecision] = useState<DecisionState | null>(null)
   const decisionOpts = {
     onRequiresAction: (info: DecisionState) => setDecision(info),
     onResolved: () => setDecision(null),
+    online: presence.online,
   }
 
   const setorCmd = useComando(deviceId, decisionOpts)
@@ -203,8 +239,12 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
   const indicators = state?.indicators ?? {}
 
   const setorEstadoMap = new Map<number, SectorEstado>()
+  const setorRuntimeMap = new Map<number, StateSector>()
   for (const s of state?.sectors ?? []) {
-    if (typeof s.numero === 'number' && s.estado) setorEstadoMap.set(s.numero, s.estado)
+    if (typeof s.numero === 'number') {
+      if (s.estado) setorEstadoMap.set(s.numero, s.estado)
+      setorRuntimeMap.set(s.numero, s)
+    }
   }
 
   const setoresHabilitados = snap.sectors.filter((s) => s.habilitado)
@@ -217,6 +257,15 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
   // aba Setores, e bomba liga sem exigir setor aberto.
   const sectorizationEnabled = snap.config?.sectorization_enabled !== false
 
+  // Heurística Fase 0: device com setorização habilitada mas sem nenhum setor habilitado
+  // e sem timers apontando sector — UI esconde grade de válvulas e dispensa
+  // o confirm "bomba sem setor". Cobre frota fw 0.15.5 que ainda não tem setores
+  // cadastrados (coluna habilitado = false em todos ou lista vazia).
+  const deviceSemSetores =
+    sectorizationEnabled &&
+    !snap.sectors.some((s) => s.habilitado) &&
+    !snap.timers.some((t) => t.alvo_tipo === 'sector')
+
   const modoOperacao: IrrigationModoOperacao = snap.config?.modo_operacao ?? 'manual'
   const isAuto = modoOperacao === 'automatico'
   const modoPending = modeCmd.isPending
@@ -224,6 +273,9 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
   async function beforePumpOn(): Promise<boolean> {
     // Em modo standalone (sem setorização) não tem o que checar — manda direto.
     if (!sectorizationEnabled) return true
+    // Device tem setorização habilitada mas sem setores/timers cadastrados:
+    // liga bomba diretamente sem exigir setor aberto (nao há o que abrir).
+    if (deviceSemSetores) return true
     if (setoresAbertos.length === 0) {
       const wantsForce = await askConfirm('pump_on_without_sector')
       if (wantsForce) {
@@ -317,17 +369,39 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
             <Badge
               className={cn(
                 'shrink-0 text-[10px] sm:text-xs',
-                state
+                presence.online
                   ? 'bg-emerald-600 hover:bg-emerald-600'
-                  : 'bg-slate-500 hover:bg-slate-500',
+                  : 'bg-red-600 hover:bg-red-600',
               )}
             >
-              {state ? 'Online' : 'Aguardando'}
+              {presence.online ? 'Online' : 'Offline'}
             </Badge>
+            <RealtimeBurstControl deviceId={deviceId} serial={serial} canCommand={canCommand} />
+            {isOwner && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 px-2 sm:px-3 gap-1.5"
+                onClick={() => setShareDialogOpen(true)}
+                aria-label="Compartilhar dispositivo"
+              >
+                <UserPlus className="h-4 w-4" />
+                <span className="hidden sm:inline text-xs">Compartilhar</span>
+              </Button>
+            )}
             <ThemeToggle />
           </div>
         </div>
       </header>
+
+      {isOwner && (
+        <ShareDialog
+          dispositivoId={deviceId}
+          dispositivoNome={dispositivoNome ?? snap.device.serial}
+          open={shareDialogOpen}
+          onOpenChange={setShareDialogOpen}
+        />
+      )}
 
       <div className="max-w-5xl mx-auto px-3 sm:px-6 py-6 sm:py-8">
         <Tabs
@@ -372,7 +446,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="painel" className="space-y-6 mt-0">
+          <TabsContent value="painel" className="space-y-6 mt-0 tab-fade-in">
             <ModoCard
         modo={modoOperacao}
         pending={modoPending}
@@ -387,7 +461,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
         horaSincronizada={indicators.time_valid ?? false}
       />
 
-      <AlarmsBanner deviceId={deviceId} alarms={snap.active_alarms} />
+      <AlarmsBanner deviceId={deviceId} serial={serial} />
 
       {isAuto && (
         <Alert>
@@ -417,6 +491,11 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
               <Info label="Max contínuo" value={`${snap.config?.tempo_max_continuo_bomba_min ?? 120} min`} />
               <Info label="Reforço relé" value={snap.config?.reforco_rele_ativo ? 'Ativo' : 'Inativo'} />
             </div>
+            <PumpVfdTile
+              pumpState={pumpState}
+              effectivePowerPct={pumpForRuntime.effective_power_pct ?? null}
+              targetPowerPct={pumpForRuntime.target_power_pct ?? null}
+            />
             {!sectorizationEnabled && (
               <p className="text-xs text-muted-foreground italic">
                 Bomba em modo standalone — sem setorização. Liga/desliga direto, sem válvulas.
@@ -427,6 +506,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
                 <BombaCommandButton
                   deviceId={deviceId}
                   pumpState={pumpState}
+                  online={presence.online}
                   onBeforePumpOn={beforePumpOn}
                   onBeforePumpOff={beforePumpOff}
                 />
@@ -468,14 +548,23 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
             </Button>
           </div>
 
-          {setoresHabilitados.length === 0 ? (
+          {deviceSemSetores ? (
+            <div className="rounded-md border border-dashed px-4 py-8 text-center space-y-1">
+              <p className="text-sm font-medium">Esta unidade não tem setores configurados</p>
+              <p className="text-sm text-muted-foreground">
+                Opera em modo bomba direta — sem válvulas. Para adicionar setores, acesse a
+                aba <strong>Setores</strong>.
+              </p>
+            </div>
+          ) : setoresHabilitados.length === 0 ? (
             <div className="rounded-md border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">
               Nenhum setor habilitado. Ative os setores na tela técnica.
             </div>
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {setoresHabilitados.map((s: IrrigationSector) => {
-                const estadoFw = setorEstadoMap.get(s.numero)
+                const runtime = setorRuntimeMap.get(s.numero)
+                const estadoFw = runtime?.estado ?? setorEstadoMap.get(s.numero)
                 const transientFw = estadoFw === 'opening' || estadoFw === 'closing'
                 const pendingThis = pendingSetorNumero === s.numero
                 const clickable = !isAuto && !transientFw && !setorCmd.isPending
@@ -484,6 +573,8 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
                     key={s.id}
                     setor={s}
                     estadoLive={estadoFw}
+                    sourceLive={runtime?.source ?? null}
+                    scheduledCloseAtLive={runtime?.scheduled_close_at ?? null}
                     disabled={!clickable}
                     pending={pendingThis}
                     onClick={clickable ? () => handleSetorClick(s) : undefined}
@@ -494,6 +585,12 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
           )}
         </section>
       )}
+
+      <NextEventsCard
+        timers={snap.timers}
+        sectors={snap.sectors}
+        onSeeAll={() => setActiveTab('timers')}
+      />
 
       <Card>
         <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
@@ -525,15 +622,22 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
                     a.sensor_rom_id === s.rom_id,
                 )
                 const alarme = tempAlarms.length > 0
+                const liveTemp = liveSensors.get(s.rom_id)?.tempC
                 const valor =
-                  s.ultima_leitura_c != null
-                    ? Number(s.ultima_leitura_c)
-                    : null
+                  liveTemp != null
+                    ? liveTemp
+                    : s.ultima_leitura_c != null
+                      ? Number(s.ultima_leitura_c)
+                      : null
                 return (
-                  <div
+                  <button
                     key={s.id}
+                    type="button"
+                    onClick={() => setHistoryRomId(s.rom_id)}
+                    aria-label={`Abrir histórico de ${s.nome}`}
                     className={cn(
-                      'rounded-md border p-3 flex flex-col items-center',
+                      'rounded-md border p-3 flex flex-col items-center text-left',
+                      'transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       alarme && 'border-red-500/60 bg-red-50/50',
                     )}
                   >
@@ -552,7 +656,8 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
                       alarme={alarme}
                       size={170}
                     />
-                  </div>
+                    <p className="text-[10px] text-muted-foreground mt-1">Toque para ver histórico</p>
+                  </button>
                 )
               })}
             </div>
@@ -562,19 +667,20 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
 
           </TabsContent>
 
-          <TabsContent value="timers" className="mt-0">
+          <TabsContent value="timers" className="mt-0 tab-fade-in">
             <TimersTab deviceId={deviceId} setores={snap.sectors} />
           </TabsContent>
 
-          <TabsContent value="setores" className="mt-0">
+          <TabsContent value="setores" className="mt-0 tab-fade-in">
             <SectorsTab deviceId={deviceId} setores={snap.sectors} />
           </TabsContent>
 
-          <TabsContent value="sensores" className="mt-0">
+          <TabsContent value="sensores" className="mt-0 tab-fade-in">
             <SensoresTab
               deviceId={deviceId}
               sensores={snap.sensors}
               busRomIds={snap.bus_rom_ids ?? []}
+              liveTempByRomId={new Map(Array.from(liveSensors.entries()).map(([k, v]) => [k, v.tempC]))}
               activeAlarmRomIds={
                 new Set(
                   snap.active_alarms
@@ -588,7 +694,7 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
             />
           </TabsContent>
 
-          <TabsContent value="bomba" className="mt-0">
+          <TabsContent value="bomba" className="mt-0 tab-fade-in">
             <PumpTab
               deviceId={deviceId}
               config={snap.config ?? null}
@@ -596,11 +702,16 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
             />
           </TabsContent>
 
-          <TabsContent value="historico" className="mt-0">
+          <TabsContent value="historico" className="mt-0 tab-fade-in">
             <HistoryTab deviceId={deviceId} />
           </TabsContent>
 
-          <TabsContent value="sistema" className="mt-0">
+          <TabsContent value="sistema" className="mt-0 space-y-4 tab-fade-in">
+            <RateConfigCard
+              deviceId={deviceId}
+              currentRate={defaultRateS}
+              canCommand={canCommand}
+            />
             <SystemTab
               deviceId={deviceId}
               config={snap.config ?? null}
@@ -611,12 +722,22 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
             />
           </TabsContent>
 
-          <TabsContent value="logs" className="mt-0">
+          <TabsContent value="logs" className="mt-0 tab-fade-in">
             <LogsTab deviceId={deviceId} />
           </TabsContent>
         </Tabs>
       </div>
 
+      <TemperatureHistoryDialog
+        deviceId={deviceId}
+        romId={historyRomId}
+        sensorName={historyRomId ? snap.sensors.find((s) => s.rom_id === historyRomId)?.nome : undefined}
+        limiteAlarmeC={historyRomId
+          ? Number(snap.sensors.find((s) => s.rom_id === historyRomId)?.limite_alarme_c)
+          : undefined}
+        open={historyRomId !== null}
+        onClose={() => setHistoryRomId(null)}
+      />
       <ConfirmDialog state={confirm} onClose={closeConfirm} />
       <ComandoDecisionDialog
         state={decision}
@@ -625,6 +746,78 @@ export function IrrigacaoDashboardPage({ deviceId, nomeAmigavel }: Props) {
         onConfirm={(vars) => forceCmd.mutate(vars)}
       />
     </div>
+  )
+}
+
+function NextEventsCard({
+  timers,
+  sectors,
+  onSeeAll,
+}: {
+  timers: import('../types').IrrigationTimer[]
+  sectors: IrrigationSector[]
+  onSeeAll: () => void
+}) {
+  // Recalcula a cada minuto (mais barato que segundo e suficiente pra rótulo "hoje HH:MM").
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const i = setInterval(() => setNow(new Date()), 60_000)
+    return () => clearInterval(i)
+  }, [])
+
+  const eventos = useMemo(
+    () => getNextTimerEvents(timers, sectors, 2, now),
+    [timers, sectors, now],
+  )
+
+  return (
+    <Card>
+      <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+        <CardTitle className="text-base flex items-center gap-2">
+          <ClockIcon className="h-4 w-4" />
+          Próximos eventos automáticos
+        </CardTitle>
+        <Button variant="ghost" size="sm" className="h-7" onClick={onSeeAll}>
+          <Settings className="h-4 w-4 mr-1" />
+          Ver timers
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {eventos.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nenhum timer ativo agendado. Crie um na aba <strong>Timers</strong> pra
+            irrigação automática.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {eventos.map((ev) => (
+              <li
+                key={ev.timerId}
+                className="flex items-center justify-between gap-3 text-sm rounded-md border px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium truncate">{ev.timerName}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {ev.targetLabel}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  {ev.runningNow ? (
+                    <Badge className="bg-emerald-600 hover:bg-emerald-600">
+                      Em execução
+                    </Badge>
+                  ) : (
+                    <span className="font-mono tabular-nums">
+                      {formatFireAt(ev.fireAt, now)}
+                    </span>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 

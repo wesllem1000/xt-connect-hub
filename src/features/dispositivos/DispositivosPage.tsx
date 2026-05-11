@@ -128,8 +128,7 @@ function DispositivoCard({
               {dispositivo.apelido || dispositivo.serial}
             </CardTitle>
             <Badge
-              variant={status.online ? 'default' : 'outline'}
-              className={status.online ? 'bg-green-600 hover:bg-green-600 shrink-0' : 'shrink-0 text-muted-foreground'}
+              className={status.online ? 'bg-green-600 hover:bg-green-600 shrink-0' : 'bg-red-600 hover:bg-red-600 shrink-0'}
             >
               <Radio className="h-3 w-3 mr-1" />
               {status.online ? 'Online' : 'Offline'}

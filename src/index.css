@@ -242,6 +242,27 @@
   animation: pump-ring-spin 3s linear infinite;
 }
 
+/* Cross-fade entre tabs do dashboard IRR-V1 — Radix monta/desmonta o conteúdo
+ * ativo, então só rola fade-in (mais leve do que AnimatePresence + framer-motion). */
+@keyframes tab-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.tab-fade-in[data-state='active'] {
+  animation: tab-fade-in 220ms ease-out;
+}
+
+/* VFD acelerando: pulse laranja na barra de progresso enquanto effective < target */
+@keyframes pump-vfd-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px hsl(25 95% 53% / 0.6); }
+  50% { opacity: 0.7; box-shadow: 0 0 14px hsl(25 95% 53% / 0.9); }
+}
+
+.pump-vfd-pulse {
+  animation: pump-vfd-pulse 1.2s ease-in-out infinite;
+}
+
 @keyframes sector-fill {
   0% { transform: translateY(100%); }
   40% { transform: translateY(45%); }

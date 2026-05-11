@@ -11,6 +11,8 @@ type Props = {
   deviceId: string | undefined
   pumpState: PumpState
   disabled?: boolean
+  /** Quando false, useComando curto-circuita com toast "Dispositivo offline". */
+  online?: boolean
   onBeforePumpOn?: () => Promise<boolean> | boolean
   onBeforePumpOff?: () => Promise<boolean> | boolean
 }
@@ -19,10 +21,11 @@ export function BombaCommandButton({
   deviceId,
   pumpState,
   disabled,
+  online,
   onBeforePumpOn,
   onBeforePumpOff,
 }: Props) {
-  const cmd = useComando(deviceId)
+  const cmd = useComando(deviceId, { online })
 
   const transient = pumpState === 'starting' || pumpState === 'stopping'
   const isOn = pumpState === 'on' || pumpState === 'stopping'

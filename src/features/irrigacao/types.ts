@@ -47,12 +47,19 @@ export type IrrigationSector = {
   ultimo_acionamento_em: string | null
   ultima_duracao_s: number | null
   proxima_execucao_em: string | null
+  /** Migration 018 (2026-05-10) — TIMESTAMPTZ NULL.
+   *  Null em fw 0.15.5 (IRR-V1-00009 em campo) — retrocompat garantida. */
+  divergence_detected_at: string | null
+  /** Migration 018 — potência do inverter, inteiro 0–100%.
+   *  NULL em hw sem inverter ou fw sem suporte (0.15.5). CHECK(0..100) no DB. */
+  power_pct: number | null
 }
 
 export type TimerTipo = 'fixed' | 'cyclic_window' | 'cyclic_continuous'
 export type TimerAlvoTipo = 'pump' | 'sector'
 
 export type IrrigationTimer = {
+  /** VARCHAR(64) no DB desde Migration 018 — tipo `string` cobre ambos os schemas. */
   id: string
   device_id: string
   alvo_tipo: TimerAlvoTipo
@@ -74,6 +81,9 @@ export type IrrigationTimer = {
   observacao: string | null
   criado_em: string
   atualizado_em: string
+  /** Migration 018 — sobrescreve potência do inverter para esta execução (0–100%).
+   *  NULL = usa power_pct do setor destino. Retrocompat: NULL em fw 0.15.5. */
+  power_pct_override: number | null
 }
 
 export type SensorRole = 'pump' | 'inverter' | 'custom'
@@ -146,6 +156,24 @@ export type IrrigationAlarme = {
   payload_json: Record<string, unknown>
 }
 
+export type AlarmSeverity = 'critico' | 'aviso'
+export type AckState = 'open' | 'acknowledged_once' | 'acknowledged_final'
+export type AckStep = 1 | 2
+
+/**
+ * Payload do tópico retained `devices/<serial>/alarm/active` (E5.5).
+ * Payload vazio string ("") = nenhum alarme ativo, banner deve sumir.
+ */
+export type AlarmMqttPayload = {
+  kind: AlarmeTipo
+  severity: AlarmSeverity
+  message: string
+  since: string
+  ack_state: AckState
+  alarm_id: string
+}
+
+
 /** Estado volátil reportado pelo firmware via MQTT `devices/<serial>/state` (retained). */
 export type DeviceStatePayload = {
   protocol_version?: number
@@ -155,6 +183,10 @@ export type DeviceStatePayload = {
     source?: string | null
     started_at?: string | null
     scheduled_off_at?: string | null
+    /** Potência atual aplicada ao VFD (0-100). Só fw 0.16+. NULL/undefined em fw 0.15.5. */
+    effective_power_pct?: number | null
+    /** Potência alvo do VFD (0-100). Diff vs effective_power_pct sinaliza ACELERANDO. */
+    target_power_pct?: number | null
   }
   sectors?: Array<{
     numero?: number
@@ -179,4 +211,21 @@ export type IrrigationSnapshot = {
   bus_rom_ids: string[]
   active_alarms: IrrigationAlarme[]
   state: DeviceStatePayload | null
+}
+
+/**
+ * Shape B do tópico MQTT `devices/<serial>/status`.
+ * Produzida exclusivamente pela plataforma (fnHandleStatus, ingest, sweeper).
+ * Nunca publicada pelo firmware. Ver MQTT_CONTRACT §3a para heurística canônica.
+ *
+ * Guard: `typeof payload === "object" && payload.type === "device_status_changed"`
+ */
+export type StatusEventPayload = {
+  type: 'device_status_changed'
+  online: boolean
+  device_id: string
+  serial: string
+  user_id: string
+  last_seen_at: string
+  source: 'status-mirror' | 'ingest' | 'sweeper'
 }

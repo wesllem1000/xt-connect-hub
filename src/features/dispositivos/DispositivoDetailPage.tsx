@@ -148,6 +148,10 @@ export function DispositivoDetailPage() {
 
   useEffect(() => {
     if (!id || !dispositivo || !canCommand) return
+    // IRR-V1 tem RealtimeBurstControl manual no IrrigacaoDashboardPage —
+    // auto-burst aqui sobrescreveria as escolhas do usuário a cada heartbeat.
+    if (dispositivo.modelo === 'Irrigação v1' ||
+        dispositivo.serial.startsWith('IRR-V1-')) return
     let cancelled = false
 
     const trigger = async () => {
@@ -275,6 +279,12 @@ export function DispositivoDetailPage() {
       <IrrigacaoDashboardPage
         deviceId={dispositivo.id}
         nomeAmigavel={dispositivo.apelido}
+        initialOnline={dispositivo.online}
+        initialLastSeenAt={dispositivo.last_seen_at}
+        canCommand={canCommand}
+        defaultRateS={defaultRateS}
+        isOwner={isOwner}
+        dispositivoNome={dispositivo.nome}
       />
     )
   }
@@ -299,7 +309,7 @@ export function DispositivoDetailPage() {
               serial={dispositivo!.serial}
               canEdit={isOwner}
             />
-            <Badge variant={isOnline ? 'default' : 'outline'} className={isOnline ? 'bg-green-600 hover:bg-green-600' : 'text-muted-foreground'}>
+            <Badge className={isOnline ? 'bg-green-600 hover:bg-green-600' : 'bg-red-600 hover:bg-red-600'}>
               <Radio className="h-3 w-3 mr-1" />
               {isOnline ? 'Online' : 'Offline'}
             </Badge>
@@ -486,7 +496,7 @@ function RateConfigCard({
 
   const parsed = Number(value)
   const isValid =
-    Number.isInteger(parsed) && parsed >= 1 && parsed <= 3600
+    Number.isInteger(parsed) && parsed >= 5 && parsed <= 3600
   const isDirty = isValid && parsed !== currentRate
 
   function onSubmit(e: React.FormEvent) {
@@ -510,13 +520,13 @@ function RateConfigCard({
               htmlFor="rate-input"
               className="text-xs uppercase tracking-wide text-muted-foreground"
             >
-              Segundos entre envios (1–3600)
+              Segundos entre envios (5–3600)
             </label>
             <Input
               id="rate-input"
               type="number"
               inputMode="numeric"
-              min={1}
+              min={5}
               max={3600}
               step={1}
               value={value}

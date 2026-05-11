@@ -33,6 +33,10 @@ export type ComandoOptions = {
     vars: ComandoVars
   }) => void
   onResolved?: (response: ComandoSyncResponse) => void
+  /** Quando explicitamente false, o hook nem chega a fazer HTTP: mostra toast
+   *  "Dispositivo offline" e resolve. Evita o spinner de 10s aguardando ack
+   *  quando já se sabe que o ESP não vai responder. Default undefined = não checa. */
+  online?: boolean
 }
 
 async function toFriendly(err: unknown): Promise<ComandoError> {
@@ -87,6 +91,14 @@ export function useComando(
   return useMutation<ComandoSyncResponse, ComandoError, ComandoVars>({
     mutationFn: async (vars) => {
       if (!deviceId) throw new Error('deviceId obrigatório')
+      if (options?.online === false) {
+        // Curto-circuito offline: não dispara HTTP, vira erro amigável que
+        // cai no onError abaixo (toast + onResolved).
+        const offlineErr: ComandoError = {
+          message: 'Dispositivo offline. Conecte-o antes de comandar.',
+        }
+        throw offlineErr
+      }
       try {
         return await postComandoSync(deviceId, vars.cmd, vars.params)
       } catch (e) {

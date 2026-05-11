@@ -4,6 +4,12 @@ import { queryClient } from '@/lib/queryClient'
 
 let client: MqttClient | null = null
 const subs = new Map<string, Set<(payload: unknown) => void>>()
+// Cache do último payload por tópico. Necessário porque o broker entrega
+// retained APENAS na primeira subscription do tópico na sessão MQTT.
+// Quando um segundo handler (ex.: detail page após card) se registra no
+// mesmo tópico, ele NÃO recebe o retained — só os próximos publishes.
+// Replay imediato via microtask resolve a divergência.
+const lastValueByTopic = new Map<string, unknown>()
 
 // Evita storm: só invalida se a última reconexão foi há >= 1.5s.
 let lastReconnectInvalidate = 0
@@ -25,18 +31,22 @@ function ensureClient(): MqttClient {
     protocolVersion: 4,
   })
   c.on('message', (topic, payload) => {
-    const handlers = subs.get(topic)
-    if (!handlers || handlers.size === 0) return
     let parsed: unknown = null
     try {
       parsed = JSON.parse(payload.toString())
     } catch {
       parsed = payload.toString()
     }
+    lastValueByTopic.set(topic, parsed)
+    const handlers = subs.get(topic)
+    if (!handlers || handlers.size === 0) return
     handlers.forEach((h) => {
       try { h(parsed) } catch { /* swallow handler errors */ }
     })
   })
+  // Ao reconectar, retained pode ter mudado enquanto offline. Limpa o cache
+  // pra que o próximo publish/retained recebido seja considerado autoritativo.
+  c.on('reconnect', () => { lastValueByTopic.clear() })
   c.on('error', (err) => {
     console.warn('[mqtt] error:', err.message)
   })
@@ -57,6 +67,7 @@ function ensureClient(): MqttClient {
 export function subscribeTopic(topic: string, handler: (payload: unknown) => void): () => void {
   const c = ensureClient()
   let set = subs.get(topic)
+  const isFirstSubscriber = !set
   if (!set) {
     set = new Set()
     subs.set(topic, set)
@@ -65,6 +76,15 @@ export function subscribeTopic(topic: string, handler: (payload: unknown) => voi
     })
   }
   set.add(handler)
+  // Se já existia subscription, o broker não vai re-entregar retained pro
+  // novo handler. Replay o último valor cacheado (assíncrono pra não
+  // executar dentro do render que disparou o subscribe).
+  if (!isFirstSubscriber && lastValueByTopic.has(topic)) {
+    const cached = lastValueByTopic.get(topic)
+    queueMicrotask(() => {
+      try { handler(cached) } catch { /* swallow */ }
+    })
+  }
   return () => {
     const s = subs.get(topic)
     if (!s) return
@@ -72,6 +92,7 @@ export function subscribeTopic(topic: string, handler: (payload: unknown) => voi
     if (s.size === 0) {
       subs.delete(topic)
       c.unsubscribe(topic)
+      lastValueByTopic.delete(topic)
     }
   }
 }

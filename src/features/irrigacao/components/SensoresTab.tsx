@@ -46,6 +46,7 @@ import {
 } from '../hooks/useSensors'
 import type { IrrigationTemperatureSensor, SensorRole } from '../types'
 import { TemperatureGauge } from './TemperatureGauge'
+import { TemperatureHistoryDialog } from './TemperatureHistoryDialog'
 
 type Props = {
   deviceId: string
@@ -54,6 +55,9 @@ type Props = {
    *  Os que não estão em `sensores[].rom_id` viram a seção "Sensores detectados". */
   busRomIds?: string[]
   activeAlarmRomIds?: Set<string>
+  /** Map rom_id -> temperatura live (via MQTT subscribe). Sobrescreve
+   *  `ultima_leitura_c` da snapshot REST quando presente. */
+  liveTempByRomId?: Map<string, number>
 }
 
 const ROLE_LABEL: Record<SensorRole, string> = {
@@ -114,6 +118,7 @@ export function SensoresTab({
   sensores,
   busRomIds,
   activeAlarmRomIds,
+  liveTempByRomId,
 }: Props) {
   const [editing, setEditing] = useState<IrrigationTemperatureSensor | null>(
     null,
@@ -125,6 +130,7 @@ export function SensoresTab({
   const [confirmDelete, setConfirmDelete] = useState<
     IrrigationTemperatureSensor | null
   >(null)
+  const [historyRomId, setHistoryRomId] = useState<string | null>(null)
 
   const createMut = useCreateSensor(deviceId)
   const patchMut = usePatchSensor(deviceId)
@@ -258,9 +264,10 @@ export function SensoresTab({
                   <div className="flex justify-center py-1">
                     <TemperatureGauge
                       valueC={
-                        s.ultima_leitura_c != null
+                        liveTempByRomId?.get(s.rom_id) ??
+                        (s.ultima_leitura_c != null
                           ? Number(s.ultima_leitura_c)
-                          : null
+                          : null)
                       }
                       limiteC={Number(s.limite_alarme_c)}
                       histereseC={Number(s.histerese_c)}
@@ -293,6 +300,13 @@ export function SensoresTab({
                     ROM: {s.rom_id}
                   </div>
                   <div className="flex items-center gap-2 pt-1">
+                    <Button
+                      size="sm"
+                      variant="default"
+                      onClick={() => setHistoryRomId(s.rom_id)}
+                    >
+                      Histórico
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
@@ -346,6 +360,17 @@ export function SensoresTab({
           setEditing(null)
           setProvisioningRomId(null)
         }}
+      />
+
+      <TemperatureHistoryDialog
+        deviceId={deviceId}
+        romId={historyRomId}
+        sensorName={historyRomId ? sensores.find((s) => s.rom_id === historyRomId)?.nome : undefined}
+        limiteAlarmeC={historyRomId
+          ? Number(sensores.find((s) => s.rom_id === historyRomId)?.limite_alarme_c)
+          : undefined}
+        open={historyRomId !== null}
+        onClose={() => setHistoryRomId(null)}
       />
 
       <AlertDialog

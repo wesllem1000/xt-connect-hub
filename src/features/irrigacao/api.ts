@@ -1,6 +1,8 @@
 import { api } from '@/lib/api'
 
 import type {
+  AckState,
+  AckStep,
   IrrigationAlarme,
   IrrigationConfig,
   IrrigationEvent,
@@ -269,4 +271,23 @@ export async function ackAlarm(deviceId: string, alarmId: string) {
     .post(`${base(deviceId)}/alarmes/${alarmId}/ack`)
     .json<{ alarme: IrrigationAlarme }>()
   return alarme
+}
+
+export type AckAlarmStepResponse = {
+  ok: true
+  alarm_id: string
+  ack_state: AckState
+}
+
+/** ACK duplo: step=1 confirma visualização, step=2 encerra o alarme. */
+export async function ackAlarmStep(
+  deviceId: string,
+  alarmId: string,
+  step: AckStep,
+): Promise<AckAlarmStepResponse> {
+  return api
+    .post(`${base(deviceId)}/irrigacao/alarmes/ack`, {
+      json: { step, alarm_id: alarmId },
+    })
+    .json<AckAlarmStepResponse>()
 }
